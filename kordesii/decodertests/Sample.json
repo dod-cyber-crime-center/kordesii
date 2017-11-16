@@ -4,29 +4,27 @@
             "IDA return code = 0"
         ], 
         "idb": {
-            "name": "kordesii-inputfile-m0rqpn.idb"
+            "name": "kordesii-inputfile-quvcvb.idb"
         }, 
         "strings": [
             "Hello World!", 
-            "I'm sorry Dash. I'm afraid I can't do that.", 
-            "Time flies like an arrow. Fruit flies like a banana.", 
-            "I quit my job at the calendar factory when they wouldn't let me take a day off.", 
-            "Atheism is a non-prophet organisation.", 
-            "I hate insect puns, they really bug me.", 
-            "One morning I shot an elephant in my pajamas.  How he got in my pajamas I will never know.", 
-            "I was wondering why the ball kept getting bigger and bigger and then it hit me.", 
-            "Here's looking at you, kid.", 
-            "What we've got here is failure to decrypt.", 
-            "Round up the usual suspects.", 
-            "Louis, I think this is the beginning of a beautiful friendship.", 
-            "Hello. My name is Inigo Montoya. You killed my father. Prepare to die.", 
-            "I am serious. And don't call me shirley.", 
-            "The Dude abides.", 
-            "The future will look brighter tomorrow.", 
-            "These go to eleven.", 
-            "Go ahead. Make my day.", 
-            "Why so serious?", 
-            "Hasta la vista, baby."
+            "Test string with key 0x02", 
+            "The quick brown fox jumps over the lazy dog.", 
+            "Oak is strong and also gives shade.", 
+            "Acid burns holes in wool cloth.", 
+            "Cats and dogs each hate the other.", 
+            "Open the crate but don't break the glass.", 
+            "There the flood mark is ten inches.", 
+            "1234567890", 
+            "CreateProcessA", 
+            "StrCat", 
+            "ASP.NET", 
+            "kdjsfjf0j24r0j240r2j09j222", 
+            "32897412389471982470", 
+            "The past will look brighter tomorrow.", 
+            "Cars and busses stalled in sand drifts.", 
+            "The jacket hung on the back of the wide chair.", 
+            "32908741328907498134712304814879837483274809123748913251236598123056231895712"
         ], 
         "input_file": "C:\\Sources\\strings.exe"
     }

@@ -5,7 +5,7 @@ import kordesii.kordesiiidahelper as kordesiiidahelper
 YARA_RULE = """rule sample_decode
 {
     strings:
-        $sample_xor_decode = { 8A 4D 0C 30 08 40 80 38 00 }
+        $sample_xor_decode = { 8B 45 08 0F BE 08 }
     condition:
         $sample_xor_decode
 }"""

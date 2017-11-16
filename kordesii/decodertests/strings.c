@@ -1,26 +1,26 @@
 #include <stdio.h>
 #include <string.h>
 
-char string1[] = "Idmmn!Vnsme ";
-char string2[] = "K%o\"qmpp{\"Fcqj,\"K%o\"cdpckf\"K\"acl%v\"fm\"vjcv,";
-char string3[] = "Wjnf#eojfp#ojhf#bm#bqqlt-#Eqvjw#eojfp#ojhf#b#abmbmb-";
-char string4[] = "M$uqmp$i}$nkf$ep$pla$gehaj`ev$begpkv}$slaj$pla}$skqh`j#p$hap$ia$peoa$e$`e}$kbb*";
-char string5[] = "Dqm`lvh%lv%d%kjk(uwjum`q%jwbdklvdqljk+";
-char string6[] = "O&ngrc&ohucer&vshu*&rnc\x7f&tcgjj\x7f&dsa&kc(";
-char string7[] = "Hib'jhuini`'N'tohs'fi'bkbwofis'ni'j~'wfmfjft)''Ohp'ob'`hs'ni'j~'wfmfjft'N'pnkk'ibqbu'lihp)";
-char string8[] = "A(\x7fi{(\x7fgflmzafo(\x7f`q(|`m(jidd(cmx|(om||afo(jaoomz(ifl(jaoomz(ifl(|`mf(a|(`a|(em&";
-char string13[] = "[vav4`3\x7f||xz}t3rg3j|f?3xzw=";
-char string17[] = "@\x7fvc7`r0ar7pxc7\x7frer7~d7qv~{ber7cx7srtengc9";
-char string1a[] = "Huot~:oj:nr\x7f:oio{v:ioij\x7fyni4";
-char string23[] = "oLVJP\x0f\x03j\x03WKJMH\x03WKJP\x03JP\x03WKF\x03\x41\x46\x44JMMJMD\x03LE\x03\x42\x03\x41\x46\x42VWJEVO\x03\x45QJFMGPKJS\r";
-char string27[] = "oBKKH\t\x07j^\x07IFJB\x07NT\x07nIN@H\x07jHISH^F\t\x07~HR\x07LNKKBC\x07J^\x07\x41\x46SOBU\t\x07wUBWFUB\x07SH\x07\x43NB\t";
-char string40[] = "\t`!-`3%2)/53n`\x01.$`$/.g4`#!,,`-%`3()2,%9n";
-char string46[] = "\x12.#f\x02\x33\"#f\'$/\"#5h";
-char string73[] = "'\x1b\x16S\x15\x06\x07\x06\x01\x16S\x04\x1a\x1f\x1fS\x1f\x1c\x1c\x18S\x11\x01\x1a\x14\x1b\x07\x16\x01S\x07\x1c\x1e\x1c\x01\x01\x1c\x04]";
-char string75[] = "!\x1d\x10\x06\x10U\x12\x1aU\x01\x1aU\x10\x19\x10\x03\x10\x1b[";
-char string77[] = "0\x18W\x16\x1f\x12\x16\x13YW:\x16\x1c\x12W\x1a\x0eW\x13\x16\x0eY";
-char string7a[] = "-\x12\x03Z\t\x15Z\t\x1f\x08\x13\x15\x0f\tE";
-char string7f[] = "7\x1e\x0c\x0b\x1e_\x13\x1e_\t\x16\x0c\x0b\x1eS_\x1d\x1e\x1d\x06Q";
+char string01[] = "Idmmn!Vnsme ";
+char string02[] = "Vgqv\"qvpkle\"ukvj\"ig{\"2z20";
+char string03[] = "Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-";
+char string04[] = "Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*";
+char string05[] = "Dfla%gpwkv%mji`v%lk%rjji%fijqm+";
+char string06[] = "Egru&ghb&biau&cgen&ngrc&rnc&irnct(";
+char string13[] = "\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=";
+char string17[] = "C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9";
+char string1a[] = "+()./,-\"#*";
+char string23[] = "`QFBWFsQL@FPPb";
+char string27[] = "tSUdFS";
+char string40[] = "\x01\x13\x10n\x0e\x05\x14";
+char string46[] = "-\",5 , v,tr4v,trv4t,v\x7f,ttt";
+char string73[] = "@AKJDGBA@KJGDBJKAGDC";
+char string75[] = "!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02[";
+char string77[] = "4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y";
+char string7a[] = ".\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1fZ\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T";
+char string7f[] = "LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM";;
+
+
 
 void encrypt(char *s, char key)
 {
@@ -30,14 +30,12 @@ void encrypt(char *s, char key)
 
 void decrypt()
 {
-	encrypt(&string1[0], 0x01);
-	encrypt(&string2[0], 0x02);
-	encrypt(&string3[0], 0x03);
-	encrypt(&string4[0], 0x04);
-	encrypt(&string5[0], 0x05);
-	encrypt(&string6[0], 0x06);
-	encrypt(&string7[0], 0x07);
-	encrypt(&string8[0], 0x08);
+	encrypt(&string01[0], 0x01);
+	encrypt(&string02[0], 0x02);
+	encrypt(&string03[0], 0x03);
+	encrypt(&string04[0], 0x04);
+	encrypt(&string05[0], 0x05);
+	encrypt(&string06[0], 0x06);
 	encrypt(&string13[0], 0x13);
 	encrypt(&string17[0], 0x17);
 	encrypt(&string1a[0], 0x1a);
@@ -55,14 +53,12 @@ void decrypt()
 int main()
 {
 	decrypt();
-	printf("%s\n", string1);
-	printf("%s\n", string2);
-	printf("%s\n", string3);
-	printf("%s\n", string4);
-	printf("%s\n", string5);
-	printf("%s\n", string6);
-	printf("%s\n", string7);
-	printf("%s\n", string8);
+	printf("%s\n", string01);
+	printf("%s\n", string02);
+	printf("%s\n", string03);
+	printf("%s\n", string04);
+	printf("%s\n", string05);
+	printf("%s\n", string06);
 	printf("%s\n", string13);
 	printf("%s\n", string17);
 	printf("%s\n", string1a);
@@ -78,4 +74,3 @@ int main()
 
     return 0;
 }
-
