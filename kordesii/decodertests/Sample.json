@@ -1,0 +1,33 @@
+[
+    {
+        "debug": [
+            "IDA return code = 0"
+        ], 
+        "idb": {
+            "name": "kordesii-inputfile-m0rqpn.idb"
+        }, 
+        "strings": [
+            "Hello World!", 
+            "I'm sorry Dash. I'm afraid I can't do that.", 
+            "Time flies like an arrow. Fruit flies like a banana.", 
+            "I quit my job at the calendar factory when they wouldn't let me take a day off.", 
+            "Atheism is a non-prophet organisation.", 
+            "I hate insect puns, they really bug me.", 
+            "One morning I shot an elephant in my pajamas.  How he got in my pajamas I will never know.", 
+            "I was wondering why the ball kept getting bigger and bigger and then it hit me.", 
+            "Here's looking at you, kid.", 
+            "What we've got here is failure to decrypt.", 
+            "Round up the usual suspects.", 
+            "Louis, I think this is the beginning of a beautiful friendship.", 
+            "Hello. My name is Inigo Montoya. You killed my father. Prepare to die.", 
+            "I am serious. And don't call me shirley.", 
+            "The Dude abides.", 
+            "The future will look brighter tomorrow.", 
+            "These go to eleven.", 
+            "Go ahead. Make my day.", 
+            "Why so serious?", 
+            "Hasta la vista, baby."
+        ], 
+        "input_file": "C:\\Sources\\strings.exe"
+    }
+]
