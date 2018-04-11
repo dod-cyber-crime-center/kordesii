@@ -68,9 +68,9 @@ def get_functions():
     return functions
     
 def is_ascii(i):
-    '''
+    """
     Takes an int (supposedly) representing a char.
-    '''
+    """
     return i in [0, 9, 10, 13] or 31 < i < 127
     
 def is_string_ascii(s):
@@ -95,7 +95,7 @@ class StackStrings(object):
         return strings
     
     def get_char(self, char, char_width = 1, allow_multi_chars = False, allow_hex = False):
-        ''' Decode a character from char given the char_width. Returns decoded char, if found, otherwise BADADDR. '''
+        """ Decode a character from char given the char_width. Returns decoded char, if found, otherwise BADADDR. """
         if isinstance(char, str):
             return char
         current_max_character_value = min(MAX_CHARACTER_VALUE, 2**(8* char_width) - 1)
@@ -135,11 +135,11 @@ class StackStrings(object):
         return idc.BADADDR # failed
     
     def consolidate_data_fragments(self, stack, continue_on_gap = True):
-        '''
+        """
          Given the stack dict, compresses it into a consolidated form. If continue_on_gap is true, it will be
          a list of chars with nulls terminating the distinct segments, otherwise it returns only the first
          distinct segment.
-        '''
+        """
         consolidated = []
         prev_key = min(stack.keys()) if stack else 0
         for key in sorted(stack.keys()):
@@ -158,7 +158,7 @@ class StackStrings(object):
         string_tuple[1].append(stack_tuple[1])
             
     def parse_strings(self, stack, stack_min_value = None, stack_max_value = None, char_width = 1):
-        ''' Attempts to parse strings out of stack. Returns list of string tuple information. '''
+        """ Attempts to parse strings out of stack. Returns list of string tuple information. """
         strs = []
         valid_key = lambda key: (stack_min_value is None or stack_min_value <= key) and (stack_max_value is None or key <= stack_max_value)
         stack = self.consolidate_data_fragments({key:(self.get_char(value, char_width, allow_hex = ALLOW_HEX), ea) for key, (value, ea) in stack.iteritems() if valid_key(key)},
@@ -221,7 +221,7 @@ class StackStrings(object):
         return strs
     
     def report_strings(self, strs, stack, stack_min_value = None, stack_max_value = None):
-        ''' Parses and returns Stack strings as Strings '''
+        """ Parses and returns Stack strings as Strings """
         for char_width in xrange(1, MAX_CHARACTER_WIDTH + 1):
             parsed_strs = self.parse_strings(stack, stack_min_value, stack_max_value, char_width)
             for string, eas, length in parsed_strs:
@@ -244,19 +244,19 @@ class StackStrings(object):
                     idc.MakeComm(eas[0], str(new_cmt).strip('\r\n'))
     
     def find_start_and_end(self, eas):
-        '''Find the highest and lowest ea in the given list of eas'''
+        """Find the highest and lowest ea in the given list of eas"""
         eas = [ea for ea in eas if ea is not None] 
         eas.sort()
         return eas[0], eas[-1]
     
     def clear_reg_if_needed(self, reg, regs):
-        '''Clears the state of a register, if it was known'''
+        """Clears the state of a register, if it was known"""
         if reg and reg[0] in regs.keys():
             del regs[reg[0]]
             
     def set_stack(self, offset, ea, pos, state):
-        '''Sets the stack dictionary, at the given offset, to contain the value at the given position at the given ea,
-        performing a lookup in the register dictionary if needed.'''
+        """Sets the stack dictionary, at the given offset, to contain the value at the given position at the given ea,
+        performing a lookup in the register dictionary if needed."""
         fill = False
         if idc.GetOpType(ea, pos) == idc.o_imm:
             val = idc.GetOperandValue(ea, pos)
@@ -274,7 +274,7 @@ class StackStrings(object):
                 val /= 256
                 
     def handle_lea(self, state):
-        '''Updates the state of the stack string finding based on an lea instruction'''
+        """Updates the state of the stack string finding based on an lea instruction"""
         if idc.GetOpType(state.ea, POS_SECOND) == idc.o_reg:
             source_reg = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_SECOND))
             if source_reg and source_reg[0] in state.regs:
@@ -288,7 +288,7 @@ class StackStrings(object):
         self.clear_reg_if_needed(tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_FIRST)), state.regs)
         
     def handle_call(self, state):
-        '''Updates the state of the stack string finding based on a call instruction'''
+        """Updates the state of the stack string finding based on a call instruction"""
         stack_pointer = idc.GetSpd(state.ea)
         next_ea = state.ea + idc.ItemSize(state.ea)
         stack_pointer_delta = idc.GetSpDiff(next_ea)
@@ -302,7 +302,7 @@ class StackStrings(object):
                     del state.stack[index]
                     
     def handle_mov(self, state):
-        '''Updates the state of the stack string finding based on a mov instruction'''
+        """Updates the state of the stack string finding based on a mov instruction"""
         op1 = tracingutils.get_opnd_replacement(state.ea, POS_FIRST)
         if '[' in op1:
             offset = tracingutils.get_operand_value_replacement(state.ea, POS_FIRST, state)
@@ -336,11 +336,11 @@ class StackStrings(object):
                         self.clear_reg_if_needed(reg, state.regs)
 
     def get_stack_strings(self, functions):
-        '''Finds all the stack strings it can in the given functions. 
+        """Finds all the stack strings it can in the given functions.
         Parameters set globally: 
             STRING_GAP_TOLERANCE - the gap allowed between string characters.
             MAX_CHARACTER_WIDTH  - the maximum character size, in bytes
-            ASCII                - Whether character values must be 0-127'''
+            ASCII                - Whether character values must be 0-127"""
         stack_strings = []
         for func in functions:
             state = tracingutils.BranchingTraceState(func.startEA)
@@ -422,7 +422,7 @@ class StackStrings(object):
         self.strings.update(stack_strings)
 
 class Filler(object):
-    '''A class to represent the space that a wide char takes up during stack string finding'''
+    """A class to represent the space that a wide char takes up during stack string finding"""
     def __new__(cls, *args, **kwargs):
         instance = cls.__dict__.get("__instance__", None)
         if instance is None:

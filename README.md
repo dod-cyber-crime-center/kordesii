@@ -1,13 +1,12 @@
 # DC3-Kordesii
+[Changelog](CHANGELOG.md) | [Releases](https://github.com/Defense-Cyber-Crime-Center/kordesii/releases)
+
 DC3-Kordesii is a framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting. One parser module is usually created per malware family. DC3-Kordesii was designed to ease the burden of encoded string extraction by doing it in an automated, static way as well as to provide a standard set of functionality and methodologies. DC3-Kordesii supports both an analyst directed analysis and large-scale automated executing, utilizing either the REST API, the CLI or by manaully running decoders in IDA. DC3-Kordesii is authored by the Defense Cyber Crime Center (DC3).
 
 ## Dependencies
 DC3-Kordesii requires the following:
 - python 2.7 (32 bit)
 - IDA Pro (tested with version 6.8)
-- requests (only required for kordesii-client.py)
-- pyelftools
-- pefile
 
 ### Recommended Modules
 The following modules are recommended as they are often used in decoders:

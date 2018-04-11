@@ -23,9 +23,9 @@ DEFAULT_INCLUDE_FIELDS = [ kordesii.kordesiireporter.FIELD_STRINGS,
                          ]                         
 
 class kordesiitester(object):
-    '''
+    """
     DC3-Kordesii test case class
-    '''
+    """
     # Constants
     INPUT_FILE_PATH = "input_file"
     FILE_EXTENSION = ".json"
@@ -45,18 +45,18 @@ class kordesiitester(object):
         self.results_dir = results_dir
 
     def gen_results(self, decoder_name, input_file_path):
-        '''
+        """
         Generate JSON results for the given file using the given decoder name.
-        '''
+        """
 
         data = open(input_file_path, "rb").read()
         self.reporter.run_decoder(decoder_name, data = data)
         self.reporter.metadata[self.INPUT_FILE_PATH] = input_file_path      
 
     def list_test_files(self, decoder_name):
-        '''
+        """
         Generate list of files (test cases) for decoder
-        '''
+        """
         
         filelist = []
         for metadata in self.parse_results_file(self.get_results_filepath(decoder_name)):
@@ -64,10 +64,10 @@ class kordesiitester(object):
         return filelist
     
     def get_results_filepath(self, decoder_name):
-        '''
+        """
         Get a results file path based on the decoder name provided and the
         previously specified output directory.
-        '''
+        """
 
         file_name = decoder_name + self.FILE_EXTENSION
         file_path = os.path.join(self.results_dir, file_name)
@@ -75,9 +75,9 @@ class kordesiitester(object):
         return file_path
 
     def parse_results_file(self, results_file_path):
-        '''
+        """
         Parse the the JSON results file and return the parsed data.
-        '''
+        """
 
         with open(results_file_path) as results_file:
             data = json.load(results_file)
@@ -91,12 +91,12 @@ class kordesiitester(object):
                             results_file_path,
                             results_data,
                             replace = True):
-        '''
+        """
         Update results in the results file with the passed in results data. If the
         file path for the results data matches a file path that is already found in
         the passed in results file, then the replace argument comes into play to
         determine if the record should be replaced.
-        '''
+        """
 
         # The results data is expected to be a dictionary representing results for a single file
         assert type(results_data) is dict
@@ -130,11 +130,11 @@ class kordesiitester(object):
             results_file.write(pretty_data)
         
     def remove_test_results(self, decoder_name, filenames):
-        '''
+        """
         remove filenames from test cases for decoder_name
-        
+
         return files that were removed
-        '''
+        """
         removed_files = []
         results_file_data = []
         for metadata in self.parse_results_file(self.get_results_filepath(decoder_name)):
@@ -153,7 +153,7 @@ class kordesiitester(object):
                   decoder_names = None, 
                   field_names = [],
                   ignore_field_names = DEFAULT_EXCLUDE_FIELDS):
-        '''
+        """
         Run tests and compare produced results to expected results.
 
         Arguments:
@@ -164,7 +164,7 @@ class kordesiitester(object):
                 A restricted list of fields (metadata key values) that should be compared
                 during testing. If the list is empty (default), then all fields, except those in
                 ignore_field_names will be compared.
-        '''
+        """
 
         results_file_list = glob.glob(os.path.join(self.results_dir, "*{0}".format(self.FILE_EXTENSION)))
         all_test_results = []
@@ -219,10 +219,10 @@ class kordesiitester(object):
                         results_b, 
                         field_names = [],
                         ignore_field_names = DEFAULT_EXCLUDE_FIELDS):
-        '''
-        Compare two result sets. Only the fields (metadata key values) in 
+        """
+        Compare two result sets. Only the fields (metadata key values) in
         the list will be compared.
-        '''
+        """
 
         passed = True
         test_results = {}
@@ -263,9 +263,9 @@ class kordesiitester(object):
 
 
     def compare_results_field(self, results_a, results_b, field_name):
-        '''
+        """
         Compare the values for a single results field in the two passed in results.
-        '''
+        """
 
         assert type(results_a) is dict and type(results_b) is dict
         comparer = ResultComparison(field_name)
@@ -295,10 +295,10 @@ class kordesiitester(object):
         return comparer
 
     def print_test_results(self, test_results, failed_tests = True, passed_tests = True, json_format = False):
-        '''
+        """
         Print test results based on provided parameters. Expects results format
         produced by run_tests() function.
-        '''
+        """
 
         if json_format:
             filtered_output = []
@@ -368,7 +368,7 @@ class ResultComparison(object):
         self.unexpected = [] # Entries found in new results but not test case
      
     def compare(self, test_case_results, new_results):
-        '''Compare two result sets and document any differences.'''
+        """Compare two result sets and document any differences."""
 
         for item in test_case_results:
             if len(item) > 0 and item not in new_results:
@@ -386,7 +386,7 @@ class ResultComparison(object):
             self.code = ResultComparison.PASS
     
     def passed(self):
-        '''Return if the comparison passed based on the code value.'''
+        """Return if the comparison passed based on the code value."""
         
         if self.code in (ResultComparison.FAIL, ResultComparison.SUPERSET):
             return False
@@ -394,10 +394,10 @@ class ResultComparison(object):
             return True
     
     def get_report(self, json = False, tabs = 1):
-        '''
-        If json parameter is False, get report as a string. 
+        """
+        If json parameter is False, get report as a string.
         If json parameter is True, get report as a dictionary.
-        '''
+        """
         
         if json:
             return self.__dict__

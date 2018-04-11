@@ -58,12 +58,12 @@ class TraceState(object):
         self.pp_track = []  # push/pop tracker
 
     def get_reg_value(self, reg):
-        '''Get the value of the register. The register or the register family can be specified.
+        """Get the value of the register. The register or the register family can be specified.
 
         :param reg: The register to retrieve the value of. May be the register family.
 
         :return: The value of the register if known, or None
-        '''
+        """
         if type(reg) == type(''):
             reg = unsafe_get_reg_fam(reg)
         if reg:
@@ -72,14 +72,14 @@ class TraceState(object):
             return None
 
     def set_reg_value(self, reg, value, ea):
-        '''Set the value of the register. The register or the register family can be specified.
+        """Set the value of the register. The register or the register family can be specified.
 
         :param reg: The register to set the value of. May be the register family.
         :param value: The value to set, or None if the value is not known/cannot be determined.
         :param ea: The address where the register is being set.
 
         :return:
-        '''
+        """
         if type(reg) == type(''):
             reg = unsafe_get_reg_fam(reg)
         if reg:
@@ -90,9 +90,9 @@ class TraceState(object):
 
 
 class BranchingTraceState(TraceState):
-    '''
+    """
     An object to hold all tracing's stateful info including ea.
-    '''
+    """
 
     def __init__(self, ea=None, state=None):
         super(BranchingTraceState, self).__init__()
@@ -108,50 +108,50 @@ class BranchingTraceState(TraceState):
 
 
 def unsafe_get_reg_fam(reg):
-    '''Gets the register family for any register
+    """Gets the register family for any register
 
         :param reg: register string representaion such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
-    '''
+    """
     for family in REG_FAM:
         if reg in family:
             return family
 
 
 def get_reg_fam(reg):
-    ''' Gets the register family, returns None if it is a reserved register
+    """ Gets the register family, returns None if it is a reserved register
 
         :param reg: register string representaion such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
-    '''
+    """
     if get_reserved_reg(reg):
         return
     return unsafe_get_reg_fam(reg)
 
 
 def get_reserved_reg(reg):
-    '''Gets the family of a reserved register, returns None otherwise
+    """Gets the family of a reserved register, returns None otherwise
 
         :param reg: register string representaion such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
-    '''
+    """
     for family in RESERVED_REG_FAM:
         if reg in family:
             return family
 
 
 def get_reg_value(reg_values, reg):
-    '''
+    """
         Helper function to retrieve the current value of a register given the register dictionary returned from create_stack and the string representation of the register name
 
         :param reg_values: register dictionary returned by create_stack fucntion
         :param reg: string representation of the register name
 
         :return: value of register, None if register not in dictionary
-    '''
+    """
     regfam = unsafe_get_reg_fam(reg)
     if regfam:
         try:
@@ -183,12 +183,12 @@ def get_reg_value_offset(reg_values, reg):
 
 
 def is_64_bit():
-    '''Returns True if the code is 64-bit code, false otherwise'''
+    """Returns True if the code is 64-bit code, false otherwise"""
     return idaapi.get_inf_structure().is_64bit()
 
 
 def get_int(val):
-    '''Attempts to convert the string given into the correct integer'''
+    """Attempts to convert the string given into the correct integer"""
     try:
         if val.isdigit():
             return int(val)
@@ -225,13 +225,13 @@ OPERAND_BYTE_SIZES = {0: 1,
 
 
 def get_byte_size_of_operand(ea, pos):
-    '''Gets the byte size of the operand at the given ea and position'''
+    """Gets the byte size of the operand at the given ea and position"""
     idaapi.decode_insn(ea)
     return OPERAND_BYTE_SIZES.get(idaapi.cmd.Operands[pos].dtyp, 4)  # 4 is Unknown
 
 
 def get_opnd_replacement(ea, pos):
-    ''' A replacement for IDA's idc.GetOpnd that can de-alias register names'''
+    """ A replacement for IDA's idc.GetOpnd that can de-alias register names"""
     # TODO: Support renames in other operand types
     if idc.GetOpType(ea, pos) == idc.o_reg:
         return idaapi.get_reg_name(idc.GetOperandValue(ea, pos), get_byte_size_of_operand(ea, pos))
@@ -257,7 +257,7 @@ def obtain_phrase_register(ea, pos):
 
 
 def is_displ(ea, pos):
-    '''Determines if the ea/position is a displacement, such as [esp + 8]
+    """Determines if the ea/position is a displacement, such as [esp + 8]
 
         :param ea: memory location
         :param pos: argument location
@@ -266,12 +266,12 @@ def is_displ(ea, pos):
                         eax is position 0, ebx is position 1
 
         :return: True or False
-    '''
+    """
     return idc.GetOpType(ea, pos) in (idc.o_phrase, idc.o_displ)
 
 
 def get_operand_value_replacement(ea, pos, state):
-    ''' A replacement for Ida's idc.GetOperandValue that handles displacements more reasonably
+    """ A replacement for Ida's idc.GetOperandValue that handles displacements more reasonably
 
         :param ea: memory location
         :param pos: argument location
@@ -281,7 +281,7 @@ def get_operand_value_replacement(ea, pos, state):
         :param state: the current stack pointer register family (usually sp)
 
         :return: computes a numerical replacement for an operand
-    '''
+    """
     if is_displ(ea, pos):
         bit_size = 64 if is_64_bit() else 32
         stack_reg = 'rsp' if bit_size == 64 else 'esp'
@@ -298,7 +298,7 @@ def get_operand_value_replacement(ea, pos, state):
 
 
 def get_encoded_stack_string(stack, startoffset, size=None):
-    '''
+    """
         given a stack and the starting offset, pull out the string from the stack\
         if size is given, pull that many bytes off stack
 
@@ -307,7 +307,7 @@ def get_encoded_stack_string(stack, startoffset, size=None):
         :param size: optional parameter for size to pull off stack, if not set will read until a null byte
 
         :return: string of characters from the stack dictionary starting at offset and reading until size or a null byte
-    '''
+    """
     encrypted = []
     offset = startoffset
     while stack.get(offset):
@@ -321,7 +321,7 @@ def get_encoded_stack_string(stack, startoffset, size=None):
 
 
 def get_encoded_stack_string_wide(stack, startoffset, size=None):
-    '''
+    """
         given a stack and the starting offset, pull out the string from the stack\
         if size is given, pull that many bytes off stack
 
@@ -331,7 +331,7 @@ def get_encoded_stack_string_wide(stack, startoffset, size=None):
 
         :return: string of characters from the stack dictionary starting at offset and reading until size or a null byte
                  this will not be wide characters
-    '''
+    """
     encrypted = []
     offset = startoffset
     while stack.get(offset) and stack.get(offset + 1):
@@ -346,7 +346,7 @@ def get_encoded_stack_string_wide(stack, startoffset, size=None):
 
 
 def set_stack(offset, ea, pos, state):
-    '''Sets the stack dictionary, at the given offset, to contain the value at the given position at the given ea,
+    """Sets the stack dictionary, at the given offset, to contain the value at the given position at the given ea,
         performing a lookup in the register dictionary if needed. Used by create_stack
 
         :param offset: offset to set on stack
@@ -355,7 +355,7 @@ def set_stack(offset, ea, pos, state):
         :param state: the current TraceState
 
         :return: None - updates state
-    '''
+    """
     if idc.GetOpType(ea, pos) == idc.o_imm:
         val = idc.GetOperandValue(ea, pos)
     else:
@@ -367,7 +367,7 @@ def set_stack(offset, ea, pos, state):
 
 
 def handle_string_mov(ea, state):
-    '''Updates the stack based on a movs instruction.  Used by create_stack
+    """Updates the stack based on a movs instruction.  Used by create_stack
         If a rep/repne prefix is used, takes the count from ecx.  If the count cannot be determined, will ignore
         the instruction.  Also assumes that esi points to memory within the executable, and edi points to the
         stack. On any errors, this will ignore the instruction.
@@ -376,7 +376,7 @@ def handle_string_mov(ea, state):
         :param state: the current TraceState
 
         :return: None - updates stack or regs
-    '''
+    """
     opcode = idaapi.get_many_bytes(ea, 1)
     rep_inst = opcode in ['\xf2', '\xf3']
     count = state.get_reg_value('ecx') if rep_inst else 1
@@ -405,13 +405,13 @@ def handle_string_mov(ea, state):
 
 
 def handle_mov(ea, state):
-    '''Updates the stack based on a mov instruction. Used by create_stack
+    """Updates the stack based on a mov instruction. Used by create_stack
 
         :param ea: instruction location
         :param state: the current TraceState
 
         :return: None - updates stack or regs
-    '''
+    """
     op1 = get_opnd_replacement(ea, POS_FIRST)
     if idc.GetOpType(ea, POS_FIRST) != idc.o_reg:
         offset = get_operand_value_replacement(ea, POS_FIRST, state)
@@ -436,13 +436,13 @@ def handle_mov(ea, state):
 
 
 def handle_lea(ea, state):
-    '''Updates the stack based on an lea instruction. Used by create_stack
+    """Updates the stack based on an lea instruction. Used by create_stack
 
         :param ea: instruction location
         :param state: the current TraceState
 
         :return: None - updates stack or regs
-    '''
+    """
     value = get_operand_value_replacement(ea, POS_SECOND, state)
     if not value and idc.GetOpType(ea, POS_SECOND) != idc.o_mem:
         return
@@ -451,12 +451,12 @@ def handle_lea(ea, state):
 
 
 def handle_push(ea, state):
-    '''
+    """
         Loosely tracks the values that get pushed onto the stack, if the value is unknown when pushed. Should be called any time you see a push instruction if tracking
 
         :param ea: instruction location
         :param state: the current TraceState
-    '''
+    """
     op_type = idc.GetOpType(ea, POS_FIRST)
     if op_type == idc.o_reg:
         value = state.get_reg_value(get_opnd_replacement(ea, POS_FIRST))
@@ -468,27 +468,27 @@ def handle_push(ea, state):
 
 
 def handle_pop(ea, state):
-    '''
+    """
         if op type is a reg, pops the tracked value if not none into the appropriate reg
         should be called anytime a pop is seen if tracking
 
         :param ea: instruction location
         :param state: the current TraceState
-    '''
+    """
     value = state.pp_track.pop() if state.pp_track else None
     if idc.GetOpType(ea, POS_FIRST) == idc.o_reg:
         state.set_reg_value(get_opnd_replacement(ea, POS_FIRST), value, ea)
 
 
 def handle_test(ea, state):
-    '''
+    """
         If a test of a register against itself occurs and the next instruction is a jnz,
         then the register can be set to zero (code is followed linearly, jumps are ignored),
         unless the next instruction is a jmp.
 
         :param ea: instruction location
         :param state: the current TraceState
-    '''
+    """
     if idc.GetOpType(ea, POS_FIRST) == idc.o_reg and idc.GetOpType(ea, POS_SECOND) == idc.o_reg:
         op1 = get_opnd_replacement(ea, POS_FIRST)
         op2 = get_opnd_replacement(ea, POS_SECOND)
@@ -500,14 +500,14 @@ def handle_test(ea, state):
 
 
 def create_state(endEA, startEA=None):
-    '''
+    """
         Quick and dirty representation of stack and regs from start of function to this ea.
 
         :param endEA: The EA of which you want to compute the stack up until
         :param startEA: Optional param of the beginning of the function - sometimes necessary if ida can't compute and you can
 
         :return A newly created TraceState
-    '''
+    """
     if not startEA:
         startEA = idaapi.get_func(endEA).startEA
     state = TraceState()
@@ -537,9 +537,9 @@ def create_state(endEA, startEA=None):
 
 
 def trace_rep_mov(stack_var, loc, func_ea, state):
-    '''
+    """
     Helper function to trace back a rep mov
-    '''
+    """
     loc = idc.PrevHead(loc)
     while loc != func_ea:
         mnem = idc.GetMnem(loc)
@@ -552,7 +552,7 @@ def trace_rep_mov(stack_var, loc, func_ea, state):
 
 
 def trace_stack_var(stack_var, loc, func_ea, state=None):
-    '''
+    """
     Trace a provided stack variable to the location in which it is set. If it is set using a mov operation, the
     value may be set from a register, which we then need to call back to trace_register in order to acquire the
     value. Otherwise it is either an o_imm type (return the immediate value) or an o_mem type, that means the
@@ -565,7 +565,7 @@ def trace_stack_var(stack_var, loc, func_ea, state=None):
     :param state: the current TraceState
 
     :return: The acquired location, or idc.BADADDR
-    '''
+    """
     if state is None:
         state = TraceState()
     loc = idc.PrevHead(loc)
@@ -596,7 +596,7 @@ def trace_stack_var(stack_var, loc, func_ea, state=None):
 
 
 def trace_register(reg, loc, func_ea, state=None):
-    '''
+    """
     Trace a provided register to the location in which it is set. If it is set using a mov operation, the
     value is either an o_imm type (return the immediate value) or an o_mem type, that means the referenced location
     MAY a pointer to the actual data, which we need to acquire. We validate this by ensuring the acquired value is
@@ -611,7 +611,7 @@ def trace_register(reg, loc, func_ea, state=None):
     :param state: the current TraceState
 
     :return: The acquired location, or idc.BADADDR
-    '''
+    """
     if state is None:
         state = TraceState()
     loc = idc.PrevHead(loc)
@@ -642,7 +642,7 @@ def trace_register(reg, loc, func_ea, state=None):
 
 
 def trace_register_family(reg, loc, func_ea, state=None):
-    '''
+    """
     Trace a provided register to the location in which any member of its register family is set. If it is set using a
     mov operation, the value is either an o_imm type (return the immediate value) or an o_mem type, that means the
     referenced location MAY a pointer to the actual data, which we need to acquire. We validate this by ensuring the
@@ -657,7 +657,7 @@ def trace_register_family(reg, loc, func_ea, state=None):
     :param state: the current TraceState (a new state will be created if one is not provided)
 
     :return: The acquired location, or idc.BADADDR
-    '''
+    """
     if state is None:
         state = TraceState()
     reg_fam = unsafe_get_reg_fam(reg)
@@ -690,7 +690,7 @@ def trace_register_family(reg, loc, func_ea, state=None):
 
 
 def trace_register_family_x64(reg, loc, func_ea, state=None):
-    '''
+    """
     Shouldn't be any different than trace_register_family except for continuing a trace if a register is loaded into
     the target register. However, using it in trace_register_family was not behaving properly, so keeping it separate
     for now. Also unsure of what the repurcussions would be of adding that into the existing trace_register_family.
@@ -701,7 +701,7 @@ def trace_register_family_x64(reg, loc, func_ea, state=None):
     :param state: the current TraceState
 
     :return: The acquired location, or idc.BADADDR
-    '''
+    """
     if state is None:
         state = TraceState()
     reg_fam = unsafe_get_reg_fam(reg)

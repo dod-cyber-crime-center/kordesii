@@ -21,7 +21,7 @@ LOG_TOKEN = '[*] '
 
 
 def find_ida(is_64_bit=False):
-    '''
+    """
     Description:
         Find the highest version of IDA installed on the current (windows) system.
 
@@ -31,7 +31,7 @@ def find_ida(is_64_bit=False):
     Output:
         Return the absolute path to the highest version of IDA installed at the default location
         on the current windows system or None if idaq.exe couldn't be found.
-    '''
+    """
     # Find path to directory the IDA installer defaults to (i.e. decide which Program Files).
     dir_ = [dir_ for dir_ in os.walk('C:\\').next()[1] if 'Program Files' in dir_]
     if len(dir_) > 1:
@@ -53,7 +53,7 @@ def find_ida(is_64_bit=False):
 
 
 def is_64_bit(input_file):
-    '''
+    """
     Description:
         Do a quick check to see if it is an IDB/I64. Otherwise, attempt to determine if the
         file is 64bit based on the pe header. Note that the pe.close() prevents an mmap'd file from
@@ -65,7 +65,7 @@ def is_64_bit(input_file):
 
     Output:
         True if it is 64 bit. False if it is not or if pefile couldn't parse the header.
-    '''
+    """
     if input_file.endswith('.i64'):
         return True
     elif input_file.endswith('.idb'):
@@ -113,7 +113,7 @@ def run_ida(reporter,
             cleanup_txt_files=True,
             cleanup_output_files=False,
             cleanup_idb_files=False):
-    '''
+    """
     Descritpion:
         Call IDA given an input file and IDA script to run.
 
@@ -136,7 +136,7 @@ def run_ida(reporter,
     Output:
         Information will be added to the reporter object.
         Output files will exist after execution based on the cleanup parameters and the script itself.
-    '''
+    """
 
     # First find IDA executable to run
     ida_path = ida_path if ida_path else find_ida(is_64_bit(input_file))
@@ -235,14 +235,14 @@ def run_ida(reporter,
 
 
 def remove_idbs(input_file):
-    '''
+    """
     Description:
         Remove all IDB/I64 files and their components from the specified directory.
         Assumes the files aren't still open somewhere.
 
     Input:
         input_file - The file used to create the IDB we want to remove or the IDB itself.
-    '''
+    """
     input_file_name = os.path.splitext(input_file)[0]
 
     try:
@@ -263,9 +263,9 @@ def remove_idbs(input_file):
 
 
 def append_debug(message, log_token=LOG_TOKEN):
-    '''
+    """
     Append debug message to file for access outside of IDA.
-    '''
+    """
     message = log_token + message
     try:
         print message
@@ -276,9 +276,9 @@ def append_debug(message, log_token=LOG_TOKEN):
 
 
 def append_string(string):
-    '''
+    """
     Append decoded string to file for access outside of IDA.
-    '''
+    """
     try:
         with open(IDA_STRINGS_FILE, 'ab') as f:
             f.write("%s\n" % (string))
@@ -287,9 +287,9 @@ def append_string(string):
 
 
 def remove_string(string, remove_all=False):
-    '''
+    """
     Remove the first instance of a string from the file. Opposite of append_string.
-    '''
+    """
     try:
         with open(IDA_STRINGS_FILE, 'rb') as f:
             current = f.read()
@@ -304,11 +304,11 @@ def remove_string(string, remove_all=False):
 
 
 def write_unique_file(filename, data):
-    '''
+    """
     Some IDA scripts will output files in addition to strings and debug messages.
     This function will append the provided data to the specified file name in
     a designated directory for access later.
-    '''
+    """
     if not os.path.exists(DECODER_OUTPUT_DIR):
         os.makedirs(DECODER_OUTPUT_DIR)
 

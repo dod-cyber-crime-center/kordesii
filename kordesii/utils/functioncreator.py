@@ -1,4 +1,3 @@
-
 import idc
 import idaapi
 import idautils
@@ -7,7 +6,8 @@ import itertools
 from kordesii.kordesiiidahelper import append_debug
 
 
-def try_make_function(function_start, function_end = idc.BADADDR, target_location = None, require_term = True, end_mnem_bytes = None):
+def try_make_function(function_start, function_end=idc.BADADDR, target_location=None, require_term=True,
+                      end_mnem_bytes=None):
     '''
     Description:
         Given a function location, attempt to create a function.
@@ -32,9 +32,11 @@ def try_make_function(function_start, function_end = idc.BADADDR, target_locatio
                 last_mnem_ea = idc.ItemHead(idaapi.get_func(function_start).endEA - 1)
                 last_mnem = idc.GetMnem(last_mnem_ea)
                 if (end_mnem_bytes is None and 'ret' not in last_mnem and 'jmp' not in last_mnem) or \
-                        idaapi.get_many_bytes(last_mnem_ea, idc.ItemSize(last_mnem_ea)).encode('hex').upper() != end_mnem_bytes.upper():
+                                idaapi.get_many_bytes(last_mnem_ea, idc.ItemSize(last_mnem_ea)).encode(
+                                    'hex').upper() != end_mnem_bytes.upper():
                     idc.DelFunction(function_start)
-                    append_debug('Deleted function at 0x%X - the function didn\'t end with the correct mnem/bytes.' % function_start)
+                    append_debug(
+                        'Deleted function at 0x%X - the function didn\'t end with the correct mnem/bytes.' % function_start)
                     return
             if target_location is not None:
                 if function_start <= target_location < idaapi.get_func(function_start).endEA:
@@ -42,16 +44,19 @@ def try_make_function(function_start, function_end = idc.BADADDR, target_locatio
                     return function_start, function_end
                 else:
                     idc.DelFunction(function_start)
-                    append_debug('Deleted function at 0x%X - the function didn\'t contain the target location.' % function_start)
+                    append_debug(
+                        'Deleted function at 0x%X - the function didn\'t contain the target location.' % function_start)
                     return
         else:
-            append_debug('Tried to create a function 0x%X - 0x%X, but IDA wouldn\'t do it.' % (function_start, function_end))
+            append_debug(
+                'Tried to create a function 0x%X - 0x%X, but IDA wouldn\'t do it.' % (function_start, function_end))
     else:
         append_debug('The end address was not greater than the start address!')
 
 
-def find_binary_instruction_start(search_start_location, search_direction, target, min_location = idc.MinEA(), max_location = idc.MaxEA()):
-    '''
+def find_binary_instruction_start(search_start_location, search_direction, target, min_location=idc.MinEA(),
+                                  max_location=idc.MaxEA()):
+    """
     Description:
         Given a starting location, target, and direction, find an instruction starting with the target bytes.
 
@@ -64,13 +69,14 @@ def find_binary_instruction_start(search_start_location, search_direction, targe
 
     Output:
         Returns the first matching location if found, otherwise idc.BADADDR
-    '''
+    """
     target = target.upper()
     while search_start_location < max_location:
         ea = idc.FindBinary(search_start_location, search_direction, target)
-        #print target, '0x%X <= 0x%X < 0x%X' % (min_location, ea, max_location), idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex')
-        if min_location <= ea < max_location and ea == idc.ItemHead(ea) and idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex').upper().startswith(target.replace(' ', '')):
-            #print target, '0x%X' % ea
+        # print target, '0x%X <= 0x%X < 0x%X' % (min_location, ea, max_location), idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex')
+        if min_location <= ea < max_location and ea == idc.ItemHead(ea) and idaapi.get_many_bytes(ea, idc.ItemSize(
+                ea)).encode('hex').upper().startswith(target.replace(' ', '')):
+            # print target, '0x%X' % ea
             return ea
         else:
             search_start_location = ea + (1 if search_direction == idc.SEARCH_DOWN else -1)
@@ -78,14 +84,14 @@ def find_binary_instruction_start(search_start_location, search_direction, targe
 
 
 def calc_most_common_start_bytes():
-    '''
+    """
     Description:
         Iterate over all non-lib (and non-thunk) functions and record their first instruction.
         Return the bytes for whichever instruction appears most.
 
     Output:
         A space separated string of bytes of the most common first instruction.
-    '''
+    """
     counts = {}
     for func_ea in idautils.Functions():
         if not idc.GetFunctionFlags(func_ea) & (idc.FUNC_LIB | idc.FUNC_THUNK):
@@ -94,11 +100,11 @@ def calc_most_common_start_bytes():
                 counts[start_bytes] += 1
             else:
                 counts[start_bytes] = 1
-    return ' '.join('%02X' % ord(c) for c in sorted(counts.items(), key = lambda tup: tup[1], reverse = True)[0][0])
+    return ' '.join('%02X' % ord(c) for c in sorted(counts.items(), key=lambda tup: tup[1], reverse=True)[0][0])
 
 
 def sanity_checks(location):
-    '''
+    """
     Description:
         Do some basic checks to see if a function can be created containing the provided EA.
 
@@ -109,7 +115,7 @@ def sanity_checks(location):
         True if a function can be created containing the provided EA
         False if a the provided EA was a nop or Align
         None if there is already a function containing the provided EA
-    '''
+    """
     if idaapi.get_func(location):
         append_debug('There\'s already a function here! (0x%X)' % location)
         return None
@@ -123,7 +129,7 @@ def sanity_checks(location):
 
 
 def trim_func(ea, GetHead):
-    '''
+    """
     Description:
         Steps until it hits something not a nop or not starts with 90 (nop opcode) nor an align or not byte 0xCC (Align 'opcode').
 
@@ -133,15 +139,15 @@ def trim_func(ea, GetHead):
 
     Output:
         The corrected EA.
-    '''
+    """
     while idc.GetMnem(ea) == 'nop' or (idaapi.isData(idc.GetFlags(ea)) and idc.Byte(ea) == 0x90) or \
             idc.isAlign(idc.GetFlags(ea)) or (not idc.isCode(idc.GetFlags(ea)) and idc.Byte(ea) == 0xCC):
         ea = GetHead(ea)
     return ea
 
 
-def find_function_starts_near(location, start_mnem_bytes = None):
-    '''
+def find_function_starts_near(location, start_mnem_bytes=None):
+    """
     Description:
         Identifies the nearest possible function starts since the most recent function or Align.
 
@@ -154,7 +160,7 @@ def find_function_starts_near(location, start_mnem_bytes = None):
 
     Output:
         starts - A list of function end EAs sorted: start_mnem_bytes, push ebp, (push esp, push esi, push edi)
-    '''
+    """
     # foreach target bytes:
     #  step instructions up
     #  if instruction matches the target bytes, add to output list
@@ -186,11 +192,11 @@ def find_function_starts_near(location, start_mnem_bytes = None):
             starts[target] = ea
 
     return [start for start in ([starts.get(start_mnem_bytes, None), starts.get('55', None)] +
-                                sorted([starts.get(target, None) for target in targets[-3:]], reverse = True)) if start]
+                                sorted([starts.get(target, None) for target in targets[-3:]], reverse=True)) if start]
 
 
-def find_function_starts(location, start_mnem_bytes = None):
-    '''
+def find_function_starts(location, start_mnem_bytes=None):
+    """
     Description:
         Identifies all possible function starts since the most recent function or Align.
 
@@ -203,7 +209,7 @@ def find_function_starts(location, start_mnem_bytes = None):
 
     Output:
         starts - A list of function end EAs sorted: start_mnem_bytes, push ebp, (push esp, push esi, push edi)
-    '''
+    """
     # foreach target bytes:
     #  step instructions up
     #  if instruction matches the target bytes, add to the corresponding output list
@@ -243,8 +249,8 @@ def find_function_starts(location, start_mnem_bytes = None):
            sorted(itertools.chain.from_iterable(starts[target] for target in targets[-3:]))
 
 
-def find_function_ends_near(location, end_mnem_bytes = None):
-    '''
+def find_function_ends_near(location, end_mnem_bytes=None):
+    """
     Description:
         Identifies the nearest possible function ends before the next function or Align for each end mnem.
 
@@ -257,7 +263,7 @@ def find_function_ends_near(location, end_mnem_bytes = None):
 
     Output:
         ends - A list of function end EAs sorted: end_mnem_bytes, retn, jmp
-    '''
+    """
     # foreach target bytes:
     #  step instructions down
     #  if instruction matches the target bytes, add to output list
@@ -285,16 +291,17 @@ def find_function_ends_near(location, end_mnem_bytes = None):
 
     ends = {}
     for target in targets:
-        ea = find_binary_instruction_start(location, idc.SEARCH_DOWN, target, max_location = max_location)
+        ea = find_binary_instruction_start(location, idc.SEARCH_DOWN, target, max_location=max_location)
         if ea <= max_location:
             ends[target] = ea
 
-    return [end + idc.ItemSize(end) for end in (([ends.get(end_mnem_bytes, None), ends.get('C2', None), ends.get('C3', None)]) +
-                                                sorted(ends.get(target, None) for target in targets[-3:])) if end]
+    return [end + idc.ItemSize(end) for end in
+            (([ends.get(end_mnem_bytes, None), ends.get('C2', None), ends.get('C3', None)]) +
+             sorted(ends.get(target, None) for target in targets[-3:])) if end]
 
 
-def find_function_ends(location, end_mnem_bytes = None):
-    '''
+def find_function_ends(location, end_mnem_bytes=None):
+    """
     Description:
         Identifies all possible function ends before the next function or Align.
 
@@ -307,7 +314,7 @@ def find_function_ends(location, end_mnem_bytes = None):
 
     Output:
         ends - A list of function end EAs sorted: end_mnem_bytes, retn, jmp
-    '''
+    """
     # foreach target bytes:
     #  step instructions down
     #  if instruction matches the target bytes, add to the corresponding output list
@@ -335,21 +342,22 @@ def find_function_ends(location, end_mnem_bytes = None):
     ends = {}
     for target in targets:
         function_ends = []
-        ea = find_binary_instruction_start(location, idc.SEARCH_DOWN, target, max_location = max_location)
+        ea = find_binary_instruction_start(location, idc.SEARCH_DOWN, target, max_location=max_location)
         while ea != idc.BADADDR:
             if ea > max_location:
                 break
             else:
                 function_ends.append(ea)
-            ea = find_binary_instruction_start(ea + 11, idc.SEARCH_DOWN, target, max_location = max_location)
+            ea = find_binary_instruction_start(ea + 11, idc.SEARCH_DOWN, target, max_location=max_location)
         ends[target] = function_ends
 
-    return [end + idc.ItemSize(end) for end in ((ends[end_mnem_bytes] if end_mnem_bytes else []) + sorted(ends['C3'] + ends['C2']) +
-                                                sorted(itertools.chain.from_iterable(ends[target] for target in targets[-3:])))]
+    return [end + idc.ItemSize(end) for end in
+            ((ends[end_mnem_bytes] if end_mnem_bytes else []) + sorted(ends['C3'] + ends['C2']) +
+             sorted(itertools.chain.from_iterable(ends[target] for target in targets[-3:])))]
 
 
-def create_function_here(location, require_term = True, end_mnem_bytes = None):
-    '''
+def create_function_here(location, require_term=True, end_mnem_bytes=None):
+    """
     Description:
         Attempt to make a function starting at the provided EA. First, try to have IDA find the end.
         If that fails, try to find the end ourselves.
@@ -364,7 +372,7 @@ def create_function_here(location, require_term = True, end_mnem_bytes = None):
 
     Output:
         True if it made a function or a function was already present, False otherwise.
-    '''
+    """
     sanity = sanity_checks(location)
     if sanity is None:  # There was already a function
         return True
@@ -379,8 +387,8 @@ def create_function_here(location, require_term = True, end_mnem_bytes = None):
     return False
 
 
-def create_function_precise(location, require_term = True, start_mnem_bytes = None, end_mnem_bytes = None):
-    '''
+def create_function_precise(location, require_term=True, start_mnem_bytes=None, end_mnem_bytes=None):
+    """
     Description:
         Attempt to make a function containing <location> and only that function.
         First tries to let IDA find the end of the calculated start EA.
@@ -400,7 +408,7 @@ def create_function_precise(location, require_term = True, start_mnem_bytes = No
 
     Output:
         True if it made a function or a function was already present, False otherwise.
-    '''
+    """
     sanity = sanity_checks(location)
     if sanity is None:  # There was already a function
         return True
@@ -410,18 +418,20 @@ def create_function_precise(location, require_term = True, start_mnem_bytes = No
     append_debug('Trying to make function for 0x%X' % location)
     function_starts = find_function_starts_near(location, start_mnem_bytes)
     if not function_starts:
-        return False # If we don't have any start points, we're up a creek
+        return False  # If we don't have any start points, we're up a creek
 
     # Don't populate function_ends at this point to avoid the tracing we aren't sure we need yet
     # This will cause two repeats in the last section if we get that far, but that's an acceptable trade-off
 
     # Try to make a function at the most likely start point letting IDA calculate the end
-    if try_make_function(function_starts[0], target_location = location, require_term = require_term, end_mnem_bytes = end_mnem_bytes):
+    if try_make_function(function_starts[0], target_location=location, require_term=require_term,
+                         end_mnem_bytes=end_mnem_bytes):
         return True
-    else: # If that fails, try to make a function at that point with the most likely end
+    else:  # If that fails, try to make a function at that point with the most likely end
         function_ends = find_function_ends_near(location, end_mnem_bytes)
         # Only try the first end here. This guarantees that one of the lower tier starts won't work with idc.BADADDR before we try this end
-        if function_ends and try_make_function(function_starts[0], function_ends[0], location, require_term, end_mnem_bytes):
+        if function_ends and try_make_function(function_starts[0], function_ends[0], location, require_term,
+                                               end_mnem_bytes):
             return True
 
     # Always let IDA have the first shot at finding the end for each start
@@ -435,8 +445,8 @@ def create_function_precise(location, require_term = True, start_mnem_bytes = No
     return False
 
 
-def ida_make_functions(location, require_term = True):
-    '''
+def ida_make_functions(location, require_term=True):
+    """
     Description:
         Attempts to create functions based on the assumption that there should be continuous contiguous
         functions defined since the previous function or align. Stops creating functions once a function
@@ -449,7 +459,7 @@ def ida_make_functions(location, require_term = True):
 
     Output:
         True if it made a function or a function was already present, False otherwise.
-    '''
+    """
     sanity = sanity_checks(location)
     if sanity is None:  # There was already a function
         return True
@@ -464,7 +474,7 @@ def ida_make_functions(location, require_term = True):
         ea = idc.PrevHead(ea)
     function_start = trim_func(function_start, idc.NextHead)
 
-    if try_make_function(function_start, require_term = require_term):
+    if try_make_function(function_start, require_term=require_term):
         if not idaapi.get_func(target_location):
             return ida_make_functions(target_location, require_term)
         else:
@@ -473,8 +483,8 @@ def ida_make_functions(location, require_term = True):
         return False
 
 
-def create_functions(location, require_term = True, start_mnem_bytes = None, end_mnem_bytes = None):
-    '''
+def create_functions(location, require_term=True, start_mnem_bytes=None, end_mnem_bytes=None):
+    """
     Description:
         Attempts to create functions based on the assumption that there should be continuous contiguous
         functions defined since the previous function or align. Stops creating functions once a function
@@ -495,11 +505,11 @@ def create_functions(location, require_term = True, start_mnem_bytes = None, end
 
     Output:
         True if it made a function or a function was already present, False otherwise.
-    '''
+    """
     sanity = sanity_checks(location)
-    if sanity is None: # There was already a function
+    if sanity is None:  # There was already a function
         return True
-    elif sanity is False: # There was something preventing function creation
+    elif sanity is False:  # There was something preventing function creation
         return False
 
     # Attempt to find the function ourselves.
@@ -509,9 +519,11 @@ def create_functions(location, require_term = True, start_mnem_bytes = None, end
     found_func = None
     for function_start, function_end in itertools.product(function_starts, function_ends):
         if function_start < function_end:
-            if try_make_function(function_start, function_end, require_term = require_term) and function_start <= location < idaapi.get_func(function_start).endEA:
+            if try_make_function(function_start, function_end,
+                                 require_term=require_term) and function_start <= location < idaapi.get_func(
+                    function_start).endEA:
                 found_func = (function_start, function_end)
-                break # Don't return here in case we have to split it yet.
+                break  # Don't return here in case we have to split it yet.
 
     if found_func:
         return True

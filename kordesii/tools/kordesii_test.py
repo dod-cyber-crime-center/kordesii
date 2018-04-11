@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-'''
+"""
 DC3-Kordesii Framework test case tool
-'''
+"""
 
 # Standard imports
 import argparse
@@ -17,9 +17,9 @@ from kordesii.kordesiitester import DEFAULT_INCLUDE_FIELDS
 
 
 def get_arg_parser():
-    ''' Define command line arguments and return argument decoder. '''
+    """ Define command line arguments and return argument decoder. """
 
-    description = '''DC3-kordesii Framework: testing utility to create test cases and execute them.
+    description = """DC3-kordesii Framework: testing utility to create test cases and execute them.
 
 Common usages:
 
@@ -28,7 +28,7 @@ $ kordesii-test.py -p decoder -tf                       Run test cases for singl
 $ kordesii-test.py -p decoder -u                        Update existing test cases for a decoder 
 $ kordesii-test.py -p decoder -i file_paths_file        Add new test cases for a decoder 
 $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a decoder 
-'''
+"""
     decoder = argparse.ArgumentParser(description=description,
                                       formatter_class=argparse.RawDescriptionHelpFormatter,
                                       usage='%(prog)s [options]')
@@ -105,7 +105,7 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
 
 
 def main():
-    ''' Run tool. '''
+    """ Run tool. """
 
     print ''
 

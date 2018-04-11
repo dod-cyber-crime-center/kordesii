@@ -14,9 +14,9 @@ DECODER_POSTFIX = '_StringDecode'
 
 
 def make_opt_parser():
-    '''
+    """
     create a option parser to handle command line inputs
-    '''
+    """
     usage_str = 'usage:  %s [options] FILE' % (os.path.basename(sys.argv[0]))
     description = "DC3-Kordesii Framework: utility for executing string decoder modules"
     opt_parser = optparse.OptionParser(usage_str, description=description)
@@ -124,10 +124,10 @@ def make_opt_parser():
 
 
 def main():
-    '''
+    """
     Takes args from the command line, runs IDA, and returns with IDA's returncode on success or a message
     on failure.
-    '''
+    """
     opt_parse = make_opt_parser()
     options, args = opt_parse.parse_args()
 
@@ -140,7 +140,7 @@ def main():
                                     enableidalog=options.enableidalog)
     except Exception as e:
         error_message = "Error loading DC3-MWCP reporter object, please check installation: %s" % (
-        traceback.format_exc())
+            traceback.format_exc())
         if options.jsonoutput:
             print('{"errors": ["%s"]}' % (error_message))
         else:

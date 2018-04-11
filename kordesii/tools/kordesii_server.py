@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-'''
+"""
 DC3-Kordesii server--simple REST API using bottle framework. Can be used as a standalone server or in a wsgi server.
 
 Requires bottle to be installed which can be done by putting bottle.py in the same directory as this file.
-'''
+"""
 
 import os
 import sys
@@ -29,7 +29,7 @@ logger.addHandler(logging.StreamHandler())
 
 DECODER_DIR = os.path.dirname(decoders.__file__)
 
-DEFAULT_PAGE = '''<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+DEFAULT_PAGE = """<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
     <html>
         <head>
             <title>DC3-Kordesii Service</title>
@@ -39,37 +39,37 @@ DEFAULT_PAGE = '''<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
             <br />
             <a href="descriptions">Module Descriptions</a>
         </body>
-    </html>'''
+    </html>"""
 
 app = Bottle()
 
 
 @app.get('/git_hash')
 def git_hash():
-    '''
+    """
     Run git status on repo.
-    '''
+    """
     return __run_git_command("rev-parse HEAD")
 
 
 @app.get('/git_update')
 def git_update():
-    '''
+    """
     Update master branch of repo.
-    '''
+    """
     __run_git_command("checkout master")
     return __run_git_command("pull")
 
 
 def __run_git_command(command):
-    '''
+    """
     Command should be a string of basic git options to use.
     Examples:
         status
         rev-parse HEAD
     The function will run the provided git command and specify the repository
     based on this server files location.
-    '''
+    """
     git_work_dir = os.path.dirname(os.path.realpath(__file__))
     options = command.split(" ")
     args = ['git', '-C', git_work_dir] + options
@@ -87,12 +87,12 @@ def __run_git_command(command):
 
 @app.post('/run_decoder/<decoder>')
 def run_decoder(decoder):
-    '''
+    """
     Execute a decoder
 
     decoder (url component): kordesii decoder to use
     data (form file submission): data on which decoder operates
-    '''
+    """
     output = {}
     datafile = request.files.get('input_file')
     if datafile:
@@ -111,9 +111,9 @@ def default():
 
 @app.get('/descriptions')
 def descriptions():
-    '''
+    """
     List descriptions of decoder modules
-    '''
+    """
     try:
         response.content_type = "application/json"
         reporter = kordesiireporter(decoderdir=DECODER_DIR, base64outputfiles=True)

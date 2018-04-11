@@ -28,7 +28,7 @@ DECODED_STRINGS = []
 
 
 class SuperFunc_t(object):
-    '''
+    """
     Description:
         Effectively extends func_t to also know its name and all its non-recursive xrefs and knows
         how to rename itself.
@@ -43,7 +43,7 @@ class SuperFunc_t(object):
         ea - An EA within the function.
         identifier - The id of the YARA rule that hit in this function
         create_if_not_exists - If true, uses IN_Dev_Repo's function creator to create a function containing <ea>
-    '''
+    """
 
     def __init__(self, ea, identifier=UNUSED, create_if_not_exists=True):
         super(SuperFunc_t, self).__init__()
@@ -77,7 +77,7 @@ class SuperFunc_t(object):
         return self.name, '0x%X' % self.function_obj.startEA, '-', '0x%X' % self.function_obj.endEA
 
     def rename(self, new_name):
-        '''
+        """
         Description:
             Attempts to apply new_name to the object at <ea>. If more than one object starts at <ea>, the
             largest object will be renamed. If that name already exists, let IDA resolve the collission
@@ -88,7 +88,7 @@ class SuperFunc_t(object):
 
         Output:
             The name that ended up getting set (unless no name was set, then return None).
-        '''
+        """
         if new_name == '':
             if idaapi.set_name(self.function_obj.startEA, new_name):
                 return idaapi.get_name(self.function_obj.startEA, self.function_obj.startEA)
@@ -104,7 +104,7 @@ class SuperFunc_t(object):
 
 
 class EncodedString(object):
-    '''
+    """
     Description:
         Object to hold data about an encoded string. Effectively extends StringItem, but
         avoids all the icky IDA innards.
@@ -131,7 +131,7 @@ class EncodedString(object):
         size - The size of the string. Required to use self.get_bytes.
         offset - Used when there is an offset based accessing scheme.
         key - Used when there is a key that can vary by string.
-    '''
+    """
 
     def __init__(self, string_location, string_reference=INVALID, size=INVALID, offset=INVALID,
                  key=INVALID):
@@ -151,14 +151,14 @@ class EncodedString(object):
         return self.__repr__().__hash__()
 
     def __repr__(self):
-        '''
+        """
         Description:
             General display format.
 
         Output:
             A string with the string's EA, reference EA (where applicable), and the decoded value (where
             applicable).
-        '''
+        """
         text = '\n'
         if self.string_location not in [INVALID, UNUSED]:
             text += 'EA:  0x%X\n' % self.startEA
@@ -219,14 +219,14 @@ class EncodedString(object):
             return idc.ASCSTR_UNICODE if isinstance(self.decoded_string, unicode) else idc.ASCSTR_C
 
     def calc_size(self, width=1):
-        '''
+        """
         Description:
             Search for the next null to end the string and update.
 
         Output:
             Returns size if it is found, idc.BADADDR otherwise.
             Updates encoded_data if self.size was INVALID.
-        '''
+        """
         end_location = idc.FindBinary(self.string_location, idc.SEARCH_DOWN, "00 " * width)
         if end_location == idc.BADADDR:
             return idc.BADADDR
@@ -241,7 +241,7 @@ class EncodedString(object):
         return self.size
 
     def get_bytes(self):
-        '''
+        """
         Description:
             Get self.size bytes at self.string_location.
 
@@ -253,14 +253,14 @@ class EncodedString(object):
 
         Throws:
             ValueError - Size was not valid.
-        '''
+        """
         if self.size == INVALID:
             raise ValueError("Size was never calculated!")
         bytes = idaapi.get_many_bytes(self.string_location, self.size) if self.size else ''
         return bytes if bytes is not None else INVALID
 
     def decode_unknown_charset(self):
-        '''
+        """
         Description:
             Attempt to decode the string for each code_page. For each 'successful' decoding,
             count/score the output based on the number of characters that start with \\x or \\u.
@@ -273,7 +273,7 @@ class EncodedString(object):
         Output:
             The string with the lowest score or the original string if none of the encodings
             had a score < len(string) or if the original string was already decoded.
-        '''
+        """
         # This has to be string-escape here for silly, silly reasons.
         if sum(map(lambda c: c.encode('unicode-escape').startswith('\\x') + \
                         c.encode('unicode-escape').startswith('\\u') * 2,
@@ -299,7 +299,7 @@ class EncodedString(object):
 
 
 class StringTracer(object):
-    '''
+    """
     Description:
         An object to hold tracing info for one offset at a time.
 
@@ -322,7 +322,7 @@ class StringTracer(object):
 
     Throws:
         AttributeError - There was no function at initial_offset.
-    '''
+    """
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, initial_offset, identifier=UNUSED):
@@ -342,7 +342,7 @@ class StringTracer(object):
 
     @abc.abstractmethod
     def search(self):
-        '''
+        """
         Description:
             Attempts to identify the string location based on the address passed in the constructor.
 
@@ -355,22 +355,22 @@ class StringTracer(object):
         Output:
             True if the encoded string offset is identified, False if the encoded string offset
             is not identified.
-        '''
+        """
         pass
 
 
 def get_encoded_strings():
-    ''' Use responsibly '''
+    """ Use responsibly """
     return ENCODED_STRINGS
 
 
 def get_decoded_strings():
-    ''' Use responsibly '''
+    """ Use responsibly """
     return DECODED_STRINGS
 
 
 def is_valid_ea(ea):
-    '''
+    """
     Description:
         Returns true for valid EAs, False for invalid ones.
 
@@ -379,12 +379,12 @@ def is_valid_ea(ea):
 
     Output:
         True if the EA is valid, False if it is not
-    '''
+    """
     return ea not in [INVALID, UNUSED, idc.BADADDR] and idc.MinEA() <= ea <= idc.MaxEA()
 
 
 def split_decoded_string(decoded_string, identify=False):
-    '''
+    """
     Description:
         Given a single EncodedString, split it into multiple.
         By default, it is split on \x00.
@@ -396,7 +396,7 @@ def split_decoded_string(decoded_string, identify=False):
 
     Output:
         A list of EncodedStrings.
-    '''
+    """
     '''
     Normally, we have either a block of either all one byte characters OR all two byte characters,
     however with some families, the blocks have utf-8 and utf-16 mixed together. When the block is all one
@@ -484,7 +484,7 @@ def split_decoded_string(decoded_string, identify=False):
 
 
 def find_unrefd_encoded_strings(encoded_string, delimiter=None):
-    '''
+    """
     Description:
         Given a known EncodedString, find unreferenced encoded strings before the next ref.
         By default, the delimiter is the null terminator.
@@ -496,7 +496,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter=None):
 
     Output:
         A list of new EncodedStrings (not including the original)
-    '''
+    """
     if delimiter is None:
         delimiter = '\x00\x00' if isinstance(encoded_string.decoded_string, unicode) else '\x00'
 
@@ -542,7 +542,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter=None):
 
 
 def find_encoded_strings_inline(matches, Tracer, **kwargs):
-    '''
+    """
     For each yara match, attempt to find encoded strings.
 
     Input:
@@ -552,7 +552,7 @@ def find_encoded_strings_inline(matches, Tracer, **kwargs):
 
     Output:
         A list of EncodedStrings.
-    '''
+    """
     encoded_strings = []
     for ea, identifier in matches:
         try:
@@ -567,7 +567,7 @@ def find_encoded_strings_inline(matches, Tracer, **kwargs):
 
 
 def find_encoded_strings(funcs, Tracer, **kwargs):
-    '''
+    """
     Description:
         For each ref for each function, attempt to find encoded strings.
 
@@ -578,7 +578,7 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
 
     Output:
         A list of EncodedStrings.
-    '''
+    """
     encoded_strings = []
     for func in funcs:
         for ref in func.xrefs_to:
@@ -598,7 +598,7 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
 
 
 def decode_strings(encoded_strings, decode):
-    '''
+    """
     Description:
         For each encoded_string entry in encoded_strings, decode the data using the provided
         decode function.
@@ -609,7 +609,7 @@ def decode_strings(encoded_strings, decode):
 
     Output:
         A list of successfully decoded EncodedStrings.
-    '''
+    """
     decoded_strings = []
     for encoded_string in encoded_strings:
         if encoded_string.encoded_data == INVALID:
@@ -622,7 +622,7 @@ def decode_strings(encoded_strings, decode):
 
 
 def _yara_callback(data):
-    '''
+    """
     Description:
         Generic yara callback.
 
@@ -631,7 +631,7 @@ def _yara_callback(data):
 
     Output:
         A list of tuples: (offset, identifier)
-    '''
+    """
     if not data['matches']:
         return False
 
@@ -642,7 +642,7 @@ def _yara_callback(data):
 
 
 def generic_run_yara(rule_text, callback_func=_yara_callback):
-    '''
+    """
     Description:
         Applies yara rule and returns raw results. Clear the matches each time to prevent
         duplicates.
@@ -653,7 +653,7 @@ def generic_run_yara(rule_text, callback_func=_yara_callback):
 
     Output:
         Returns a list of YARA's match results with items (location, description)
-    '''
+    """
     global _YARA_MATCHES
     _YARA_MATCHES = []
 
@@ -662,7 +662,7 @@ def generic_run_yara(rule_text, callback_func=_yara_callback):
 
 
 def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_callback):
-    '''
+    """
     Description:
         Use yara to find the string decode functions, rename them, and return the SuperFunc_ts.
         Clear the matches each time to prevent duplicates.
@@ -679,7 +679,7 @@ def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_ca
     Throws:
         RuntimeError - Assumes that there's no point in continuing if there is no YARA match
                        and that we were expecting a YARA match, so error in that case.
-    '''
+    """
     global _YARA_MATCHES
     _YARA_MATCHES = []
 
@@ -690,7 +690,7 @@ def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_ca
 
 
 def make_superfunc_t_from_matches(matches, func_name=None):
-    '''
+    """
     Description:
         Makes a SuperFunc_t object for each yara match
 
@@ -700,7 +700,7 @@ def make_superfunc_t_from_matches(matches, func_name=None):
 
     Output:
         A list of decoded functions. Renames those functions if a name is provided.
-    '''
+    """
     decode_funcs = set()
     for ea, identifier in matches:
         if ea == idc.BADADDR:
@@ -713,7 +713,7 @@ def make_superfunc_t_from_matches(matches, func_name=None):
 
 
 def output_strings(decoded_strings, size_in_comment=False):
-    '''
+    """
     Description:
         Outputs the decoded string data to the console and as a comment at the
         reference location. Duplicate strings (based on decoded_string and string_location)
@@ -728,7 +728,7 @@ def output_strings(decoded_strings, size_in_comment=False):
         Returns a list of the decoded string values in utf-8.
         Prints decoded string info to the console.
         Comments the decoded string values to their reference EAs (where applicable).
-    '''
+    """
     deduped_decoded_strings = {(string.decoded_string, string.string_location): string
                                for string in decoded_strings}.values()
     deduped_decoded_strings.sort(key=lambda string: string.string_location)
@@ -771,7 +771,7 @@ def output_strings(decoded_strings, size_in_comment=False):
 
 
 def patch_decoded(decoded_strings, define=True):
-    '''
+    """
     Description:
         Patches the bytes at each encoded string location with the decoded string value.
         Assumes null termination.
@@ -782,7 +782,7 @@ def patch_decoded(decoded_strings, define=True):
 
     Output:
         Makes a string in IDA at the string's start_location
-    '''
+    """
     for decoded_string in sorted(decoded_strings, key=lambda string: string.string_location):
         if decoded_string.string_location in [INVALID, UNUSED, idc.BADADDR]:
             continue
@@ -795,12 +795,12 @@ def patch_decoded(decoded_strings, define=True):
 
 
 def define_string(decoded_string):
-    '''
+    """
     Defines a string object in the IDB for the provided string.
 
     Input:
         decoded_string - The EncodedString object to define in IDA
-    '''
+    """
     try:
         idc.MakeUnknown(decoded_string.startEA, decoded_string.byte_length, idc.DOUNK_SIMPLE)
         idaapi.make_ascii_string(decoded_string.startEA, decoded_string.byte_length, decoded_string.string_type)
@@ -809,14 +809,14 @@ def define_string(decoded_string):
 
 
 def find_input_file():
-    '''
+    """
     Description:
         Check whether or not IDA knows where the original file used to create the IDB is.
         If IDA doesn't know, check the IDA's directory for the file.
 
     Output:
         Returns True if the input file was located, False if it was not.
-    '''
+    """
     global INPUT_FILE_PATH
     ida_path = INPUT_FILE_PATH
     if not os.path.exists(ida_path):
@@ -835,7 +835,7 @@ def find_input_file():
 
 
 def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string_decode_function', inline=False):
-    '''
+    """
     Description:
         If you are going to use this file's workflow as is, this is the entry point. This supports the majority
         of decode function xref based decoding algorithms (the 'older' way) and inline decoding algorithms
@@ -867,7 +867,7 @@ def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string
         TypeError - The provided Tracer does not extend StringTracer.
         ValueError - Could not find the file used to create the IDB.
                    - see EncodedString.get_bytes
-    '''
+    """
     global ENCODED_STRINGS
     global DECODED_STRINGS
 

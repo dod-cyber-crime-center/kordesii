@@ -4,13 +4,13 @@ import kordesii.utils.decoderutils as decoderutils
 import kordesii.kordesiiidahelper as kordesiiidahelper
 
 
-YARA_RULE ='''rule sample_decode
+YARA_RULE ="""rule sample_decode
 {
     strings:
         $sample_xor_decode = { 8A 4D 0C 30 08 40 80 38 00 }
     condition:
         $sample_xor_decode
-}'''
+}"""
 
 
 class Sample_Tracer(decoderutils.StringTracer):
@@ -19,7 +19,7 @@ class Sample_Tracer(decoderutils.StringTracer):
         super(Sample_Tracer, self).__init__(initial_offset, identifier)
     
     def search(self):
-        '''
+        """
         Function Description:
             Attempts to identify the string location and key based upon the values which are
             passed to the string decode function.  In this simple example, we know the values
@@ -31,7 +31,7 @@ class Sample_Tracer(decoderutils.StringTracer):
         Return Value:
             Boolean value, True if the encoded string location and key are identified, False if
             the encoded string information is not identified
-        '''
+        """
         function_call_loc = self.initial_offset
         offset_loc = idc.PrevHead(function_call_loc)
         key_loc = idc.PrevHead(offset_loc)
@@ -63,19 +63,19 @@ class Sample_Tracer(decoderutils.StringTracer):
 
 
 def sample_decode(encoded_string):
-    '''
+    """
     Function Description:
         Given an encoded_string instance, decode the data using xor with key that was found.
-    '''
+    """
     return ''.join(chr(ord(x) ^ encoded_string.key) for x in encoded_string.encoded_data)
 
 
 def main():
-    '''
+    """
     Function Description:
         Calls decoderutils string_decoder_main, which conducts all decryption operations
         Passes the YARA rule, the Sample_Tracer class, and the sample_decode decryption function
-    '''
+    """
     decoderutils.string_decoder_main(YARA_RULE, Sample_Tracer, sample_decode)
 
         
