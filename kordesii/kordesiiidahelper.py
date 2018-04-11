@@ -19,7 +19,8 @@ RETURN_CODE_TIMEOUT = 20
 
 LOG_TOKEN = '[*] '
 
-def find_ida(is_64_bit = False):
+
+def find_ida(is_64_bit=False):
     '''
     Description:
         Find the highest version of IDA installed on the current (windows) system.
@@ -45,10 +46,11 @@ def find_ida(is_64_bit = False):
 
     # Find highest IDA version with idaq.exe or idaq64.exe in the directory
     ida_exe = 'idaq64.exe' if is_64_bit else 'idaq.exe'
-    ida_dirs.sort(reverse = True)
+    ida_dirs.sort(reverse=True)
     for ida_dir in ida_dirs:
         if ida_exe in os.walk(ida_dir).next()[2]:
             return os.path.join(ida_dir, ida_exe)
+
 
 def is_64_bit(input_file):
     '''
@@ -69,19 +71,19 @@ def is_64_bit(input_file):
     elif input_file.endswith('.idb'):
         return False
 
-    # Get first bytes of file to check the file magic    
+    # Get first bytes of file to check the file magic
     with open(input_file, 'rb') as f:
         first_bytes = f.read(8)
-    
+
     if first_bytes[0:2] == "\x4D\x5A":
         # PE file type
         try:
-            pe = pefile.PE(input_file, fast_load = True)
+            pe = pefile.PE(input_file, fast_load=True)
             result = pe.PE_TYPE == pefile.OPTIONAL_HEADER_MAGIC_PE_PLUS
             pe.close()
         except:
             result = False
-    elif first_bytes[1:4] == "\x45\x4C\x46": 
+    elif first_bytes[1:4] == "\x45\x4C\x46":
         # elf file type
         try:
             with open(input_file, 'rb') as f:
@@ -97,19 +99,20 @@ def is_64_bit(input_file):
         result = True
     else:
         result = False
-        
+
     return result
 
-def run_ida(reporter, 
-            script_path, 
-            input_file, 
-            autonomous = True, 
-            ida_path = None, 
-            timeout = 3600, 
-            log = False, 
-            cleanup_txt_files = True,
-            cleanup_output_files = False,
-            cleanup_idb_files = False):
+
+def run_ida(reporter,
+            script_path,
+            input_file,
+            autonomous=True,
+            ida_path=None,
+            timeout=3600,
+            log=False,
+            cleanup_txt_files=True,
+            cleanup_output_files=False,
+            cleanup_idb_files=False):
     '''
     Descritpion:
         Call IDA given an input file and IDA script to run.
@@ -131,66 +134,66 @@ def run_ida(reporter,
         cleanup_idbs - Cleanup any IDB and any IDB component files ('.til', '.nam', '.id0', '.id1', '.id2', '.id3')
 
     Output:
-        Information will be added to the reporter object. 
+        Information will be added to the reporter object.
         Output files will exist after execution based on the cleanup parameters and the script itself.
     '''
-    
+
     # First find IDA executable to run
     ida_path = ida_path if ida_path else find_ida(is_64_bit(input_file))
     if ida_path is None:
         return
-        
+
     # Setup some variables for files that may be output by the decoder and IDA
     base_dir = reporter.filedir()
     log_file_path = os.path.join(base_dir, IDA_LOG_FILE)
     debug_file_path = os.path.join(base_dir, IDA_DEBUG_FILE)
     strings_file_path = os.path.join(base_dir, IDA_STRINGS_FILE)
     output_dir_path = os.path.join(base_dir, DECODER_OUTPUT_DIR)
-    
+
     # Cleanup any preexisting standard files to avoid overlap with previous decoder runs
     if os.path.exists(log_file_path):
         os.remove(log_file_path)
     if os.path.exists(debug_file_path):
         os.remove(debug_file_path)
     if os.path.exists(strings_file_path):
-        os.remove(strings_file_path)    
-        
-    # Configure command line flags based on parameters
+        os.remove(strings_file_path)
+
+        # Configure command line flags based on parameters
     autonomous = '-A' if autonomous else ''
     log = ('-L' + log_file_path) if log else ''
 
     # Setup the process to run the IDA decoder script
     command = '"%s" %s -P %s -OMANA:MANA -S"\"%s\" exit" "%s"' % (ida_path, autonomous, log, script_path, input_file)
     process = subprocess.Popen(command)
-                               
+
     # Wrap the call in a thread so we can time it out.
-    thread = threading.Thread(target = process.communicate)
+    thread = threading.Thread(target=process.communicate)
     thread.start()
-    thread.join(timeout if timeout and timeout > 0 else None) # Block on timeout of 0
-    if thread.is_alive(): # This will only be true if timeout != 0
+    thread.join(timeout if timeout and timeout > 0 else None)  # Block on timeout of 0
+    if thread.is_alive():  # This will only be true if timeout != 0
         reporter.debug('Killing IDA process: exceeded timeout of ' + str(timeout))
         process.kill()
         thread.join()
         return
-        
+
     # IDA script completed
     # Make a note of the return code to have the information
     if process.returncode == 0:
         reporter.debug("IDA return code = {}".format(process.returncode))
     else:
         reporter.error("IDA return code = {}".format(process.returncode))
-    
+
     # Ingest any debug information output by the script
     if log and os.path.isfile(log_file_path):
         with open(log_file_path, "r") as f:
             reporter.set_ida_log(f.read())
-    
+
     # Ingest any debug information output by the script
     if os.path.isfile(debug_file_path):
         with open(debug_file_path, "r") as f:
             for line in f:
                 reporter.debug("ida_debug: %s" % (line.rstrip("\r\n")))
-        
+
     # Ingest any strings output by the script
     if os.path.isfile(strings_file_path):
         with open(strings_file_path, "r") as f:
@@ -199,7 +202,7 @@ def run_ida(reporter,
                     reporter.add_string(line.rstrip("\r\n").decode("string-escape"))
                 except:
                     reporter.error("Bad string: {}".format(line))
-    
+
     # Ingest the IDB produced by the script
     if is_64_bit(input_file):
         idb_path = os.path.splitext(input_file)[0] + '.i64'
@@ -215,7 +218,7 @@ def run_ida(reporter,
                 file_path = os.path.join(root, file)
                 file_data = open(file_path, 'rb').read()
                 reporter.add_output_file(file, file_data)
-                
+
     # Perform cleanup as specified in the parameters
     if cleanup_txt_files:
         if os.path.exists(log_file_path):
@@ -229,6 +232,7 @@ def run_ida(reporter,
             shutil.rmtree(output_dir_path)
     if cleanup_idb_files:
         remove_idbs(input_file)
+
 
 def remove_idbs(input_file):
     '''
@@ -254,10 +258,11 @@ def remove_idbs(input_file):
         try:
             os.remove(input_file_name + ext)
         except OSError:
-            break # The file didn't exist. Since the extensions are ordered, we can assume none
-                  # of the others do either.
+            break  # The file didn't exist. Since the extensions are ordered, we can assume none
+            # of the others do either.
 
-def append_debug(message, log_token = LOG_TOKEN):
+
+def append_debug(message, log_token=LOG_TOKEN):
     '''
     Append debug message to file for access outside of IDA.
     '''
@@ -267,8 +272,9 @@ def append_debug(message, log_token = LOG_TOKEN):
         with open(IDA_DEBUG_FILE, 'ab') as f:
             f.write("%s\n" % (message))
     except Exception as e:
-        print("Error writing debug message to %s: %s" % (IDA_DEBUG_FILE, str(e))) 
-        
+        print("Error writing debug message to %s: %s" % (IDA_DEBUG_FILE, str(e)))
+
+
 def append_string(string):
     '''
     Append decoded string to file for access outside of IDA.
@@ -279,7 +285,8 @@ def append_string(string):
     except Exception as e:
         print("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
 
-def remove_string(string, remove_all = False):
+
+def remove_string(string, remove_all=False):
     '''
     Remove the first instance of a string from the file. Opposite of append_string.
     '''
@@ -289,11 +296,13 @@ def remove_string(string, remove_all = False):
 
         if '\n%s\n' % string in current or current.startswith('%s\n' % string):
             with open(IDA_STRINGS_FILE, 'wb') as f:
-                f.write(current.replace('%s\n' % string, '', (1 if not remove_all else None))) # None is default for remove all
-        # else quietly succeed if string wasn't present
+                f.write(current.replace('%s\n' % string, '',
+                                        (1 if not remove_all else None)))  # None is default for remove all
+                # else quietly succeed if string wasn't present
     except Exception as e:
         print("Error removing string from %s: %s" % (IDA_STRINGS_FILE, str(e)))
-        
+
+
 def write_unique_file(filename, data):
     '''
     Some IDA scripts will output files in addition to strings and debug messages.
@@ -302,7 +311,7 @@ def write_unique_file(filename, data):
     '''
     if not os.path.exists(DECODER_OUTPUT_DIR):
         os.makedirs(DECODER_OUTPUT_DIR)
-    
+
     filepath = os.path.join(DECODER_OUTPUT_DIR, filename)
 
     try:
@@ -310,5 +319,4 @@ def write_unique_file(filename, data):
             f.write(data)
         append_debug('Wrote file: ' + filepath)
     except Exception as e:
-        print("Error writing data to %s: %s" % (filepath, str(e))) 
-    
+        print("Error writing data to %s: %s" % (filepath, str(e)))

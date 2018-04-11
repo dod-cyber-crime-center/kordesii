@@ -1,4 +1,3 @@
-
 import idc
 import idaapi
 import idautils
@@ -9,20 +8,19 @@ import itertools
 import os
 import yara
 from kordesii.kordesiiidahelper import append_debug, append_string
-from kordesii.utils.functioncreator import create_function
-
+from kordesii.utils.functioncreator import create_function_precise
 
 INVALID = -1
 UNUSED = None
 _YARA_MATCHES = []
-CODE_PAGES = ['utf-32-be', 'utf-32-le', 'utf-16-be', 'utf-16-le', 'utf-8', # General (utf-7 omitted)
-              'gb18030', 'gbk', # Unified Chinese
-              'gb2312', 'hz', # Simplified Chinese
-              'big5hkscs', 'big5', # Traditional Chinese (cp950 omitted)
-              'koi8-r', 'iso8859-5', 'cp1251', 'mac-cyrillic',# Cyrillic (cp866, cp855 omitted)
-              'cp949', # Korean (johab, iso2022-kr omitted)
-              'iso8859-6', 'cp1256', # Arabic (cp864, cp720 omitted)
-              'ascii'] # Default
+CODE_PAGES = ['utf-32-be', 'utf-32-le', 'utf-16-be', 'utf-16-le', 'utf-8',  # General (utf-7 omitted)
+              'gb18030', 'gbk',  # Unified Chinese
+              'gb2312', 'hz',  # Simplified Chinese
+              'big5hkscs', 'big5',  # Traditional Chinese (cp950 omitted)
+              'koi8-r', 'iso8859-5', 'cp1251', 'mac-cyrillic',  # Cyrillic (cp866, cp855 omitted)
+              'cp949',  # Korean (johab, iso2022-kr omitted)
+              'iso8859-6', 'cp1256',  # Arabic (cp864, cp720 omitted)
+              'ascii']  # Default
 INPUT_FILE_PATH = idc.GetInputFilePath()
 # Put these here for increased robustness. Please don't depend on these very often.
 ENCODED_STRINGS = []
@@ -43,16 +41,18 @@ class SuperFunc_t(object):
 
     Input:
         ea - An EA within the function.
+        identifier - The id of the YARA rule that hit in this function
         create_if_not_exists - If true, uses IN_Dev_Repo's function creator to create a function containing <ea>
     '''
-    def __init__(self, ea, identifier = UNUSED, create_if_not_exists = True):
+
+    def __init__(self, ea, identifier=UNUSED, create_if_not_exists=True):
         super(SuperFunc_t, self).__init__()
         self.origin_ea = ea
         self.identifier = identifier
         self.function_obj = idaapi.get_func(ea)
         if not self.function_obj:
             if create_if_not_exists:
-                if create_function(ea, False):
+                if create_function_precise(ea, False):
                     self.function_obj = idaapi.get_func(ea)
                     append_debug("Created function at 0x%X" % self.function_obj.startEA)
                 else:
@@ -102,6 +102,7 @@ class SuperFunc_t(object):
         else:
             append_debug('Failed to rename at 0x%X' % self.function_obj.startEA)
 
+
 class EncodedString(object):
     '''
     Description:
@@ -131,8 +132,9 @@ class EncodedString(object):
         offset - Used when there is an offset based accessing scheme.
         key - Used when there is a key that can vary by string.
     '''
-    def __init__(self, string_location, string_reference = INVALID, size = INVALID, offset = INVALID,
-                 key = INVALID):
+
+    def __init__(self, string_location, string_reference=INVALID, size=INVALID, offset=INVALID,
+                 key=INVALID):
         super(EncodedString, self).__init__()
         self.string_location = string_location
         self.string_reference = string_reference
@@ -165,7 +167,7 @@ class EncodedString(object):
         if self.decoded_string not in [INVALID, UNUSED]:
             try:
                 text += 'Dec: ' + self.decode_unknown_charset().rstrip('\x00').encode('unicode-escape')
-            except: # If we've gotten this far, the string ins't going to print correctly
+            except:  # If we've gotten this far, the string ins't going to print correctly
                 try:
                     text += 'Dec: ' + self.decoded_string.rstrip('\x00') + '\t (' + \
                             str(list(self.decode_unknown_charset())) + ')'
@@ -216,7 +218,7 @@ class EncodedString(object):
         else:
             return idc.ASCSTR_UNICODE if isinstance(self.decoded_string, unicode) else idc.ASCSTR_C
 
-    def calc_size(self, width = 1):
+    def calc_size(self, width=1):
         '''
         Description:
             Search for the next null to end the string and update.
@@ -230,7 +232,7 @@ class EncodedString(object):
             return idc.BADADDR
 
         self.size = end_location - self.string_location
-        while self.size % width: # ensure unicode strings are a valid length
+        while self.size % width:  # ensure unicode strings are a valid length
             self.size += 1
 
         if self.encoded_data == INVALID:
@@ -254,7 +256,7 @@ class EncodedString(object):
         '''
         if self.size == INVALID:
             raise ValueError("Size was never calculated!")
-        bytes = idaapi.get_many_bytes(self.string_location, self.size)
+        bytes = idaapi.get_many_bytes(self.string_location, self.size) if self.size else ''
         return bytes if bytes is not None else INVALID
 
     def decode_unknown_charset(self):
@@ -274,11 +276,11 @@ class EncodedString(object):
         '''
         # This has to be string-escape here for silly, silly reasons.
         if sum(map(lambda c: c.encode('unicode-escape').startswith('\\x') + \
-                             c.encode('unicode-escape').startswith('\\u') * 2,
+                        c.encode('unicode-escape').startswith('\\u') * 2,
                    self.decoded_string.rstrip('\x00'))) == 0:
             return self.decoded_string
 
-        outputs = [] # [(output, score, page)]
+        outputs = []  # [(output, score, page)]
 
         for code_page in CODE_PAGES:
             # If we don't do replace here, we will get lots of UnicodeDecodeErrors.
@@ -292,8 +294,9 @@ class EncodedString(object):
                                     output)),
                             code_page))
 
-        outputs.sort(key = lambda tup: tup[1])
+        outputs.sort(key=lambda tup: tup[1])
         return outputs[0][0] if outputs and outputs[0] != len(self.decoded_string) else self.decoded_string
+
 
 class StringTracer(object):
     '''
@@ -315,12 +318,14 @@ class StringTracer(object):
 
     Input:
         initial_offset - Required. We have to start somewhere.
+        identifier - The id of the YARA rule that this Tracer is based off of
 
     Throws:
         AttributeError - There was no function at initial_offset.
     '''
     __metaclass__ = abc.ABCMeta
-    def __init__(self, initial_offset, identifier = UNUSED):
+
+    def __init__(self, initial_offset, identifier=UNUSED):
         super(StringTracer, self).__init__()
         self.initial_offset = initial_offset
         self.identifier = identifier
@@ -358,9 +363,11 @@ def get_encoded_strings():
     ''' Use responsibly '''
     return ENCODED_STRINGS
 
+
 def get_decoded_strings():
     ''' Use responsibly '''
     return DECODED_STRINGS
+
 
 def is_valid_ea(ea):
     '''
@@ -375,7 +382,8 @@ def is_valid_ea(ea):
     '''
     return ea not in [INVALID, UNUSED, idc.BADADDR] and idc.MinEA() <= ea <= idc.MaxEA()
 
-def split_decoded_string(decoded_string, identify = False):
+
+def split_decoded_string(decoded_string, identify=False):
     '''
     Description:
         Given a single EncodedString, split it into multiple.
@@ -391,7 +399,7 @@ def split_decoded_string(decoded_string, identify = False):
     '''
     '''
     Normally, we have either a block of either all one byte characters OR all two byte characters,
-    however with some samples, the blocks have utf-8 and utf-16 mixed together. When the block is all one
+    however with some families, the blocks have utf-8 and utf-16 mixed together. When the block is all one
     byte characters, we just split the block on \x00 and are done with it. Likewise, when the block is all
     two byte characters, we just split the block on \x00\x00 and are done with it. For mixed blocks,
     we can't just split on one or the other. If we were to split on \x00 to find the single byte character strings,
@@ -427,12 +435,12 @@ def split_decoded_string(decoded_string, identify = False):
                 while string_start >= section_start and decoded_string.decoded_string[string_start] == '\x00':
                     string_start -= 2
                 if string_start > section_start:
-                    string_start += 3 # last step +1 to skip \x00
+                    string_start += 3  # last step +1 to skip \x00
                 elif string_start < section_start:
                     # The leftmost string in the section, so don't step past section_start
                     string_start = section_start
             else:
-                string_start = section_start # The leftmost string in the block
+                string_start = section_start  # The leftmost string in the block
 
             # Now that we have a string_start and string_end, we can carve the string
             new_decoded_string = decoded_string.decoded_string[string_start: string_end]
@@ -460,13 +468,13 @@ def split_decoded_string(decoded_string, identify = False):
             while section_start < decoded_string.size and decoded_string.decoded_string[section_start] == '\x00':
                 section_start += 1
             section_end = decoded_string.decoded_string[section_start:].find('\x00\x00')
-            if section_end == -1: # The rightmost section in the block
+            if section_end == -1:  # The rightmost section in the block
                 section_end = decoded_string.size
             else:
                 section_end += section_start
             string_end = section_end
 
-    results.sort(key = lambda decoded_string: decoded_string.startEA)
+    results.sort(key=lambda decoded_string: decoded_string.startEA)
 
     if identify:
         for new_string in results:
@@ -474,7 +482,8 @@ def split_decoded_string(decoded_string, identify = False):
 
     return results
 
-def find_unrefd_encoded_strings(encoded_string, delimiter = None):
+
+def find_unrefd_encoded_strings(encoded_string, delimiter=None):
     '''
     Description:
         Given a known EncodedString, find unreferenced encoded strings before the next ref.
@@ -510,7 +519,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter = None):
             # For cases where the delimiter has repeated values (like unicode null),
             # step until the delimiter is right aligned
             while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.GetManyBytes(index + 1, len(delimiter)) == delimiter:
+                            idc.GetManyBytes(index + 1, len(delimiter)) == delimiter:
                 index += 1
             # Technically we need to check this again to be super safe
             if list(idautils.XrefsTo(index, idaapi.XREF_ALL)):
@@ -520,7 +529,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter = None):
             # Consume non-delimiter bytes until we encounter another delimiter or a ref
             index += 1
             while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.GetManyBytes(index, len(delimiter)) != delimiter:
+                            idc.GetManyBytes(index, len(delimiter)) != delimiter:
                 index += 1
 
             new_string = copy.copy(encoded_string)
@@ -530,6 +539,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter = None):
             results.append(new_string)
 
     return results
+
 
 def find_encoded_strings_inline(matches, Tracer, **kwargs):
     '''
@@ -555,6 +565,7 @@ def find_encoded_strings_inline(matches, Tracer, **kwargs):
             append_debug('Error tracing at 0x%X' % ea)
     return encoded_strings
 
+
 def find_encoded_strings(funcs, Tracer, **kwargs):
     '''
     Description:
@@ -572,7 +583,7 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
     for func in funcs:
         for ref in func.xrefs_to:
             if idc.SegName(ref) == '.pdata':
-                append_debug('Segment .pdata for ref 0x%X is not a relevant code segment and will be skipped' % ref)
+                append_debug('Segment .pdata for ref 0x%08x is not a relevant code segment and will be skipped' % ref)
             else:
                 try:
                     tracer = Tracer(ref, func.identifier, **kwargs)
@@ -581,8 +592,10 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
                     else:
                         append_debug('Failed to find strings at 0x%X' % ref)
                 except AttributeError:
-                    append_debug('No function exists at 0x%X. Create a function at this location to obtain strings.' % ref)
+                    append_debug(
+                        'No function exists at 0x%X. Create a function at this location to obtain strings.' % ref)
     return encoded_strings
+
 
 def decode_strings(encoded_strings, decode):
     '''
@@ -603,9 +616,10 @@ def decode_strings(encoded_strings, decode):
             append_debug('Unable to find string at: 0x%X' % encoded_string.string_location)
             continue
         encoded_string.decoded_string = decode(encoded_string)
-        if encoded_string.decoded_string: # Allow decoders to abort/fail quietly
+        if encoded_string.decoded_string:  # Allow decoders to abort/fail quietly
             decoded_strings.append(encoded_string)
     return decoded_strings
+
 
 def _yara_callback(data):
     '''
@@ -626,7 +640,8 @@ def _yara_callback(data):
 
     return yara.CALLBACK_CONTINUE
 
-def generic_run_yara(rule_text, callback_func = _yara_callback):
+
+def generic_run_yara(rule_text, callback_func=_yara_callback):
     '''
     Description:
         Applies yara rule and returns raw results. Clear the matches each time to prevent
@@ -642,10 +657,11 @@ def generic_run_yara(rule_text, callback_func = _yara_callback):
     global _YARA_MATCHES
     _YARA_MATCHES = []
 
-    yara.compile(source = rule_text).match(INPUT_FILE_PATH, callback = callback_func)
+    yara.compile(source=rule_text).match(INPUT_FILE_PATH, callback=callback_func)
     return _YARA_MATCHES
 
-def yara_find_decode_functions(rule_text, func_name = None, callback_func = _yara_callback):
+
+def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_callback):
     '''
     Description:
         Use yara to find the string decode functions, rename them, and return the SuperFunc_ts.
@@ -667,12 +683,13 @@ def yara_find_decode_functions(rule_text, func_name = None, callback_func = _yar
     global _YARA_MATCHES
     _YARA_MATCHES = []
 
-    if not yara.compile(source = rule_text).match(INPUT_FILE_PATH, callback = callback_func):
+    if not yara.compile(source=rule_text).match(INPUT_FILE_PATH, callback=callback_func):
         raise RuntimeError("The provided yara rule failed to match!")
 
     return make_superfunc_t_from_matches(_YARA_MATCHES, func_name)
 
-def make_superfunc_t_from_matches(matches, func_name = None):
+
+def make_superfunc_t_from_matches(matches, func_name=None):
     '''
     Description:
         Makes a SuperFunc_t object for each yara match
@@ -686,13 +703,16 @@ def make_superfunc_t_from_matches(matches, func_name = None):
     '''
     decode_funcs = set()
     for ea, identifier in matches:
+        if ea == idc.BADADDR:
+            continue
         func = SuperFunc_t(ea, identifier)
         if func_name is not None:
             func.rename(func_name)
         decode_funcs.add(func)
     return list(decode_funcs)
 
-def output_strings(decoded_strings, size_in_comment = False):
+
+def output_strings(decoded_strings, size_in_comment=False):
     '''
     Description:
         Outputs the decoded string data to the console and as a comment at the
@@ -711,13 +731,13 @@ def output_strings(decoded_strings, size_in_comment = False):
     '''
     deduped_decoded_strings = {(string.decoded_string, string.string_location): string
                                for string in decoded_strings}.values()
-    deduped_decoded_strings.sort(key = lambda string: string.string_location)
+    deduped_decoded_strings.sort(key=lambda string: string.string_location)
 
     string_list = []
     for decoded_string in deduped_decoded_strings:
         try:
             escaped_string = decoded_string.decode_unknown_charset().rstrip('\x00').encode('unicode-escape')
-        except UnicodeDecodeError: # Well, we tried...
+        except UnicodeDecodeError:  # Well, we tried...
             escaped_string = decoded_string.decoded_string.decode('utf-8',
                                                                   'replace').rstrip('\x00').encode('unicode-escape')
         string_list.append(escaped_string)
@@ -734,7 +754,7 @@ def output_strings(decoded_strings, size_in_comment = False):
             if decoded_string.decoded_string is not None:
                 try:
                     print 'Dec: ' + decoded_string.decoded_string.rstrip('\x00') + '\t (' + \
-                                    decoded_string.decoded_string.rstrip('\x00').encode('unicode-escape') + ')'
+                          decoded_string.decoded_string.rstrip('\x00').encode('unicode-escape') + ')'
                 except UnicodeDecodeError:
                     print 'Dec: ' + decoded_string.decoded_string.rstrip('\x00')
         if decoded_string.string_reference not in [INVALID, UNUSED]:
@@ -746,10 +766,11 @@ def output_strings(decoded_strings, size_in_comment = False):
             for ref in idautils.XrefsTo(decoded_string.string_location):
                 if ref.frm != decoded_string.string_reference:
                     idc.MakeComm(ref.frm, escaped_string)
-        
+
     return string_list
 
-def patch_decoded(decoded_strings, define = True):
+
+def patch_decoded(decoded_strings, define=True):
     '''
     Description:
         Patches the bytes at each encoded string location with the decoded string value.
@@ -762,12 +783,16 @@ def patch_decoded(decoded_strings, define = True):
     Output:
         Makes a string in IDA at the string's start_location
     '''
-    for decoded_string in sorted(decoded_strings, key = lambda string: string.string_location):
+    for decoded_string in sorted(decoded_strings, key=lambda string: string.string_location):
         if decoded_string.string_location in [INVALID, UNUSED, idc.BADADDR]:
             continue
-        idaapi.patch_many_bytes(decoded_string.startEA, decoded_string.as_bytes)
-        if define:
-            define_string(decoded_string)
+        try:
+            idaapi.patch_many_bytes(decoded_string.startEA, decoded_string.as_bytes)
+            if define:
+                define_string(decoded_string)
+        except TypeError:
+            append_debug("String type for decoded string from location 0x{:08x}.".format(decoded_string.startEA))
+
 
 def define_string(decoded_string):
     '''
@@ -781,6 +806,7 @@ def define_string(decoded_string):
         idaapi.make_ascii_string(decoded_string.startEA, decoded_string.byte_length, decoded_string.string_type)
     except:
         append_debug('Unable to define string at 0x%X' % decoded_string.startEA)
+
 
 def find_input_file():
     '''
@@ -797,7 +823,7 @@ def find_input_file():
         # If IDA does not know, check if the (correct) file is sitting next to the IDB.
         local_path = os.path.join(idautils.GetIdbDir(), idc.GetInputFile())
         if os.path.exists(local_path) and \
-                hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper() == idc.GetInputMD5():
+                        hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper() == idc.GetInputMD5():
             INPUT_FILE_PATH = local_path
             append_debug('Guessed the input file path: ' + INPUT_FILE_PATH)
             append_debug('IDA thought it was:          ' + ida_path)
@@ -807,7 +833,8 @@ def find_input_file():
     else:
         return True
 
-def string_decoder_main(yara_rule, Tracer, decode, patch = True, func_name = 'string_decode_function', inline = False):
+
+def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string_decode_function', inline=False):
     '''
     Description:
         If you are going to use this file's workflow as is, this is the entry point. This supports the majority
@@ -872,4 +899,4 @@ def string_decoder_main(yara_rule, Tracer, decode, patch = True, func_name = 'st
         return
 
 
-idc.Wait() # Force wait on import just to be sure
+idc.Wait()  # Force wait on import just to be sure

@@ -33,9 +33,6 @@ setup(
             'kordesii-test = kordesii.tools.kordesii_test:main'
         ]},
     packages=find_packages(),
-    package_dir={
-        'kordesii': 'kordesii',
-    },
     include_package_data=True,
     install_requires=[
         'bottle',
