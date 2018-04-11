@@ -13,15 +13,21 @@ The following modules are recommended as they are often used in decoders:
 - pyCrypto
 
 ## Installation
-```bash
+
+```
 pip install kordesii
 ```
 
-Alternatively you can clone this repo and then install with setup.py
+Alternatively you can clone this repo and install locally.
 ```bash
 git clone https://github.com/Defense-Cyber-Crime-Center/kordesii.git
-cd kordesii
-python setup.py install
+pip install ./kordesii
+```
+
+For a development mode use the `-e` flag to install in editable mode:
+```
+git clone https://github.com/Defense-Cyber-Crime-Center/kordesii.git
+pip install -e ./kordesii
 ```
 
 ### Decoder Installation

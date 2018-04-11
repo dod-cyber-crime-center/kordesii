@@ -21,7 +21,7 @@ def read(fname):
 
 setup(
     name='kordesii',
-    version='1.0',
+    version='1.1.0',
     author='DC3',
     description='A framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting.',
     url='https://github.com/Defense-Cyber-Crime-Center/kordesii',
@@ -42,6 +42,7 @@ setup(
         ]},
     packages=find_packages(),
     include_package_data=True,
+    python_requires='>=2.7, <3',
     install_requires=[
         'bottle',
         'pyelftools',
