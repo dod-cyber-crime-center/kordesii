@@ -9,9 +9,9 @@ from setuptools import setup, find_packages
 
 version_tuple = (sys.version_info[0], sys.version_info[1])
 if version_tuple < (2, 7) or version_tuple >= (3, 0):
-  print(('Unsupported Python version: {0:s}, version 2.7 or higher and '
+    print(('Unsupported Python version: {0:s}, version 2.7 or higher and '
          'lower than 3.x required.').format(sys.version))
-  sys.exit(1)
+    sys.exit(1)
 
 
 def read(fname):

@@ -90,7 +90,8 @@ class kordesiireporter(object):
 
     def filename(self):
         """
-        Returns the filename of the input file. If input was not a filesystem object, we create a temp file that is cleaned up after decoder is finished (unless tempcleanup is disabled)
+        Returns the filename of the input file. If input was not a filesystem object, we create a temp file that
+        is cleaned up after decoder is finished (unless tempcleanup is disabled)
         """
         if self.__filename:
             # we were given a filename, give it back
@@ -104,7 +105,7 @@ class kordesiireporter(object):
                     self.__tempfilename = tfile.name
 
                 if self.__disabletempcleanup:
-                    self.debug("Using tempfile as input file: %s" % (self.__tempfilename))
+                    self.debug("Using tempfile as input file: %s" % self.__tempfilename)
 
             return self.__tempfilename
 
@@ -117,14 +118,15 @@ class kordesiireporter(object):
 
     def managed_tempdir(self):
         """
-        Returns the filename of a managed temporary directory. This directory will be deleted when decoder is finished, unless tempcleanup is disabled.
+        Returns the filename of a managed temporary directory. This directory will be deleted when decoder is
+        finished, unless tempcleanup is disabled.
         """
 
         if not self.__managed_tempdir:
             self.__managed_tempdir = tempfile.mkdtemp(dir=self.tempdir, prefix="kordesii-managed_tempdir-")
 
             if self.__disabletempcleanup:
-                self.debug("Using managed temp dir: %s" % (self.__managed_tempdir))
+                self.debug("Using managed temp dir: %s" % self.__managed_tempdir)
 
         return self.__managed_tempdir
 
@@ -132,9 +134,9 @@ class kordesiireporter(object):
         """
         Record an error message--typically only framework reports error and decoders report via debug
         """
-        messageu = self.convert_to_unicode(message)
+        message = self.convert_to_unicode(message)
 
-        self.errors.append(messageu)
+        self.errors.append(message)
 
     def get_errors(self):
         """
@@ -260,7 +262,7 @@ class kordesiireporter(object):
 
     def get_decoder_path(self, decoder_name):
         """
-        Descripton:
+        Description:
             Given a decoder name, either full or just the family, get its path. First, try finding the Decoders
             directory that should be a sibling to kordesii's parent and look in there. If that fails, return None.
 

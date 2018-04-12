@@ -8,7 +8,7 @@ from kordesii.kordesiiidahelper import append_debug
 
 def try_make_function(function_start, function_end=idc.BADADDR, target_location=None, require_term=True,
                       end_mnem_bytes=None):
-    '''
+    """
     Description:
         Given a function location, attempt to create a function.
         If function creation fails, delete any partially created functions.
@@ -24,7 +24,7 @@ def try_make_function(function_start, function_end=idc.BADADDR, target_location=
 
     Output:
         Returns a tuple (function_start, function_end) for the created function if successful, None otherwise
-    '''
+    """
     if function_start <= function_end:
         if idc.MakeFunction(function_start, function_end):
             append_debug('Created a function 0x%X - 0x%X.' % (function_start, function_end))
@@ -521,7 +521,7 @@ def create_functions(location, require_term=True, start_mnem_bytes=None, end_mne
         if function_start < function_end:
             if try_make_function(function_start, function_end,
                                  require_term=require_term) and function_start <= location < idaapi.get_func(
-                    function_start).endEA:
+                function_start).endEA:
                 found_func = (function_start, function_end)
                 break  # Don't return here in case we have to split it yet.
 

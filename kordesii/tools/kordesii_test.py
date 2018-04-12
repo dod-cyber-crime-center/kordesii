@@ -67,7 +67,8 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          dest="input_file",
                          type=str,
                          default=None,
-                         help="Input text file with one file path per line. The file paths will be used to create or delete test cases depending on other arguments.")
+                         help="Input text file with one file path per line. The file paths will be used to create "
+                              "or delete test cases depending on other arguments.")
     decoder.add_argument("-u",
                          default=False,
                          dest="update",

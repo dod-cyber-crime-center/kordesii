@@ -114,7 +114,7 @@ def run_ida(reporter,
             cleanup_output_files=False,
             cleanup_idb_files=False):
     """
-    Descritpion:
+    Description:
         Call IDA given an input file and IDA script to run.
 
     Input:
@@ -270,7 +270,7 @@ def append_debug(message, log_token=LOG_TOKEN):
     try:
         print message
         with open(IDA_DEBUG_FILE, 'ab') as f:
-            f.write("%s\n" % (message))
+            f.write("%s\n" % message)
     except Exception as e:
         print("Error writing debug message to %s: %s" % (IDA_DEBUG_FILE, str(e)))
 
@@ -281,7 +281,7 @@ def append_string(string):
     """
     try:
         with open(IDA_STRINGS_FILE, 'ab') as f:
-            f.write("%s\n" % (string))
+            f.write("%s\n" % string)
     except Exception as e:
         print("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
 

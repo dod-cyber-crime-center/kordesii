@@ -160,6 +160,9 @@ def get_string(ea):
     return idc.GetString(ea, strtype=stype)
 
 
+SECTION_START = None
+
+
 def _read_bytes(start_ea, end_ea):
     """
     Reads and returns the bytes from <start_ea> to <end_ea>. Reads are returned in sections READ_LENGTH in length to

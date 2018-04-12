@@ -1,6 +1,6 @@
-'''
+"""
 Contains various helper functions for our tracing, which is static pseudo-execution of assembly.
-'''
+"""
 
 import idc
 import idaapi
@@ -47,9 +47,9 @@ MOVS = ('rep mov', 'movsb', 'movsw', 'movsd')
 
 
 class TraceState(object):
-    '''
+    """
     An object to hold all tracing's stateful info.
-    '''
+    """
 
     def __init__(self):
         self.regs = {}
@@ -110,7 +110,7 @@ class BranchingTraceState(TraceState):
 def unsafe_get_reg_fam(reg):
     """Gets the register family for any register
 
-        :param reg: register string representaion such as 'eax'
+        :param reg: register string representation such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
     """
@@ -122,7 +122,7 @@ def unsafe_get_reg_fam(reg):
 def get_reg_fam(reg):
     """ Gets the register family, returns None if it is a reserved register
 
-        :param reg: register string representaion such as 'eax'
+        :param reg: register string representation such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
     """
@@ -134,7 +134,7 @@ def get_reg_fam(reg):
 def get_reserved_reg(reg):
     """Gets the family of a reserved register, returns None otherwise
 
-        :param reg: register string representaion such as 'eax'
+        :param reg: register string representation such as 'eax'
 
         :return: list of all associated register names, such as ['rax', 'eax',  'ax', 'ah', 'al']
     """
@@ -145,9 +145,10 @@ def get_reserved_reg(reg):
 
 def get_reg_value(reg_values, reg):
     """
-        Helper function to retrieve the current value of a register given the register dictionary returned from create_stack and the string representation of the register name
+        Helper function to retrieve the current value of a register given the register dictionary returned from
+        create_stack and the string representation of the register name
 
-        :param reg_values: register dictionary returned by create_stack fucntion
+        :param reg_values: register dictionary returned by create_stack function
         :param reg: string representation of the register name
 
         :return: value of register, None if register not in dictionary
@@ -327,7 +328,8 @@ def get_encoded_stack_string_wide(stack, startoffset, size=None):
 
         :param stack: stack dictionary of your current working stack as created by the create_stack function
         :param startoffset: offset to start from on stack
-        :param size: optional parameter for size to pull off stack, if not set will read until two null bytes (wchar null)
+        :param size: optional parameter for size to pull off stack, if not set will read until two null bytes
+                    (wchar null)
 
         :return: string of characters from the stack dictionary starting at offset and reading until size or a null byte
                  this will not be wide characters
@@ -390,10 +392,10 @@ def handle_string_mov(ea, state):
 
     src = state.get_reg_value('esi')
     dst = state.get_reg_value('edi')
-    if src == None or dst == None:
+    if src is None or dst is None:
         return
     bytes = idaapi.get_many_bytes(src, count)
-    if bytes == None:
+    if bytes is None:
         return
     for i in xrange(count):
         state.stack[dst + i] = (ord(bytes[i]), ea)
@@ -452,7 +454,8 @@ def handle_lea(ea, state):
 
 def handle_push(ea, state):
     """
-        Loosely tracks the values that get pushed onto the stack, if the value is unknown when pushed. Should be called any time you see a push instruction if tracking
+        Loosely tracks the values that get pushed onto the stack, if the value is unknown when pushed.
+        Should be called any time you see a push instruction if tracking
 
         :param ea: instruction location
         :param state: the current TraceState
@@ -504,7 +507,8 @@ def create_state(endEA, startEA=None):
         Quick and dirty representation of stack and regs from start of function to this ea.
 
         :param endEA: The EA of which you want to compute the stack up until
-        :param startEA: Optional param of the beginning of the function - sometimes necessary if ida can't compute and you can
+        :param startEA: Optional param of the beginning of the function - sometimes necessary if ida can't
+                        compute and you can
 
         :return A newly created TraceState
     """
@@ -693,7 +697,7 @@ def trace_register_family_x64(reg, loc, func_ea, state=None):
     """
     Shouldn't be any different than trace_register_family except for continuing a trace if a register is loaded into
     the target register. However, using it in trace_register_family was not behaving properly, so keeping it separate
-    for now. Also unsure of what the repurcussions would be of adding that into the existing trace_register_family.
+    for now. Also unsure of what the repercussions would be of adding that into the existing trace_register_family.
 
     :param reg: The referenced register which a location is loaded into
     :param loc: The starting offset for tracing back from

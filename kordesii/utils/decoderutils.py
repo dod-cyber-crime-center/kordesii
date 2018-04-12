@@ -80,7 +80,7 @@ class SuperFunc_t(object):
         """
         Description:
             Attempts to apply new_name to the object at <ea>. If more than one object starts at <ea>, the
-            largest object will be renamed. If that name already exists, let IDA resolve the collission
+            largest object will be renamed. If that name already exists, let IDA resolve the collision
             and then return that name. If new_name is "", reset the name to IDA's default.
 
         Input:

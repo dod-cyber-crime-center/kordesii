@@ -100,7 +100,7 @@ def run_decoder(decoder):
         logger.info("run_decoder %s %s %s" % (decoder, datafile.filename, hashlib.md5(data).hexdigest()))
         return __run_decoder(decoder, data=data, filename=datafile.filename)
     else:
-        logger.error("run_decoder %s no input file" % (decoder))
+        logger.error("run_decoder %s no input file" % decoder)
     return {'error': 'No input file provided'}
 
 
@@ -117,12 +117,10 @@ def descriptions():
     try:
         response.content_type = "application/json"
         reporter = kordesiireporter(decoderdir=DECODER_DIR, base64outputfiles=True)
-        output = {}
-        output["decoders"] = reporter.list_decoders()
+        output = {"decoders": reporter.list_decoders()}
         return reporter.pprint(output)
     except Exception as e:
-        output = {}
-        output['error'] = traceback.format_exc()
+        output = {'error': traceback.format_exc()}
         logger.error("descriptions %s" % (traceback.format_exc()))
         return output
 
@@ -162,8 +160,7 @@ def __run_decoder(name, data, filename, append_output_text=True):
         return output
 
     except Exception as e:
-        output = {}
-        output['error'] = traceback.format_exc()
+        output = {'error': traceback.format_exc()}
         logger.error("__run_decoder %s %s %s" % (name, filename, traceback.format_exc()))
         return output
 

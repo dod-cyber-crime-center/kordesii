@@ -110,7 +110,7 @@ def run_yara_on_segments(rule_text, names=None, excluded_names=None, start_eas=N
     """
     Description:
         Applies yara rule to the bytes in the specified segments and returns raw results.
-        Segemnts may be specified by name or start EA, but one or the other is required.
+        Segments may be specified by name or start EA, but one or the other is required.
         Alternatively, names or start EAs may be provided to exclude. In this case all other segments will be scanned.
         Clears the matches each time to prevent duplicates.
 

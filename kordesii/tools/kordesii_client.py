@@ -56,7 +56,7 @@ def post_file(host, resource, input_file):
 
 def encode_multipart(input_file, base_boundary):
     """
-    Combines multiple compnents into the HTTP message body and returns the generated body.
+    Combines multiple components into the HTTP message body and returns the generated body.
     """
     with open(input_file, 'rb') as f:
         data = f.read()
@@ -74,7 +74,7 @@ def main():
     The main client.
      - Call post_file with the command line arguments.
      - Extract the strings returned by the server into a file strings.txt.
-     - Optionally extract, decode, and write out the genreated IDB.
+     - Optionally extract, decode, and write out the generated IDB.
      - List the written files to the console.
     """
     optparser = make_opt_parser()

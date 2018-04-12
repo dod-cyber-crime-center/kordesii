@@ -1,7 +1,7 @@
 # DC3-Kordesii
 [Changelog](CHANGELOG.md) | [Releases](https://github.com/Defense-Cyber-Crime-Center/kordesii/releases)
 
-DC3-Kordesii is a framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting. One parser module is usually created per malware family. DC3-Kordesii was designed to ease the burden of encoded string extraction by doing it in an automated, static way as well as to provide a standard set of functionality and methodologies. DC3-Kordesii supports both an analyst directed analysis and large-scale automated executing, utilizing either the REST API, the CLI or by manaully running decoders in IDA. DC3-Kordesii is authored by the Defense Cyber Crime Center (DC3).
+DC3-Kordesii is a framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting. One parser module is usually created per malware family. DC3-Kordesii was designed to ease the burden of encoded string extraction by doing it in an automated, static way as well as to provide a standard set of functionality and methodologies. DC3-Kordesii supports both an analyst directed analysis and large-scale automated executing, utilizing either the REST API, the CLI or by manually running decoders in IDA. DC3-Kordesii is authored by the Department of Defense Cyber Crime Center (DC3).
 
 ## Dependencies
 DC3-Kordesii requires the following:
@@ -25,7 +25,7 @@ python setup.py install
 ```
 
 ### Decoder Installation
-To make a decoder available for use, place it a directory with the name \<name>_StringDecoder.py
+To make a decoder available for use, place it a directory with the name `<name>_StringDecoder.py`
 Then pass the directory containing your decoders through the command line.
 ```bash
 kordesii --decoderdir=C:\my_decoders -p <name> <input_file>
@@ -38,7 +38,7 @@ this python package, which will be located in the site-packages. (e.g. C:\Python
 
 DC3-Kordesii is designed to standardize automation of a task typically done by one-off scripts.
 
-Most automated porcessing systems will use a condition, such as a YARA signature match, to trigger execution of a particular DC3-Kordesii decoder.
+Most automated processing systems will use a condition, such as a YARA signature match, to trigger execution of a particular DC3-Kordesii decoder.
 
 There are 2 options for integration of DC3-Kordesii:
 - REST API based on wsgi/bottle: ```kordesii-server```, ```kordesii-client```
@@ -74,8 +74,8 @@ see ```kordesii -h``` for full set of options
 
 ## Decoder Development
 
-The high level setps for module development are:
-- Create new <your decoder directory>\<name>_StringDecoder module
+The high level steps for module development are:
+- Create new `<your decoder directory>\<name>_StringDecoder.py` module
 - Add the following stub to the bottom of the module (where ```main``` is the entry point)
 
 ```python
