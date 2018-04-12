@@ -24,7 +24,15 @@ setup(
     version='1.0',
     author='DC3',
     description='A framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting.',
+    url='https://github.com/Defense-Cyber-Crime-Center/kordesii',
     long_description=read('README.md'),
+    keywords=['malware', 'ida', 'idapro'],
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Developers',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
+    ],
     entry_points={
         'console_scripts': [
             'kordesii = kordesii.tools.kordesii_tool:main',
