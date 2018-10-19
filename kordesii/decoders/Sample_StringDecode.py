@@ -1,6 +1,9 @@
+
 import idc
-import kordesii.utils.decoderutils as decoderutils
-import kordesii.kordesiiidahelper as kordesiiidahelper
+
+from kordesii import kordesiiidahelper
+from kordesii.utils import decoderutils
+
 
 YARA_RULE = """rule sample_decode
 {

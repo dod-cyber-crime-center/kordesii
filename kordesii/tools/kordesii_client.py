@@ -11,6 +11,7 @@ import sys
 import urllib2
 import uuid
 
+
 USAGE = 'USAGE: kordesii-client [options] DECODER INPUT_FILE'
 
 

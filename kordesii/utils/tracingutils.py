@@ -394,8 +394,14 @@ def handle_string_mov(ea, state):
     dst = state.get_reg_value('edi')
     if src is None or dst is None:
         return
+    # In IDA 7, get_many_bytes doesn't return None on failure, instead it will return
+    # a string of \xff the size of count. My theory is that the function changed
+    # to return -1 for each byte within the c code and something is casting it to a string before returning.
+    # Since, all \xff's could be valid we need to check if src is valid instead.
+    if not idc.is_loaded(src):
+        return
     bytes = idaapi.get_many_bytes(src, count)
-    if bytes is None:
+    if bytes in (None, -1):  # Keep this around in-case they fix it in a future version.
         return
     for i in xrange(count):
         state.stack[dst + i] = (ord(bytes[i]), ea)
@@ -518,7 +524,7 @@ def create_state(endEA, startEA=None):
     ea = startEA
     while ea < endEA:
         mnemonic = idc.GetMnem(ea)
-        if mnemonic == 'movs':
+        if mnemonic.startswith('movs'):
             handle_string_mov(ea, state)
         elif mnemonic.startswith('mov'):
             handle_mov(ea, state)

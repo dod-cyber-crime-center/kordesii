@@ -1,8 +1,12 @@
+
+import itertools
+import re
+import numbers
+
 import idaapi
 import idc
 import idautils
 
-import re
 from decoderutils import SuperFunc_t
 from kordesii.kordesiiidahelper import append_debug
 
@@ -114,6 +118,7 @@ class IterApis(object):
         self._processed = True
 
 
+# TODO: Use SuperFunc_t.heads() instead.
 def lines(start=None, end=None, reverse=False, max_steps=None):
     """
     Iterates through instructions within the start address and end addresses.
@@ -160,88 +165,165 @@ def get_string(ea):
     return idc.GetString(ea, strtype=stype)
 
 
-SECTION_START = None
-
-
-def _read_bytes(start_ea, end_ea):
+class Segments(object):
     """
-    Reads and returns the bytes from <start_ea> to <end_ea>. Reads are returned in sections READ_LENGTH in length to
-    avoid potential memory concerns for extremely large ranges.
-
-    :param start_ea: The start of the range
-    :param end_ea: The end of the range
-
-    :return: A string of the bytes in the given range
+    Class that allow obtaining segment bytes more efficiently.
     """
-    global SECTION_START
+    def __init__(self):
+        self.segments = {}
+    
+    def _get_segment_bytes(self, start, end):
+        """
+        Obtain segment bytes, setting non-loaded bytes to NULL
+        
+        :param int start: segment start EA
+        
+        :param int end: segment end EA
+        
+        :return string: bytes contained in segment
+        """
+        # Reconstruct the segment, account for bytes which are not loaded.
+        # Can't use xrange() here because we can get a "Python int too large to conver to C long" error
+        seg_range = iter(itertools.count(start).next, end)  # a range from start -> end
+        return str(bytearray(idc.Byte(i) if idc.isLoaded(i) else 0 for i in seg_range))
+        
+    def segment_bytes(self, val):
+        """
+        Will obtain segment bytes for the segment in which EA is contained or by segment name.  This will be on demand 
+        and segment bytes will be cached if they have not already been obtained
+        
+        :param string|int val: either the name of a segment or an EA within a segment
+        
+        :return string: bytes which are contained with the segment
+        """
+        if isinstance(val, str):
+            seg_start = idaapi.get_segm_by_name(val).startEA
+            if seg_start is None:
+                raise AssertionError("could not find segment for {}".format(val))
+            
+        elif isinstance(val, numbers.Number):
+            seg_start = idc.GetSegmentAttr(val, idc.SEGATTR_START)
+        
+        seg_bytes = self.segments.get(seg_start)
+        if seg_bytes is None:
+            seg_end = idc.GetSegmentAttr(seg_start, idc.SEGATTR_END)
+            seg_bytes = self._get_segment_bytes(seg_start, seg_end)
+            self.segments[seg_start] = seg_bytes
+            
+        return seg_bytes
 
-    block_start = start_ea
-    block_end = end_ea
-    while block_start < end_ea:
-        while block_start < end_ea and idaapi.get_many_bytes(block_start, 1) is None:
-            block_start += 1
-        if block_start >= end_ea:
-            break
-        block_end = block_start + 1
-        while block_end < end_ea and idaapi.get_many_bytes(block_end, 1) is not None:
-            block_end += 1
 
-        SECTION_START = block_start
-        while block_start < block_end:
-            yield idaapi.get_many_bytes(block_start, min(READ_LENGTH, block_end - block_start))
-            SECTION_START += READ_LENGTH
-            block_start += READ_LENGTH
-
-        block_start = block_end + 1
+kordesiiidautils_segments = Segments()
 
 
-def obtain_segment_data(segname):
+class IDA_MatchObject(object):
     """
-    Given a segment name, return the bytes within the segment.
-
-    :param segname: Name of the segment
-
-    :return: Data from the specified segment.
+    Class that performs some voodoo on MatchObjects.
     """
-    seg = idaapi.get_segm_by_name(segname)
-    if seg:
-        return _read_bytes(seg.startEA, seg.endEA)
-    return None
+    def __init__(self, match, seg_start):
+        self._match = match
+        self._start = seg_start
+
+    def __getattr__(self, item):
+        """
+        Redirects anything that this class doesn't support back to the matchobject class
+
+        :param item:
+
+        :return:
+        """
+        return getattr(self._match, item, None)
+
+    def start(self, group=None):
+        """
+        Returns the match object start value with respect to the segment start.
+
+        :param group: optional group to obtain the start of
+
+        :return: virtual start address
+        """
+        if group:
+            return self._match.start(group) + self._start
+
+        return self._match.start() + self._start
+
+    def end(self, group=None):
+        """
+        Returns the match object end value with respect to the segment start.
+
+        :param group: optional group to obtain the end of
+
+        :return: virtual end address
+        """
+        if group:
+            return self._match.end(group) + self._start
+
+        return self._match.end() + self._start
 
 
-def re_search_on_segment(ptn, segname):
+class IDA_re(object):
     """
-    Run a regex pattern on a specified segment.
-
-    :param ptn: Regex pattern
-    :param segname: Name of the segment
-
-    :return: re.MatchObject for the regex pattern or None
+    Class to perform regex operations within IDA.
     """
-    segdata = obtain_segment_data(segname)
-    if segdata:
-        for entry in segdata:
-            match = re.search(ptn, entry, re.DOTALL)
+    def __init__(self, ptn, flags=0):
+        if isinstance(ptn, basestring):
+            self._re = re.compile(ptn, flags=flags)
+        else:
+            self._re = ptn
+
+    def _get_segments(self, segname=None):
+        """
+        Obtain the bytes of the segment specified in segname or all segments as an iterable.
+        
+        :param str segname: segment name or None
+        
+        :yield: seg_start, seg_bytes
+        """
+        if segname and isinstance(segname, str):
+            segments = [idaapi.get_segm_by_name(segname).startEA]
+        
+        else:
+            segments = idautils.Segments()
+            
+        for segment in segments:
+            yield segment, kordesiiidautils_segments.segment_bytes(segment)
+
+    def search(self, segname=None):
+        """
+        Performs the search functionality on the entire file, searching each segment individually.
+
+        :return: match object modified to match the segment start address
+        """
+        for seg_start, seg_bytes in self._get_segments(segname):
+            match = self._re.search(seg_bytes)
             if match:
-                return match
-    return None
+                return IDA_MatchObject(match, seg_start)
 
+            return None
 
-def re_findall_on_segment(ptn, segname):
-    """
-    Run a regex pattern on a specified segment and obtain all matches
+    def finditer(self, segname=None):
+        """
+        Performs the finditer functionality on the entire file, searching each segment individually.
 
-    :param ptn: Regex pattern
-    :param segname: Name of the segment
+        :param segname: Restrict searching to segment with provided name
 
-    :return: List of strings for matches
-    """
-    segdata = obtain_segment_data(segname)
-    matches = []
-    if segdata:
-        for entry in segdata:
-            matches.extend(re.findall(ptn, entry, re.DOTALL))
-    return matches
+        :yield: match object
+        """
+        for seg_start, seg_bytes in self._get_segments(segname):
+            for match in self._re.finditer(seg_bytes):
+                yield IDA_MatchObject(match, seg_start)
+
+    def findall(self, segname=None):
+        """
+        Performs the findall functionality on the entire file.
+
+        :return: list of match objects
+        """
+        matches = []
+        for _, seg_bytes in self._get_segments(segname):
+            matches.extend(self._re.findall(seg_bytes))
+
+        return matches
 
 
 def obtain_function_by_name(func_name):

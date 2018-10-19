@@ -45,9 +45,10 @@ setup(
     python_requires='>=2.7, <3',
     install_requires=[
         'bottle',
+        'numpy',
         'pyelftools',
         'pefile',
         'requests',
-        'yara-python'
+        'yara-python',
     ]
 )

@@ -5,6 +5,7 @@ import yara
 import os
 from kordesii.kordesiiidahelper import append_debug
 
+
 _YARA_MATCHES = []
 READ_LENGTH = 10485760  # 10 MB
 SECTION_START = 0
@@ -94,7 +95,7 @@ def run_yara_on_segment(rule_text, name=None, start_ea=None, callback_func=_yara
     rule = yara.compile(source=rule_text)
     found_segment = False
     for seg in map(idaapi.getseg, idautils.Segments()):
-        if seg.startEA == start_ea or idaapi.get_segm_name(seg.startEA) == name:
+        if seg.startEA == start_ea or idaapi.get_segm_name(seg) == name:
             found_segment = True
             for bites in _read_bytes(seg.startEA, seg.endEA):
                 rule.match(data=bites, callback=callback_func)
@@ -146,7 +147,7 @@ def run_yara_on_segments(rule_text, names=None, excluded_names=None, start_eas=N
         segs_eas = list(idautils.Segments())
         if excluded_names:
             for seg_ea in segs_eas:
-                seg_name = idaapi.get_segm_name(seg_ea)
+                seg_name = idaapi.get_segm_name(idaapi.getseg(seg_ea))
                 if seg_name not in excluded_names:
                     results.extend(run_yara_on_segment(rule_text, name=seg_name, callback_func=callback_func))
         elif excluded_eas:

@@ -1,10 +1,15 @@
+
+import atexit
+import glob
 import os
+import re
+import shutil
 import subprocess
 import threading
-import pefile
-import shutil
-import elftools.elf.elffile as elffile
+
 import elftools.common.exceptions as elfexceptions
+import elftools.elf.elffile as elffile
+import pefile
 
 # Output files
 IDA_LOG_FILE = "ida_log.txt"
@@ -30,26 +35,27 @@ def find_ida(is_64_bit=False):
 
     Output:
         Return the absolute path to the highest version of IDA installed at the default location
-        on the current windows system or None if idaq.exe couldn't be found.
+        on the current windows system.
+
+    Raises:
+        IOError: If no installation of IDA could be found.
     """
-    # Find path to directory the IDA installer defaults to (i.e. decide which Program Files).
-    dir_ = [dir_ for dir_ in os.walk('C:\\').next()[1] if 'Program Files' in dir_]
-    if len(dir_) > 1:
-        dir_ = 'C:\\Program Files (x86)'
-    elif dir_:
-        dir_ = 'C:\\' + dir_[0]
-    else:
-        return
+    # Find installed IDA paths.
+    ida_dirs = glob.glob(r'C:\Program Files*\IDA *')
 
-    # Find potential IDA install directories
-    ida_dirs = [os.path.join(dir_, ida) for ida in os.walk(dir_).next()[1] if 'IDA' in ida]
+    # Sort by highest version.
+    get_version = lambda path: path.rpartition(' ')[2]
+    ida_dirs.sort(key=get_version, reverse=True)
 
-    # Find highest IDA version with idaq.exe or idaq64.exe in the directory
-    ida_exe = 'idaq64.exe' if is_64_bit else 'idaq.exe'
-    ida_dirs.sort(reverse=True)
+    ida_exe_re = re.compile('idaq?64\.exe' if is_64_bit else 'idaq?\.exe')
+
+    # Find highest version with a ida.exe or idaq.exe in the directory.
     for ida_dir in ida_dirs:
-        if ida_exe in os.walk(ida_dir).next()[2]:
-            return os.path.join(ida_dir, ida_exe)
+        for filename in os.listdir(ida_dir):
+            if ida_exe_re.match(filename):
+                return os.path.abspath(os.path.join(ida_dir, filename))
+
+    raise IOError('Unable to find IDA installation or executable. Please ensure IDA is installed.')
 
 
 def is_64_bit(input_file):
@@ -166,6 +172,8 @@ def run_ida(reporter,
     command = '"%s" %s -P %s -OMANA:MANA -S"\"%s\" exit" "%s"' % (ida_path, autonomous, log, script_path, input_file)
     process = subprocess.Popen(command)
 
+    atexit.register(process.kill)
+
     # Wrap the call in a thread so we can time it out.
     thread = threading.Thread(target=process.communicate)
     thread.start()
@@ -199,7 +207,7 @@ def run_ida(reporter,
         with open(strings_file_path, "r") as f:
             for line in f:
                 try:
-                    reporter.add_string(line.rstrip("\r\n").decode("string-escape"))
+                    reporter.add_string(line.rstrip("\r\n").decode("unicode-escape"))
                 except:
                     reporter.error("Bad string: {}".format(line))
 
@@ -280,8 +288,12 @@ def append_string(string):
     Append decoded string to file for access outside of IDA.
     """
     try:
+        # Make sure string is unicode escaped before writing!
+        if not isinstance(string, unicode):
+            string = string.decode('unicode-escape')
+        string = string.encode('unicode-escape')
         with open(IDA_STRINGS_FILE, 'ab') as f:
-            f.write("%s\n" % string)
+            f.write(b''.join([string, b'\n']))
     except Exception as e:
         print("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
 

@@ -2,18 +2,41 @@
 """
 DC3-Kordesii Framework test case tool
 """
+from __future__ import print_function, division
 
 # Standard imports
 import argparse
+import datetime
+import json
 import os
+import locale
 import sys
+import timeit
 
 # DC3-kordesii framework imports
 import kordesii
-from kordesii.kordesiitester import kordesiitester
 from kordesii.kordesiireporter import kordesiireporter
 from kordesii.kordesiitester import DEFAULT_EXCLUDE_FIELDS
-from kordesii.kordesiitester import DEFAULT_INCLUDE_FIELDS
+from kordesii.kordesiitester import kordesiitester
+
+
+def _median(data):
+    """
+    'Borrowed' from Py3's statistics library.
+
+    :param data: Data to get median of
+    :return: Median as a float or int
+    :rtype: float or int
+    """
+    data = sorted(data)
+    length = len(data)
+    if length == 0:
+        raise ValueError('No median for empty data.')
+    elif length % 2 == 1:
+        return data[length // 2]
+    else:
+        i = length // 2
+        return (data[i - 1] + data[i]) / 2
 
 
 def get_arg_parser():
@@ -61,6 +84,11 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          dest="exclude_field_names",
                          default=",".join(DEFAULT_EXCLUDE_FIELDS),
                          help="Fields (csv) excluded from test cases/comparisons. default: %(default)s")
+    decoder.add_argument("-n",
+                         type=int,
+                         dest="nprocs",
+                         default=None,
+                         help="Number of test cases to run simultaneously. Default: 3/4 * logical CPU cores.")
 
     # Arguments used to generate and update test cases
     decoder.add_argument("-i",
@@ -108,7 +136,7 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
 def main():
     """ Run tool. """
 
-    print ''
+    print('')
 
     # Get command line arguments
     argparser = get_arg_parser()
@@ -127,13 +155,13 @@ def main():
         if args.decoder_name in valid_decoder_names:
             decoders = [args.decoder_name]
         else:
-            print "Error: Invalid decoder name(s) specified. decoder names are case sensitive."
+            print("Error: Invalid decoder name(s) specified. decoder names are case sensitive.")
             exit(1)
     if args.all_tests:
         decoders = valid_decoder_names
 
     if not decoders:
-        print "You must specify the decoder to test (or test all decoders)"
+        print("You must specify the decoder to test (or test all decoders)")
         exit(2)
 
     if args.decoder_name:
@@ -146,29 +174,64 @@ def main():
 
     # Default is to run test cases
     if args.run_tests:
-        print "Running test cases. May take a while..."
-        all_passed, test_results = tester.run_tests(decoders, filter(None, args.field_names.split(",")),
-                                                    ignore_field_names=filter(None,
-                                                                              args.exclude_field_names.split(",")))
-        print "All Passed = {0}\n".format(all_passed)
+        print("Running test cases. May take a while...")
+        start_time = timeit.default_timer()
+        test_infos = []
+        json_list = []
+        all_passed = True
+        for passed, test_result, test_info in tester.run_tests(
+                decoders, filter(None, args.field_names.split(",")),
+                ignore_field_names=filter(None, args.exclude_field_names.split(",")),
+                nprocs=args.nprocs):
+            test_infos.append(test_info)
+            if not passed:
+                all_passed = False
+            if not args.silent:
+                sys.stdout.write(
+                    "{finished}/{total} - {decoder} {filename} {run_time:.4f}s\n".format(**test_info)
+                )
+                sys.stdout.flush()
+                if not passed or not args.only_failed_tests:
+                    # TODO: Refactor support for json.
+                    if args.json:
+                        json_list.append(tester.format_test_result(test_result, json_format=True))
+                    else:
+                        display = tester.format_test_result(test_result)
+                        print(display.encode(locale.getpreferredencoding(), 'replace'))
+
+        if args.json:
+            print(json.dumps(json_list))
+
+        # Don't count calculating the stats and printing them as test running time
+        end_time = timeit.default_timer()
+
         if not args.silent:
-            if args.only_failed_tests:
-                tester.print_test_results(test_results,
-                                          failed_tests=True,
-                                          passed_tests=False,
-                                          json_format=args.json)
-            else:
-                tester.print_test_results(test_results,
-                                          failed_tests=True,
-                                          passed_tests=True,
-                                          json_format=args.json)
-        if all_passed:
-            exit(0)
-        else:
-            exit(1)
+            print('\nTest stats:')
+            print('\nTop 10 Slowest Test Cases:')
+            # Cases sorted slowest first
+            sorted_cases = sorted(test_infos, key=lambda x: x['run_time'], reverse=True)
+            for i, info in enumerate(sorted_cases[:10]):
+                print('{:2}. {} {} {:.4f}s'.format(i + 1, info['decoder'], info['filename'], info['run_time']))
+
+            print('\nTop 10 Fastest Test Cases:')
+            for i, info in enumerate(list(reversed(sorted_cases))[:10]):
+                print('{:2}. {} {} {:.4f}s'.format(i + 1, info['decoder'], info['filename'], info['run_time']))
+
+            run_times = [info['run_time'] for info in test_infos]
+            print('\nMean Running Time: {:.4}s'.format(
+                sum(run_times) / len(test_infos)
+            ))
+            print('Median Running Time: {:.4f}s'.format(
+                _median(run_times)
+            ))
+            print()
+
+        print("Total Running Time: {}".format(datetime.timedelta(seconds=end_time - start_time)))
+        print("All Passed = {0}\n".format(all_passed))
+        exit(0 if all_passed else 1)
 
     # add files to test cases
-    elif args.delete:
+    elif args.decoder_name and args.delete:
         removed_files = tester.remove_test_results(args.decoder_name, input_files)
         for filename in removed_files:
             print("Removing results for %s in %s" % (filename, results_file_path))
@@ -185,7 +248,9 @@ def main():
                                            results_data=reporter.metadata,
                                            replace=True)
             elif len(reporter.metadata) > 1 and len(reporter.errors) > 0:
-                print("Error occurred for %s in %s, not updating" % (input_file, results_file_path))
+                print("Error occurred for %s in %s, not updating: " % (input_file, results_file_path))
+                print("\n".join(reporter.get_debug()))
+                print("\n".join(reporter.errors))
             else:
                 print("Empty results for %s in %s, not updating" % (input_file, results_file_path))
     else:

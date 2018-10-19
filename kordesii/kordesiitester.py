@@ -2,25 +2,39 @@
 Test case support for DC3-Kordesii. Decoder output is stored in a json file per decoder. To run test cases,
 decoder is re-run and compared to previous results.
 """
+from __future__ import print_function
+
+import glob
+import json
+import multiprocessing as mp
 # Standard imports
 import os
-import json
-import glob
+from timeit import default_timer
 
-# Kordesii framework imports
 import kordesii.kordesiireporter
-from kordesii.kordesiireporter import kordesiireporter
+
 
 FIELD_LAST_UPDATE = "last_update"
 
-DEFAULT_EXCLUDE_FIELDS = [kordesii.kordesiireporter.FIELD_DEBUG,
-                          kordesii.kordesiireporter.FIELD_IDB,
-                          FIELD_LAST_UPDATE
-                          ]
+DEFAULT_EXCLUDE_FIELDS = [
+    kordesii.kordesiireporter.FIELD_DEBUG,
+    kordesii.kordesiireporter.FIELD_IDB,
+    FIELD_LAST_UPDATE
+]
 
-DEFAULT_INCLUDE_FIELDS = [kordesii.kordesiireporter.FIELD_STRINGS,
-                          kordesii.kordesiireporter.FIELD_FILES
-                          ]
+DEFAULT_INCLUDE_FIELDS = [
+    kordesii.kordesiireporter.FIELD_STRINGS,
+    kordesii.kordesiireporter.FIELD_FILES
+]
+
+
+def multiproc_test_wrapper(args):
+    """Wrapper function for running tests in multiple processes."""
+    tester_instance = args[0]
+    try:
+        return tester_instance.async_test(*args[1:])
+    except KeyboardInterrupt:
+        return
 
 
 class kordesiitester(object):
@@ -36,6 +50,7 @@ class kordesiitester(object):
     ERRORS = "errors"
     DEBUG = "debug"
     IDA_LOG = "ida_log"
+    RUN_TIME = "run_time"
 
     # Properties
     reporter = None
@@ -150,10 +165,12 @@ class kordesiitester(object):
 
         return removed_files
 
-    def run_tests(self,
-                  decoder_names=None,
-                  field_names=None,
-                  ignore_field_names=DEFAULT_EXCLUDE_FIELDS):
+    def run_tests(
+            self,
+            decoder_names=None,
+            field_names=None,
+            ignore_field_names=DEFAULT_EXCLUDE_FIELDS,
+            nprocs=None):
         """
         Run tests and compare produced results to expected results.
 
@@ -165,11 +182,14 @@ class kordesiitester(object):
                 A restricted list of fields (metadata key values) that should be compared
                 during testing. If the list is empty (default), then all fields, except those in
                 ignore_field_names will be compared.
+
+        :yields: tuple containing (passed boolean, dictionary containing test_results)
         """
 
+        if field_names is None:
+            field_names = []
+
         results_file_list = glob.glob(os.path.join(self.results_dir, "*{0}".format(self.FILE_EXTENSION)))
-        all_test_results = []
-        all_passed = True
         if not decoder_names:
             decoder_names = []
         if not field_names:
@@ -184,42 +204,89 @@ class kordesiitester(object):
                 if results_file_path in results_file_list:
                     test_case_file_paths.append(results_file_path)
                 else:
-                    print "Results file not found for {0} decoder".format(decoder_name)
-                    print "File not found = {0}".format(results_file_path)
+                    print("Results file not found for {0} decoder".format(decoder_name))
+                    print("File not found = {0}".format(results_file_path))
         else:
             test_case_file_paths = results_file_list
 
+        cores = mp.cpu_count()
+        procs = nprocs or (3 * cores) // 4
+        pool = mp.Pool(processes=procs)
+
+        tests = []
+        # Just for nicer formatting...
+        decoder_len = 0
+        filename_len = 0
         # Parse test case/results files, run tests, and compare expected results to produced results
         for results_file_path in test_case_file_paths:
             results_data = self.parse_results_file(results_file_path)
             decoder_name = os.path.splitext(os.path.basename(results_file_path))[0]
 
             for result_data in results_data:
-                input_file_path = result_data[self.INPUT_FILE_PATH]
-                self.gen_results(decoder_name, input_file_path)
-                new_results = self.reporter.metadata
-                passed, test_results = self.compare_results(result_data, new_results, field_names,
-                                                            ignore_field_names=ignore_field_names)
-                if len(self.reporter.errors) > 0:
-                    passed = False
+                decoder_len = max(decoder_len, len(decoder_name))
+                filename_len = max(filename_len, len(os.path.basename(result_data[self.INPUT_FILE_PATH])))
+                tests.append((self, result_data, decoder_name, field_names, ignore_field_names))
 
-                all_test_results.append({self.DECODER: decoder_name,
-                                         self.INPUT_FILE_PATH: input_file_path,
-                                         self.PASSED: passed,
-                                         self.ERRORS: list(self.reporter.errors),
-                                         self.DEBUG: self.reporter.get_debug(),
-                                         self.IDA_LOG: self.reporter.ida_log,
-                                         self.RESULTS: test_results})
-                if not passed:
-                    all_passed = False
+        finished_tests = 0
+        digits = len(str(len(tests)))
 
-        # Return tuple showing if any tests failed alongside more detailed results
-        return all_passed, all_test_results
+        # While the tests will start in the order they were added, they will be yielded roughly in the
+        # order they complete.
+        test_iter = pool.imap_unordered(multiproc_test_wrapper, tests)
+        pool.close()
+        try:
+            for results in test_iter:
+                # Add an info dict to the returned results
+                # Built with formatting here since we have knowledge of all test cases
+                finished_tests += 1
+                test_info = {
+                    'finished': str(finished_tests).zfill(digits),
+                    'total': str(len(tests)).zfill(digits),
+                    'decoder': results[1][self.DECODER].ljust(decoder_len),
+                    'filename': os.path.basename(results[1][self.INPUT_FILE_PATH]).ljust(filename_len),
+                    'run_time': results[1][self.RUN_TIME]
+                }
+                yield results + (test_info,)
+        except KeyboardInterrupt:
+            pool.terminate()
+            raise
+
+    def async_test(self, result_data, decoder_name, field_names, ignore_field_names):
+        """Test running logic, separated into its own function for multi-processing purposes."""
+        start_time = default_timer()
+        input_file_path = result_data[self.INPUT_FILE_PATH]
+        self.gen_results(decoder_name, input_file_path)
+        new_results = self.reporter.metadata
+        passed, test_results = self.compare_results(
+            result_data,
+            new_results,
+            field_names,
+            ignore_field_names=ignore_field_names
+        )
+        if len(self.reporter.errors) > 0:
+            passed = False
+
+        done_time = default_timer()
+        run_time = done_time - start_time
+
+        # NOTE: Do not use a namedtuple, as they are not pickle-able.
+        test_result = {
+            self.DECODER: decoder_name,
+            self.INPUT_FILE_PATH: input_file_path,
+            self.PASSED: passed,
+            self.ERRORS: list(self.reporter.errors),
+            self.DEBUG: self.reporter.get_debug(),
+            self.IDA_LOG: self.reporter.ida_log,
+            self.RESULTS: test_results,
+            self.RUN_TIME: run_time
+        }
+
+        return passed, test_result
 
     def compare_results(self,
                         results_a,
                         results_b,
-                        field_names=None,
+                        field_names=[],
                         ignore_field_names=DEFAULT_EXCLUDE_FIELDS):
         """
         Compare two result sets. Only the fields (metadata key values) in
@@ -238,7 +305,7 @@ class kordesiitester(object):
             del results_b[self.INPUT_FILE_PATH]
 
         # Begin comparing results
-        if field_names:
+        if len(field_names) > 0:
             for field_name in field_names:
                 comparer = self.compare_results_field(results_a, results_b, field_name)
                 test_results[field_name] = comparer
@@ -295,64 +362,59 @@ class kordesiitester(object):
         comparer.compare(result_a, result_b)
         return comparer
 
-    def print_test_results(self, test_results, failed_tests=True, passed_tests=True, json_format=False):
+    def format_test_result(self, test_result, json_format=False):
         """
-        Print test results based on provided parameters. Expects results format
-        produced by run_tests() function.
+        Formats test result based on provided parameters.
+        Expects single test result format roduced by run_tests() function.
+
+        :param dict test_result: Dictionary containing a single test_result.
+        :param bool json_format: Whether to format results in json or user-friendly text.
+
+        :return str: A string containing the formatted results.
         """
 
         if json_format:
-            filtered_output = []
-            for test_result in test_results:
-                passed = test_result[self.PASSED]
-                if passed and passed_tests:
-                    filtered_result = {self.DECODER: test_result[self.DECODER],
-                                       self.INPUT_FILE_PATH: test_result[self.INPUT_FILE_PATH],
-                                       self.PASSED: test_result[self.PASSED]}
-                elif not passed and failed_tests:
-                    filtered_result = {self.DECODER: test_result[self.DECODER],
-                                       self.INPUT_FILE_PATH: test_result[self.INPUT_FILE_PATH],
-                                       self.PASSED: test_result[self.PASSED],
-                                       self.ERRORS: test_result[self.ERRORS],
-                                       self.DEBUG: test_result[self.DEBUG],
-                                       self.RESULTS: test_result[self.RESULTS]}
-                    if test_result[self.ERRORS]:
-                        filtered_result[self.IDA_LOG] = test_result[self.IDA_LOG]
-                    filtered_output.append(filtered_result)
+            filtered_result = {
+                self.DECODER: test_result[self.DECODER],
+                self.INPUT_FILE_PATH: test_result[self.INPUT_FILE_PATH],
+                self.PASSED: test_result[self.PASSED]
+            }
+            # Add logs if failed.
+            if not test_result[self.PASSED]:
+                filtered_result.update({
+                    self.ERRORS: test_result[self.ERRORS],
+                    self.DEBUG: test_result[self.DEBUG],
+                    self.RESULTS: test_result[self.RESULTS]
+                })
+                if test_result[self.ERRORS]:
+                    filtered_result[self.IDA_LOG] = test_result[self.IDA_LOG]
 
-            print json.dumps(filtered_output, indent=4, cls=MyEncoder)
+            return json.dumps(filtered_result, indent=4)
 
         else:
-            separator = u""
+            filtered_output = u""
+            filtered_output += u"{0}: {1}\n".format(self.DECODER, test_result[self.DECODER])
+            filtered_output += u"{0}: {1}\n".format(self.INPUT_FILE_PATH, test_result[self.INPUT_FILE_PATH])
+            filtered_output += u"{0}: {1}\n".format(self.PASSED, test_result[self.PASSED])
+            # Add logs if failed.
+            if not test_result[self.PASSED]:
+                filtered_output += u"{0}: {1}".format(self.ERRORS, "\n" if test_result[self.ERRORS] else "None\n")
+                if test_result[self.ERRORS]:
+                    for entry in test_result[self.ERRORS]:
+                        filtered_output += u"\t{0}\n".format(entry)
+                filtered_output += u"{0}: {1}".format(self.DEBUG, "\n" if test_result[self.DEBUG] else "None\n")
+                if test_result[self.DEBUG]:
+                    for entry in test_result[self.DEBUG]:
+                        filtered_output += u"\t{0}\n".format(entry)
+                filtered_output += u"{0}:\n".format(self.RESULTS)
+                for key in test_result[self.RESULTS]:
+                    filtered_output += u"{0}\n".format(
+                        str(test_result[self.RESULTS][key]).decode('utf8', 'replace'))
+                if test_result[self.ERRORS]:
+                    filtered_output += u"{0}:\n{1}\n".format(self.IDA_LOG, test_result[self.IDA_LOG])
+            filtered_output += u"\n"
 
-            for test_result in test_results:
-                filtered_output = u""
-                passed = test_result[self.PASSED]
-                if passed and passed_tests:
-                    filtered_output += u"{0}: {1}\n".format(self.DECODER, test_result[self.DECODER])
-                    filtered_output += u"{0}: {1}\n".format(self.INPUT_FILE_PATH, test_result[self.INPUT_FILE_PATH])
-                    filtered_output += u"{0}: {1}\n".format(self.PASSED, test_result[self.PASSED])
-                elif not passed and failed_tests:
-                    filtered_output += u"{0}: {1}\n".format(self.DECODER, test_result[self.DECODER])
-                    filtered_output += u"{0}: {1}\n".format(self.INPUT_FILE_PATH, test_result[self.INPUT_FILE_PATH])
-                    filtered_output += u"{0}: {1}\n".format(self.PASSED, test_result[self.PASSED])
-                    filtered_output += u"{0}: {1}".format(self.ERRORS, "\n" if test_result[self.ERRORS] else "None\n")
-                    if test_result[self.ERRORS]:
-                        for entry in test_result[self.ERRORS]:
-                            filtered_output += u"\t{0}\n".format(entry)
-                    filtered_output += u"{0}: {1}".format(self.DEBUG, "\n" if test_result[self.DEBUG] else "None\n")
-                    if test_result[self.DEBUG]:
-                        for entry in test_result[self.DEBUG]:
-                            filtered_output += u"\t{0}\n".format(entry)
-                    filtered_output += u"{0}:\n".format(self.RESULTS)
-                    for key in test_result[self.RESULTS]:
-                        filtered_output += u"{0}\n".format(test_result[self.RESULTS][key])
-                    if test_result[self.ERRORS]:
-                        filtered_output += u"{0}:\n{1}\n".format(self.IDA_LOG, test_result[self.IDA_LOG])
-
-                if filtered_output != "":
-                    filtered_output += u"{0}\n".format(separator)
-                    print "{}".format(filtered_output.encode('utf-8'))
+            return filtered_output
 
 
 class ResultComparison(object):
@@ -410,11 +472,11 @@ class ResultComparison(object):
             if self.missing:
                 report += tab_1 + "Missing:\n"
                 for item in self.missing:
-                    report += tab_2 + u"{}\n".format(item)
+                    report += tab_2 + "{!r}\n".format(item)
             if self.unexpected:
                 report += tab_1 + "Unexpected:\n"
                 for item in self.unexpected:
-                    report += tab_2 + u"{}\n".format(item)
+                    report += tab_2 + "{!r}\n".format(item)
 
             return report.rstrip()
 

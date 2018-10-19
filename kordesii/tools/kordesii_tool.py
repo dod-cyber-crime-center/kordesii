@@ -174,7 +174,6 @@ def main():
 
     # Run decoder
     if options.decoder:
-
         # Grab file from arguments
         input_file = os.path.abspath(args[0])
 

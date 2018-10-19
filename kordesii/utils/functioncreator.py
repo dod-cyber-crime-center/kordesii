@@ -3,6 +3,7 @@ import idaapi
 import idautils
 
 import itertools
+
 from kordesii.kordesiiidahelper import append_debug
 
 
@@ -32,8 +33,7 @@ def try_make_function(function_start, function_end=idc.BADADDR, target_location=
                 last_mnem_ea = idc.ItemHead(idaapi.get_func(function_start).endEA - 1)
                 last_mnem = idc.GetMnem(last_mnem_ea)
                 if (end_mnem_bytes is None and 'ret' not in last_mnem and 'jmp' not in last_mnem) or \
-                                idaapi.get_many_bytes(last_mnem_ea, idc.ItemSize(last_mnem_ea)).encode(
-                                    'hex').upper() != end_mnem_bytes.upper():
+                        (end_mnem_bytes and idaapi.get_many_bytes(last_mnem_ea, idc.ItemSize(last_mnem_ea)).encode('hex').upper() != end_mnem_bytes.upper()):
                     idc.DelFunction(function_start)
                     append_debug(
                         'Deleted function at 0x%X - the function didn\'t end with the correct mnem/bytes.' % function_start)
@@ -73,10 +73,9 @@ def find_binary_instruction_start(search_start_location, search_direction, targe
     target = target.upper()
     while search_start_location < max_location:
         ea = idc.FindBinary(search_start_location, search_direction, target)
-        # print target, '0x%X <= 0x%X < 0x%X' % (min_location, ea, max_location), idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex')
-        if min_location <= ea < max_location and ea == idc.ItemHead(ea) and idaapi.get_many_bytes(ea, idc.ItemSize(
-                ea)).encode('hex').upper().startswith(target.replace(' ', '')):
-            # print target, '0x%X' % ea
+        if (min_location <= ea < max_location
+                and ea == idc.ItemHead(ea)
+                and idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex').upper().startswith(target.replace(' ', ''))):
             return ea
         else:
             search_start_location = ea + (1 if search_direction == idc.SEARCH_DOWN else -1)
@@ -519,9 +518,8 @@ def create_functions(location, require_term=True, start_mnem_bytes=None, end_mne
     found_func = None
     for function_start, function_end in itertools.product(function_starts, function_ends):
         if function_start < function_end:
-            if try_make_function(function_start, function_end,
-                                 require_term=require_term) and function_start <= location < idaapi.get_func(
-                function_start).endEA:
+            if try_make_function(function_start, function_end, require_term=require_term) \
+                    and function_start <= location < idaapi.get_func(function_start).endEA:
                 found_func = (function_start, function_end)
                 break  # Don't return here in case we have to split it yet.
 

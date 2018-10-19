@@ -5,15 +5,17 @@ DC3-Kordesii is a framework for decoding encoded strings and files in malware vi
 
 ## Dependencies
 DC3-Kordesii requires the following:
+- Windows
 - python 2.7 (32 bit)
-- IDA Pro (tested with version 6.8)
+- IDA Pro 7.* (tested with 7.0)
+- *(optional)* Hex Ray's Decompiler for x86/x64 architectures
+    - (Used to improve accuracy of getting function arguments in `function_tracingutils`)
 
 ### Recommended Modules
 The following modules are recommended as they are often used in decoders:
 - pyCrypto
 
 ## Installation
-
 ```
 pip install kordesii
 ```
@@ -98,13 +100,48 @@ if __name__ == '__main__':
 
 ```stack_string_StringDecoder.py``` is provided as an example of how to traverse IDA's disassembly via IDAPython.
 
+## CPU Emulation
+DC3-Kordesii includes an experimental tracing utility called `function_tracingutils` that can be used to statically emulate
+and trace instructions within a function.
+
+```python
+from kordesii.utils import function_tracingutils
+
+# First create a tracer for the function
+addr = 0x401839
+tracer = function_tracingutils.FunctionTracer(addr)
+
+# Request the context for a particular address (within the function) to retreive
+# operands, register values and memory data.
+context = tracer.context_at(addr)
+operand_1 = context.get_operand_value(0, size=12)
+rbp = context.reg_read("RBP")
+stack = context.mem_read(rbp, size=0x14)
+
+# Get function arguments for a call instruction.
+for context, args in tracer.get_function_args(0x40147f):
+    for i, arg in enumerate(args):
+        print "Arg {} -> 0x{:X}".format(i, arg)
+        # If arg is a pointer, you can use the context to dereference it.
+        value = context.mem_read(arg, size=100)
+
+
+# NOTE: context_at() and get_function_args() will return the results for the first code path.
+# Use iter_context() and iter_function_args() respectively to get results for all possible paths.
+for context in tracer.iter_context(addr):
+   # ...
+```
+
+*WARNING: `function_tracingutils` uses the Hex Ray's decompiler to
+help get more accurate function signatures for the `get_function_args()`.
+You are more likely to get an incorrect number of arguments if it is not available.*
+
+
 ### Decoder Development Tips
-- Use the functions in decoderutils where possible
- - The main function ```string_decoder_main``` will likely handle most samples
+- Use the functions in `decoderutils` and `function_tracingutils` where possible
  - When ```string_decoder_main``` cannot be used, use as many of it's main 5 functions as is feasible
   - ```yara_find_decode_functions``` (and ```generic_run_yara```)
   - ```find_encoded_strings``` (and ```find_encoded_strings_inline```)
   - ```decode_strings```
   - ```output_strings```
-  - ```patch_strings```
 - Document the tracing algorithm in plain text
