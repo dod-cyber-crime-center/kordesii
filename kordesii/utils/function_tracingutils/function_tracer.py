@@ -53,15 +53,10 @@ class FunctionTracer(object):
     initialize the state of execution when a previously unanalyzed block is being inspected rather than having to
     completely reanalyze the entire function again.
     """
-    def __init__(self, func_ea, *args):
+
+    def __init__(self, func_ea):
         """
         :param func_ea: any address in the function of interest
-
-        :param int ea: address of instruction where value of interest is being set
-
-        :param int opnd: operand number of interest (0 - first operand, 1 - second operand, ...)
-
-        :param *args: an optional list of arguments passed to the function being analyzed, in the same order
         """
         self.func_obj = idaapi.get_func(func_ea)
         self.func_ea = self.func_obj.startEA
@@ -131,12 +126,9 @@ class FunctionTracer(object):
         >>>     print "Val for opnd0 at 0x1001b9ad = 0x{:x}".format(val)
 
         :param int ea: address to trace to
-
         :param int opnd: the operand of interest (0 - first operand, 1 - second operand, ...)
-
         :param str data_type: type of data to be extracted, can be one of: STRING, WIDE_STRING, BYTE_STRING, BYTE, WORD,
                           DWORD, QWORD
-
         :param int data_size: size of data, in bytes, to be extracted.  For STRING and WIDE_STRING, the size need not
                     be supplied IFF the string is NULL terminated and the data requested is the entire string up to the
                     null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD, 

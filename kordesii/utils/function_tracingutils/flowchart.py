@@ -36,7 +36,7 @@ class PathBlock(object):
         self.bb = bb
         self.prev = prev
         self._context = None
-        self._context_ea = None # ea that the context has been filled to (but not including)
+        self._context_ea = None  # ea that the context has been filled to (but not including)
 
     def __contains__(self, ea):
         return ea in self.bb
@@ -383,7 +383,7 @@ class FlowChart(idaapi.FlowChart):
             if block.startEA <= ea < block.endEA:
                 return block
 
-    def _paths_to_ea(self, ea, cur_block, visited=None, cur_path=[]):
+    def _paths_to_ea(self, ea, cur_block, visited=None, cur_path=None):
         """
         Recursive DFS traversal of graph which yields a path to EA.
 
@@ -397,6 +397,8 @@ class FlowChart(idaapi.FlowChart):
 
         :yield list: current path
         """
+        cur_path = cur_path or []
+
         # Initialize our visted set of blocks
         if visited is None:
             visited = set()

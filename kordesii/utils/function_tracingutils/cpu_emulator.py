@@ -90,11 +90,13 @@ class Operand(object):
         self.width = self._get_width()
         self.value = self._get_value(cpu_context)
 
+    def __repr__(self):
+        return '<Operand 0x{:0x}:{} : {} = {!r} : width = {}>'.format(
+            self.ip, self.idx, self.text, self.value, self.width)
+
     def _get_width(self):
         """
         Based on the dtyp value, return the size of the operand in bytes
-
-        :param dtyp: data type of operand
 
         :return: size of data type
         """
@@ -123,7 +125,7 @@ class Operand(object):
                 # TODO: Can this function be generalized to work with all registers?
                 offset = utils.get_stack_offset(cpu_context, self.ip, self.idx)
 
-            except ValueError as e:  # A TypeError indicates that the displacement is NOT a stack variable [ebp+8]
+            except ValueError:  # A TypeError indicates that the displacement is NOT a stack variable [ebp+8]
                 return utils.calc_displacement(cpu_context, self.ip, self.idx)
 
             else:
@@ -225,7 +227,7 @@ def set_operand_value(cpu_context, ip, value, opnd, optype, width=None):
         try:
             offset = utils.get_stack_offset(cpu_context, ip, 0)
 
-        except ValueError as e:   # Not a stack variable, calculate the displacement and set it using .memctrlr
+        except ValueError:   # Not a stack variable, calculate the displacement and set it using .memctrlr
             addr = utils.calc_displacement(cpu_context, ip, 0)
             cpu_context.mem_write(addr, value)
 
@@ -234,14 +236,10 @@ def set_operand_value(cpu_context, ip, value, opnd, optype, width=None):
 
     elif optype == idc.o_mem:
         # FS, GS are identified as memory addresses, rather use them as registers
-        if any(seg_reg in opnd for seg_reg in ["fs", "gs"]):
-            if "fs" in opnd:
-                seg_reg = "FS"
-            elif "gs" in opnd:
-                seg_reg = "GS"
-
-            cpu_context.reg_write(seg_reg, value)
-
+        if "fs" in opnd:
+            cpu_context.reg_write("FS", value)
+        elif "gs" in opnd:
+            cpu_context.reg_write("GS", value)
         else:
             if numpy.issubdtype(type(value), numpy.integer):
                 value = utils.struct_pack(value, signed=(value < 0), width=width)
@@ -309,9 +307,17 @@ def execute(cpu_context, ip):
     :param ip: instruction pointer
     """
     cpu_context.reg_write("RIP", ip)
+
     mnem = idc.GetMnem(ip)
+    # Determine if a rep* instruction and treat it as it's own opcode.
+    # TODO: Add support for emulating these rep opcodes.
+    if idc.Byte(ip) in (0xf2, 0xf3):
+        mnem = idc.GetDisasm(ip)  # IDA pro never has operands for rep opcodes.
+        assert mnem.startswith('rep')
+
     # TODO: Perhaps the Operand objects should be initialized and accessed from the cpu_context?
     operands = get_operands(cpu_context, ip)
+
     instruction = OPCODES.get(mnem)
     if instruction:
         instruction(cpu_context, ip, mnem, operands)

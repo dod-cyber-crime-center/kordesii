@@ -353,6 +353,7 @@ def _mul(cpu_context, ip, mnem, opvalues):
     # Sanitize our opvalues list by removing any None values.
     opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
     dx_reg = None
+    dx_result = None
     width = get_max_operand_size(opvalues)
     mask = utils.get_mask(width)
     multiplier1 = cpu_context.reg_read(RAX_REG_SIZE_MAP[width])
@@ -536,18 +537,51 @@ def _movsx(cpu_context, ip, mnem, opvalues):
     set_operand_value(cpu_context, ip, size, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
 
-@opcode
-def MOVSD(cpu_context, ip, mnem, opvalues):
-    """ Move or Merge Scalar Double-Precision Floating-Point """
-    opvalue2 = opvalues[1].value
-    width = opvalues[1].width
-    result = opvalue2
-    if idc.GetOpType(ip, 0) == idc.o_reg:
-        # When moving into an XMM register, the high 64 bits needs to remain untouched.
-        result = (opvalue2 & 0xFFFFFFFFFFFFFFFF0000000000000000) | result
+@opcode("movs")  # I don't believe IDA will ever use just "movs", but it's here just incase.
+@opcode("movsb")
+@opcode("movsw")
+@opcode("movsd")
+def movs(cpu_context, ip, mnem, opvalues):
+    """
+    Move Scalar Double-Precision Floating-Point Value
+    OR
+    Move Data from String to String
+    """
+    # movsd op1 op2
+    if mnem == "movsd" and len(opvalues) == 2:
+        op1, op2 = opvalues
+        data = op2.value
+        if op1.type == idc.o_reg:
+            # When moving into an XMM register, the high 64 bits needs to remain untouched.
+            data = (data & 0xFFFFFFFFFFFFFFFF0000000000000000) | data
+        cpu_logger.debug("{} 0x{:X} :: {} -> {}".format(mnem, ip, op2.value, data))
+        set_operand_value(cpu_context, ip, data, op1.text, op1.type)
 
-    cpu_logger.debug("{} 0x{:X} :: {} -> {}".format(mnem, ip, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    # movs*
+    else:
+        if cpu_context._bitness == 16:
+            src = "SI"
+            dst = "DI"
+        else:
+            src = "ESI"
+            dst = "EDI"
+        # IDA sometimes provides a single "fake" operand to help determine the size.
+        width = opvalues[0].width if opvalues else 4
+
+        size = {"movs": width, "movsb": 1, "movsw": 2, "movsd": 4}[mnem]
+        src_ptr = cpu_context.registers[src]
+        dst_ptr = cpu_context.registers[dst]
+        cpu_logger.debug("{} 0x{:X} :: 0x{:X} -> 0x{:X}".format(mnem, ip, src_ptr, dst_ptr))
+        data = cpu_context.mem_read(src_ptr, size)
+        cpu_context.mem_write(dst_ptr, data)
+
+        # update ESI/EDI registers
+        if cpu_context.registers.df:
+            cpu_context.registers[src] -= size
+            cpu_context.registers[dst] -= size
+        else:
+            cpu_context.registers[src] += size
+            cpu_context.registers[dst] += size
 
 
 @opcode
@@ -588,7 +622,7 @@ def NOT(cpu_context, ip, mnem, opvalues):
     """ NOT Logic Operator """
     opvalue1 = opvalues[0].value
     width = get_max_operand_size(opvalues)
-    result = ~(opvalue1)
+    result = ~opvalue1
     cpu_logger.debug("NOT 0x{:X} :: {} -> {}".format(ip, opvalue1, result))
     set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
@@ -620,7 +654,8 @@ def POP(cpu_context, ip, mnem, opvalues):
     set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
 
-@opcode
+@opcode("popa")
+@opcode("popad")
 def POPA(cpu_context, ip, mnem, opvalues):
     """
     POPA (valid only for x86)
@@ -632,15 +667,17 @@ def POPA(cpu_context, ip, mnem, opvalues):
     cpu_logger.debug("POPA 0x{:X}".format(ip))
     reg_order = ["EDI", "ESI", "EBP", "ESP", "EBX", "EDX", "ECX", "EAX"]
     for reg in reg_order:
-        val = utils.struct_unpack(cpu_context.mem_read(cpu_context.reg_read("ESP"), cpu_context._byteness))
         if reg == "ESP":
-            temp_esp = val
+            # Skip next 4 or 2 bytes
+            if mnem == "popad":
+                cpu_context.res_write("ESP", cpu_context.reg_read("ESP") + 4)
+            else:
+                cpu_context.res_write("ESP", cpu_context.reg_read("ESP") + 2)
         else:
+            # reg <- Pop()
+            val = utils.struct_unpack(cpu_context.mem_read(cpu_context.reg_read("ESP"), cpu_context._byteness))
             cpu_context.reg_write(reg, val)
-
-        cpu_context.res_write("ESP", cpu_context.reg_read("ESP") + 4)
-
-    cpu_context.reg_write("ESP", val)
+            cpu_context.res_write("ESP", cpu_context.reg_read("ESP") + 4)
 
 
 @opcode
@@ -752,7 +789,7 @@ def ROL(cpu_context, ip, mnem, opvalues):
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 8, 16, 32 when width is 1 Byte, 2 Bytes or 4 Bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % ((width * 8))
+        tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % (width * 8)
     else:
         # This is undefined behavior
         return
@@ -788,7 +825,7 @@ def ROR(cpu_context, ip, mnem, opvalues):
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 8, 16, 32 when width is 1 Byte, 2 Bytes or 4 Bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % ((width * 8))
+        tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % (width * 8)
     else:
         # This is undefined behavior
         return
@@ -882,7 +919,7 @@ def SBB(cpu_context, ip, mnem, opvalues):
     opvalue1 = opvalues[0].value
     opvalue2 = opvalues[1].value
     width = get_max_operand_size(opvalues)
-    result = opvalue1 - (opvalue2 + cpu_context.registers.CF)
+    result = opvalue1 - (opvalue2 + cpu_context.registers.cf)
 
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result == 0)
@@ -890,7 +927,8 @@ def SBB(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("SBB 0x{:X} :: {} - {} = {}".format(ip, opvalue1, (opvalue2 + oldcf), result))
+    cpu_logger.debug("SBB 0x{:X} :: {} - {} = {}".format(
+        ip, opvalue1, (opvalue2 + cpu_context.registers.cf), result))
     set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
 
@@ -902,7 +940,7 @@ def SETNA(cpu_context, ip, mnem, opvalues):
     """ Set if Not Above """
     result = int(cpu_context.registers.zf or cpu_context.registers.cf)
     cpu_logger.debug("SETNA 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
 
 @opcode
@@ -978,7 +1016,7 @@ def SETPS(cpu_context, ip, mnem, opvalues):
     """ Set if Not??? Parity """
     result = int(cpu_context.registers.sf)
     cpu_logger.debug("SETPS 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
 
 
 @opcode
