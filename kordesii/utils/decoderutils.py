@@ -7,7 +7,6 @@ import itertools
 import logging
 import os
 import re
-import yara
 import sys
 import warnings
 
@@ -18,6 +17,7 @@ import idc
 
 from kordesii import append_string
 from kordesii.utils import function_tracing
+from kordesii.utils import yara
 from kordesii.utils.function_creator import create_function_precise
 
 
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 INVALID = -1
 UNUSED = None
-_YARA_MATCHES = []
 
 # Codecs used to detect encoding of strings.
 CODE_PAGES = [
@@ -367,8 +366,8 @@ class EncodedString(object):
         try:
             idc.del_items(self.start_ea, idc.DELIT_SIMPLE, self.byte_length)
             idaapi.create_strlit(self.start_ea, self.byte_length, self.string_type)
-        except:
-            logger.warning('Unable to define string at 0x%X' % self.start_ea)
+        except Exception as e:
+            logger.warning('Unable to define string at 0x{:0X}: {}'.format(self.start_ea, e))
 
     @property
     def start_ea(self):
@@ -953,27 +952,7 @@ def decode_strings(encoded_strings, decode):
     return decoded_strings
 
 
-def _yara_callback(data):
-    """
-    Description:
-        Generic yara callback.
-
-    Input:
-        As defined by YARA. See YARA's documentation for more info.
-
-    Output:
-        A list of tuples: (offset, identifier)
-    """
-    if not data['matches']:
-        return False
-
-    for datum in data['strings']:
-        _YARA_MATCHES.append((idc.get_item_head(idaapi.get_fileregion_ea(datum[0])), datum[1]))
-
-    return yara.CALLBACK_CONTINUE
-
-
-def generic_run_yara(rule_text, callback_func=_yara_callback):
+def generic_run_yara(rule_text, callback_func=None):
     """
     Description:
         Applies yara rule and returns raw results. Clear the matches each time to prevent
@@ -986,14 +965,12 @@ def generic_run_yara(rule_text, callback_func=_yara_callback):
     Output:
         Returns a list of YARA's match results with items (location, description)
     """
-    global _YARA_MATCHES
-    _YARA_MATCHES = []
-
-    yara.compile(source=rule_text).match(INPUT_FILE_PATH, callback=callback_func)
-    return _YARA_MATCHES
+    warnings.warn(
+        'generic_run_yara() is deprecated. Please use kordesii.utils.yara instead.', DeprecationWarning)
+    return yara.match_strings(rule_text)
 
 
-def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_callback):
+def yara_find_decode_functions(rule_text, func_name=None, callback_func=None):
     """
     Description:
         Use yara to find the string decode functions, rename them, and return the SuperFunc_ts.
@@ -1012,13 +989,12 @@ def yara_find_decode_functions(rule_text, func_name=None, callback_func=_yara_ca
         RuntimeError - Assumes that there's no point in continuing if there is no YARA match
                        and that we were expecting a YARA match, so error in that case.
     """
-    global _YARA_MATCHES
-    _YARA_MATCHES = []
+    rule = yara.compile(source=rule_text)
+    matches = rule.match_strings()
 
-    if not yara.compile(source=rule_text).match(INPUT_FILE_PATH, callback=callback_func):
-        raise RuntimeError("The provided yara rule failed to match!")
-
-    return make_superfunc_t_from_matches(_YARA_MATCHES, func_name)
+    if not matches:
+        raise RuntimeError("All yara rules failed to match: {}".format(','.format(rule.names)))
+    return make_superfunc_t_from_matches(matches, func_name)
 
 
 def make_superfunc_t_from_matches(matches, func_name=None):
@@ -1199,7 +1175,7 @@ def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string
         if patch:
             patch_decoded(ENCODED_STRINGS)
         return string_list
-    except RuntimeError:
+    except RuntimeError as e:
         logger.error("The provided YARA rule failed to match. No strings can be decrypted for this YARA rule.")
         return
 

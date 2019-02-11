@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Created `kordesii.decoder_entry` function decorator to be used to wrap the decoder entry point function. 
     - This replaces the need to create a `if __name__ == "__main__":` condition statement.
+- Created `kordesii.utils.yara` which acts as a drop-in replacement for `yara` that effectively converts
+    offsets to virtual addresses.
+    - This is replaces many of the existing yara utility functions.
 
 ### Changed
 - Renamed IDA API function calls to the new 7.* snake_case names. This removes the need to enable 
@@ -22,6 +25,11 @@ using Python's builtin `logging` functionality.
 - Moved the content of `kordesii.kordesiiidahelper` to `kordesii` and provided easy import 
 from within the root `kordesii` module.
 - Removed the need for decoder to end with `_StringDecode`.
+
+### Deprecated
+- Old yara utility functions that have now been replace by `kordesii.utils.yara`
+    - `decoderutils.generic_run_yara()`
+    - All of `kordesii.utils.idayara`
 
 
 ## [1.2.0] - 2018-10-31

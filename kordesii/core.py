@@ -247,7 +247,7 @@ def run_ida(reporter,
     thread.start()
     thread.join(timeout if timeout and timeout > 0 else None)  # Block on timeout of 0
     if thread.is_alive():  # This will only be true if timeout != 0
-        reporter.debug('Killing IDA process: exceeded timeout of ' + str(timeout))
+        logger.info('Killing IDA process: exceeded timeout of ' + str(timeout))
         process.kill()
         thread.join()
         return
@@ -255,9 +255,9 @@ def run_ida(reporter,
     # IDA script completed
     # Make a note of the return code to have the information
     if process.returncode == 0:
-        reporter.debug("IDA return code = {}".format(process.returncode))
+        logger.info("IDA return code = {}".format(process.returncode))
     else:
-        reporter.error("IDA return code = {}".format(process.returncode))
+        logger.error("IDA return code = {}".format(process.returncode))
 
     # Ingest any debug information output by the script
     if log and os.path.isfile(log_file_path):
@@ -270,8 +270,8 @@ def run_ida(reporter,
             for line in f:
                 try:
                     reporter.add_string(line.rstrip("\r\n").decode("unicode-escape"))
-                except:
-                    reporter.error("Bad string: {}".format(line))
+                except Exception as e:
+                    logger.error("Bad string {!r}: {}".format(line, e))
 
     # Ingest the IDB produced by the script
     if is_64_bit(input_file):

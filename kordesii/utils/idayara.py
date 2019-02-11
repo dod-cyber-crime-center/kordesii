@@ -2,6 +2,7 @@
 
 import logging
 import os
+import warnings
 
 import yara
 
@@ -9,10 +10,11 @@ import idc
 import idaapi
 import idautils
 
-from kordesii import logutil
+
+from kordesii.utils import yara
+
 
 logger = logging.getLogger(__name__)
-
 
 _YARA_MATCHES = []
 READ_LENGTH = 10485760  # 10 MB
@@ -93,25 +95,9 @@ def run_yara_on_segment(rule_text, name=None, start_ea=None, callback_func=_yara
     Output:
         Returns a list of YARA's match results with items (location, description)
     """
-    global _YARA_MATCHES, FROM_FILE
-    _YARA_MATCHES = []
-    FROM_FILE = False
-
-    if name is None and start_ea is None:
-        raise Exception("Either a segment name or start EA are required to YARA scan a specific segment.")
-
-    rule = yara.compile(source=rule_text)
-    found_segment = False
-    for seg in map(idaapi.getseg, idautils.Segments()):
-        if seg.start_ea == start_ea or idaapi.get_segm_name(seg) == name:
-            found_segment = True
-            for bites in _read_bytes(seg.start_ea, seg.end_ea):
-                rule.match(data=bites, callback=callback_func)
-
-    if not found_segment:
-        logger.error("Failed to find segment \"" + name + "\"")
-
-    return _YARA_MATCHES
+    warnings.warn(
+        'run_yara_segment() is deprecated. Please use kordesii.utils.yara.match_strings() instead.', DeprecationWarning)
+    return yara.match_strings(rule_text, segment=name or start_ea)
 
 
 def run_yara_on_segments(rule_text, names=None, excluded_names=None, start_eas=None, excluded_eas=None,
@@ -133,9 +119,7 @@ def run_yara_on_segments(rule_text, names=None, excluded_names=None, start_eas=N
     Output:
         Returns a list of YARA's match results with items (location, description)
     """
-    global _YARA_MATCHES, FROM_FILE
-    _YARA_MATCHES = []
-    FROM_FILE = False
+    warnings.warn('run_yara_on_segments() is deprecated. Please use kordesii.utils.yara instead.', DeprecationWarning)
 
     if names is None and excluded_names is None and start_eas is None and excluded_eas is None:
         raise Exception(
@@ -163,8 +147,7 @@ def run_yara_on_segments(rule_text, names=None, excluded_names=None, start_eas=N
                 if seg_ea not in excluded_eas:
                     results.extend(run_yara_on_segment(rule_text, start_ea=seg_ea, callback_func=callback_func))
 
-    _YARA_MATCHES = results  # For conformity sake, make sure _YARA_MATCHES is set with all results
-    return _YARA_MATCHES
+    return results
 
 
 def run_yara_on_range(rule_text, start_ea, end_ea, callback_func=_yara_callback):
@@ -181,6 +164,8 @@ def run_yara_on_range(rule_text, start_ea, end_ea, callback_func=_yara_callback)
     Output:
         Returns a list of YARA's match results with items (location, description)
     """
+    warnings.warn('run_yara_on_range() is deprecated. Please use kordesii.utils.yara instead.', DeprecationWarning)
+
     global _YARA_MATCHES, FROM_FILE
     _YARA_MATCHES = []
     FROM_FILE = False
@@ -206,13 +191,9 @@ def run_yara_on_file(rule_text, input_file_path=None, callback_func=_yara_callba
     Output:
         Returns a list of YARA's match results with items (location, description)
     """
-    global _YARA_MATCHES, FROM_FILE
-    _YARA_MATCHES = []
+    warnings.warn('run_yara_on_file() is deprecated. Please use kordesii.utils.yara instead.', DeprecationWarning)
 
     if input_file_path is not None and os.path.exists(input_file_path):
-        FROM_FILE = True
-        yara.compile(source=rule_text).match(input_file_path, callback=callback_func)
+        return yara.match_strings(rule_text, input_file_path, input_file=True)
     else:
-        run_yara_on_segments(rule_text, start_eas=list(idautils.Segments()), callback_func=callback_func)
-
-    return _YARA_MATCHES
+        return run_yara_on_segments(rule_text, start_eas=list(idautils.Segments()), callback_func=callback_func)

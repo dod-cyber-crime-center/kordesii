@@ -196,33 +196,50 @@ class Segments(object):
         seg_range = iter(itertools.count(start).next, end)  # a range from start -> end
         return str(bytearray(idc.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in seg_range))
 
-    def segment_bytes(self, val):
+    def segment_start(self, val):
         """
-        Will obtain segment bytes for the segment in which EA is contained or by segment name.  This will be on demand 
-        and segment bytes will be cached if they have not already been obtained
-        
+        Retrieves the start EA for given name or EA within a segment.
+
         :param string|int val: either the name of a segment or an EA within a segment
-        
-        :return string: bytes which are contained with the segment
         """
         if isinstance(val, str):
-            seg_start = idaapi.get_segm_by_name(val).start_ea
-            if seg_start is None:
+            segment = idaapi.get_segm_by_name(val)
+            if segment is None:
                 raise AssertionError("could not find segment for {}".format(val))
-            
+            return segment.start_ea
         elif isinstance(val, numbers.Number):
-            seg_start = idc.get_segm_attr(val, idc.SEGATTR_START)
-        
+            return idc.get_segm_attr(val, idc.SEGATTR_START)
+        else:
+            raise ValueError('Invalid value: {}'.format(val))
+
+    def segment_bytes(self, val):
+        """
+        Will obtain segment bytes for the segment in which EA is contained or by segment name.  This will be on demand
+        and segment bytes will be cached if they have not already been obtained
+
+        :param string|int val: either the name of a segment or an EA within a segment
+
+        :return string: bytes which are contained with the segment
+        """
+        seg_start = self.segment_start(val)
         seg_bytes = self.segments.get(seg_start)
         if seg_bytes is None:
             seg_end = idc.get_segm_attr(seg_start, idc.SEGATTR_END)
             seg_bytes = self._get_segment_bytes(seg_start, seg_end)
             self.segments[seg_start] = seg_bytes
-            
+
         return seg_bytes
 
 
 _segments = Segments()
+
+
+def get_segment_bytes(name_or_ea):
+    return _segments.segment_bytes(name_or_ea)
+
+
+def get_segment_start(name_or_ea):
+    return _segments.segment_start(name_or_ea)
 
 
 class IDA_MatchObject(object):
@@ -283,9 +300,9 @@ class IDA_re(object):
     def _get_segments(self, segname=None):
         """
         Obtain the bytes of the segment specified in segname or all segments as an iterable.
-        
+
         :param str segname: segment name or None
-        
+
         :yield: seg_start, seg_bytes
         """
         if segname and isinstance(segname, str):

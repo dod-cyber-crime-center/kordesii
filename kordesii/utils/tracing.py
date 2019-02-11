@@ -2,8 +2,12 @@
 Contains various helper functions for our tracing, which is static pseudo-execution of assembly.
 """
 
+import logging
+
 import idc
 import idaapi
+
+logger = logging.getLogger(__name__)
 
 # FE
 POS_FIRST = 0
@@ -190,18 +194,14 @@ def is_64_bit():
 
 def get_int(val):
     """Attempts to convert the string given into the correct integer"""
-    try:
-        if val.isdigit():
-            return int(val)
-        elif val.endswith('h'):
-            return int(val[:-1], 16)
-        elif val.endswith('o'):
-            return int(val[:-1], 8)
-        elif val.endswith('b'):
-            return int(val[:-1], 2)
-    except:
-        logger.warning("Failed to get int from value: " + str(val))
-        return 0
+    if val.isdigit():
+        return int(val)
+    elif val.endswith('h'):
+        return int(val[:-1], 16)
+    elif val.endswith('o'):
+        return int(val[:-1], 8)
+    elif val.endswith('b'):
+        return int(val[:-1], 2)
 
 
 OPERAND_BYTE_SIZES = {0: 1,
