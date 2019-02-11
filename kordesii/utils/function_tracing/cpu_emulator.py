@@ -9,16 +9,10 @@ import idaapi
 import idc
 import idautils
 
-import kordesii.kordesiiidahelper as kordesiiidahelper
 from . import utils
 
 # create logger
-# HACKY work around for allowing for enabling/disabling of debug statements
-import os
-cpu_logger = logging.getLogger("cpu_emulator")
-DEBUG = os.environ.get("ENABLE_DEBUG", "False")
-if DEBUG == "True":
-    cpu_logger.debug = kordesiiidahelper.append_debug
+logger = logging.getLogger(__name__)
 
 
 # Dictionary containing opcode names -> function
@@ -85,8 +79,8 @@ class Operand(object):
         """
         self.ip = ip
         self.idx = idx
-        self.type = idc.GetOpType(ip, idx)
-        self.text = idc.GetOpnd(ip, idx)
+        self.type = idc.get_operand_type(ip, idx)
+        self.text = idc.print_operand(ip, idx)
         self.width = self._get_width()
         self.value = self._get_value(cpu_context)
 
@@ -100,8 +94,9 @@ class Operand(object):
 
         :return: size of data type
         """
-        idaapi.decode_insn(self.ip)  # Has symptom that fills idaapi.cmd.Operands
-        dtype = idaapi.cmd.Operands[self.idx].dtyp
+        cmd = idaapi.insn_t()
+        idaapi.decode_insn(cmd, self.ip)
+        dtype = cmd.ops[self.idx].dtype
         return self.TYPE_DICT[dtype]
 
     def _get_value(self, cpu_context):
@@ -130,7 +125,7 @@ class Operand(object):
 
             else:
                 # Need to check for "lea" instructions here, or the value pointed to, not the pointer value is returned
-                if idc.GetMnem(self.ip) == "lea":
+                if idc.print_insn_mnem(self.ip) == "lea":
                     return offset
 
                 frame_data = cpu_context.mem_read(offset, self.width)
@@ -138,8 +133,8 @@ class Operand(object):
 
         if self.type == idc.o_mem:
             # Need to check for "lea" here also, for the same reason as above
-            if idc.GetMnem(self.ip) == "lea":
-                return idc.GetOperandValue(self.ip, self.idx)
+            if idc.print_insn_mnem(self.ip) == "lea":
+                return idc.get_operand_value(self.ip, self.idx)
 
             # FS, GS (at least) registers are identified as memory addresses.  We need to identify them as registers
             # and handle them as such
@@ -149,7 +144,7 @@ class Operand(object):
                 return cpu_context.reg_read("gs")
 
             # Operand could be a function pointer, in which case, we should not be reading from memory.
-            operand = idc.GetOperandValue(self.ip, self.idx)
+            operand = idc.get_operand_value(self.ip, self.idx)
             try:
                 # If no RuntimeError is generated, that's enough to indicate utils.get_function_data returned a funcdata object
                 # Note, bool(utils.get_function_data(operand)) does not work...
@@ -167,7 +162,7 @@ class Operand(object):
             return result
 
         if self.type in [idc.o_imm, idc.o_near]:
-            return idc.GetOperandValue(self.ip, self.idx)
+            return idc.get_operand_value(self.ip, self.idx)
 
 
 # Dictionary containing builtin function names -> function
@@ -206,8 +201,8 @@ def set_operand_value(cpu_context, ip, value, opnd, optype, width=None):
     :param cpu_context: current context of cpu
     :param ip: instruction pointer
     :param value: value to set operand to
-    :param opnd: value returned by idc.GetOpnd()
-    :param optype: value returned by idc.GetOpType()
+    :param opnd: value returned by idc.print_operand()
+    :param optype: value returned by idc.get_operand_type()
     :param width: byte width of the operand value being set
 
     """
@@ -244,11 +239,11 @@ def set_operand_value(cpu_context, ip, value, opnd, optype, width=None):
             if numpy.issubdtype(type(value), numpy.integer):
                 value = utils.struct_pack(value, signed=(value < 0), width=width)
 
-            cpu_context.mem_write(idc.GetOperandValue(ip, 0), value)
+            cpu_context.mem_write(idc.get_operand_value(ip, 0), value)
 
     elif optype == idc.o_imm:
-        offset = idc.GetOperandValue(ip, 0)
-        if idaapi.isLoaded(offset):
+        offset = idc.get_operand_value(ip, 0)
+        if idaapi.is_loaded(offset):
             cpu_context.mem_write(offset, value)
 
 
@@ -262,7 +257,8 @@ def get_operands(cpu_context, ip):
     :return: list of operand values for instruction
     """
     operands = []
-    inslen = idaapi.decode_insn(ip)  # Has symptom of making idaapi.cmd.Operands work.
+    cmd = idaapi.insn_t()
+    inslen = idaapi.decode_insn(cmd, ip)
     for i in xrange(inslen):
         try:
             operands.append(Operand(cpu_context, ip, i))
@@ -308,12 +304,13 @@ def execute(cpu_context, ip):
     """
     cpu_context.reg_write("RIP", ip)
 
-    mnem = idc.GetMnem(ip)
+    mnem = idc.print_insn_mnem(ip)
     # Determine if a rep* instruction and treat it as it's own opcode.
     # TODO: Add support for emulating these rep opcodes.
-    if idc.Byte(ip) in (0xf2, 0xf3):
-        mnem = idc.GetDisasm(ip)  # IDA pro never has operands for rep opcodes.
-        assert mnem.startswith('rep')
+    if idc.get_wide_byte(ip) in (0xf2, 0xf3):
+        _mnem = idc.GetDisasm(ip)  # IDA pro never has operands for rep opcodes.
+        if _mnem.startswith('rep'):
+            mnem = _mnem
 
     # TODO: Perhaps the Operand objects should be initialized and accessed from the cpu_context?
     operands = get_operands(cpu_context, ip)

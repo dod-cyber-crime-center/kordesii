@@ -1,7 +1,7 @@
 
 import idc
 
-from kordesii import kordesiiidahelper
+import kordesii
 from kordesii.utils import decoderutils
 
 
@@ -33,20 +33,20 @@ class Sample_Tracer(decoderutils.StringTracer):
             the encoded string information is not identified
         """
         function_call_loc = self.initial_offset
-        offset_loc = idc.PrevHead(function_call_loc)
-        key_loc = idc.PrevHead(offset_loc)
+        offset_loc = idc.prev_head(function_call_loc)
+        key_loc = idc.prev_head(offset_loc)
 
         # some basic validation checks to make sure we have the correct locations
         # ie, ensure that we are pushing values onto the stack for the call
-        if idc.GetMnem(offset_loc) != 'push':
+        if idc.print_insn_mnem(offset_loc) != 'push':
             return False
-        if idc.GetMnem(key_loc) != 'push':
+        if idc.print_insn_mnem(key_loc) != 'push':
             return False
 
         # args for EncodedString object init
         string_reference = offset_loc
-        string_location = idc.GetOperandValue(offset_loc, 0)
-        key = idc.GetOperandValue(key_loc, 0)
+        string_location = idc.get_operand_value(offset_loc, 0)
+        key = idc.get_operand_value(key_loc, 0)
 
         # create EncodedString and check if valid
         encoded_string = decoderutils.EncodedString(string_location,
@@ -70,6 +70,7 @@ def sample_decode(encoded_string):
     return ''.join(chr(ord(x) ^ encoded_string.key) for x in encoded_string.encoded_data)
 
 
+@kordesii.decoder_entry
 def main():
     """
     Function Description:
@@ -77,10 +78,3 @@ def main():
         Passes the YARA rule, the Sample_Tracer class, and the sample_decode decryption function
     """
     decoderutils.string_decoder_main(YARA_RULE, Sample_Tracer, sample_decode)
-
-
-if __name__ == '__main__':
-    idc.Wait()
-    main()
-    if 'exit' in idc.ARGV:
-        idc.Exit(0)

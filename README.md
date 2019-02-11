@@ -9,7 +9,7 @@ DC3-Kordesii requires the following:
 - python 2.7 (32 bit)
 - IDA Pro 7.* (tested with 7.0)
 - *(optional)* Hex Ray's Decompiler for x86/x64 architectures
-    - (Used to improve accuracy of getting function arguments in `function_tracingutils`)
+    - (Used to improve accuracy of getting function arguments in `function_tracing`)
 
 ### Recommended Modules
 The following modules are recommended as they are often used in decoders:
@@ -80,18 +80,54 @@ kordesii -p foo README.md
 see ```kordesii -h``` for full set of options
 
 
+## Logging
+DC3-Kordesii uses Python's builtin in `logging` module to log all messages.
+By default, logging is configured using the [log_config.yml](kordesii/config/log_config.yml) configuration
+file. Which is currently set to log all messages to the console and error messages to `%LOCALAPPDATA%/kordesii/errors.log`. 
+You can provide your own custom log configuration file by adding the path
+to the environment variable `KORDESII_LOG_CFG`. (Please see [Python's documentation](http://docs.python.org/dev/library/logging.config.html) for more information on how to write your own configuration file.)
+
+You may also use the `--no-debug` or `--debug` flags to adjust the logging level when using the `kordesii-tool` tool.
+
+To log messages within a decoder, make sure to use `kordesii.get_logger()` in order to ensure the 
+decoder name will be properly added to the log message.
+
+It is a good idea to use logging to help inform the user on the progress of the decoder and if the decoder may need to be updated due to a new variant of the sample.
+
+```python
+import kordesii
+
+logger = kordesii.get_logger()
+
+# ...
+
+@kordesii.decoder_entry
+def main():
+    logger.info('Starting decoder.')
+    key = get_key()
+    if key:
+        logger.info('Found key: {!r}'.format(key))
+        # ...
+    else:
+        logger.warning('Unable to find the key! New variant?')
+```
+
+
 ## Decoder Development
 
 The high level steps for module development are:
-- Create new `<your decoder directory>\<name>_StringDecoder.py` module
-- Add the following stub to the bottom of the module (where ```main``` is the entry point)
+- Create new `<your decoder directory>\<name>.py` module
+- Import `kordesii` and then decorate your entry point with `kordesii.script_entry`
+    - **WARNING:** It is important that the function you wrap with `kordesii.script_entry` is the last thing in the module.
+    Anything declared after it will not available when the parser runs.
 
 ```python
-if __name__ == '__main__':
-    idc.Wait()
-    main()
-    if 'exit' in idc.ARGV:
-        idc.Exit(0)
+import kordesii
+
+
+@kordesii.script_entry
+def main():
+    # ...
 ```
 - When possible, subclass ```StringTracer``` and implement its search method
 - When necessary, subclass ```EncodedString```

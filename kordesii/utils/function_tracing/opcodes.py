@@ -19,14 +19,17 @@ WARNING:
     should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
 
+import logging
+
 import idc
 import idaapi
 import idautils
 
 from . import utils
-from .cpu_emulator import opcode, cpu_logger, set_operand_value, get_max_operand_size, get_min_operand_size, BUILTINS
+from .cpu_emulator import opcode, set_operand_value, get_max_operand_size, get_min_operand_size, BUILTINS
 
 
+logger = logging.getLogger(__name__)
 
 
 
@@ -51,8 +54,8 @@ def _add(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit(~(opvalue1 ^ opvalue2) & (opvalue2 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("{} 0x{:X} :: {} + {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result & mask, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: {} + {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result & mask, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -69,18 +72,18 @@ def AND(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = 0
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("AND 0x{:X} :: {} & {} = {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("AND 0x{:X} :: {} & {} = {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def BSWAP(cpu_context, ip, mnem, opvalues):
-    """ Byte Swap """
+    """ byte Swap """
     opvalue1 = opvalues[0].value
     width = opvalues[0].width
     result = swap_bytes(opvalue1, width)
-    cpu_logger.debug("BSWAP 0x{:X} :: {} -> {}".format(ip, opvalue1, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("BSWAP 0x{:X} :: {} -> {}".format(ip, opvalue1, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -93,17 +96,17 @@ def CALL(cpu_context, ip, mnem, opvalues):
     func_ea = opvalues[0].value
 
     if not isinstance(func_ea, (int, long)):
-        cpu_logger.debug("CALL 0x{:X} :: call {!r}".format(ip, func_ea))
-        cpu_logger.debug("Invalid function: {!r}".format(func_ea))
+        logger.debug("CALL 0x{:X} :: call {!r}".format(ip, func_ea))
+        logger.debug("Invalid function: {!r}".format(func_ea))
         return
 
     # For the called function, attempt to locate the function end and examine the "retn" instruction which
     # will contain the number of bytes to add back to SP.
-    # opvalue1 = idc.GetOperandValue(ip, 0)
-    cpu_logger.debug("CALL 0x{:X} :: call 0x{:X}".format(ip, func_ea))
+    # opvalue1 = idc.get_operand_value(ip, 0)
+    logger.debug("CALL 0x{:X} :: call 0x{:X}".format(ip, func_ea))
 
     try:
-        is_loaded = idc.isLoaded(func_ea)
+        is_loaded = idc.is_loaded(func_ea)
     except TypeError:
         is_loaded = False
 
@@ -134,15 +137,15 @@ def CALL(cpu_context, ip, mnem, opvalues):
         except:
             # If we can't get function data for non-loaded functions, then we have no way of knowing how to handle
             # the stack...
-            cpu_logger.debug(
+            logger.debug(
                 "{:#08x} :: Cannot identify function information for value {:#08x}. "
                 "Stack pointer will not be adjusted.".format(ip, func_ea))
             return
     else:
         # Get address of retn instruction
-        func_end = idc.GetFunctionAttr(func_ea, idc.FUNCATTR_END)
+        func_end = idc.get_func_attr(func_ea, idc.FUNCATTR_END)
         if func_end == idc.BADADDR:
-            cpu_logger.debug(
+            logger.debug(
                 "{:#08x} :: Could not retrieve retn instruction for called function: {:#08x}. "
                 "Stack pointer will not be adjusted.".format(ip, func_ea))
             return
@@ -152,13 +155,13 @@ def CALL(cpu_context, ip, mnem, opvalues):
         # look for retn address
         ea = func_end
         while ea > func_ea:
-            if idc.GetMnem(ea) == "retn":
-                sp_adjust = idc.GetOperandValue(ea, 0)
+            if idc.print_insn_mnem(ea) == "retn":
+                sp_adjust = idc.get_operand_value(ea, 0)
                 # if retn doesn't adjust the stack, -1 is returned
                 if sp_adjust != -1:
                     cpu_context.reg_write("RSP", cpu_context.reg_read("RSP") + sp_adjust)
                 return
-            ea = idc.PrevHead(ea)
+            ea = idc.prev_head(ea)
 
 
 @opcode
@@ -170,7 +173,7 @@ def CDQ(cpu_context, ip, mnem, opvalues):
     else:
         result = 0x0
 
-    cpu_logger.debug("CDQ 0x{:X} :: Setting register EDX to 0x{:X}".format(ip, result))
+    logger.debug("CDQ 0x{:X} :: Setting register EDX to 0x{:X}".format(ip, result))
     cpu_context.reg_write("EDX", result)
 
 
@@ -202,7 +205,7 @@ def CMP(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("CMP 0x{:X} :: {} <-> {} = {}".format(ip, opvalue1, opvalue2, result))
+    logger.debug("CMP 0x{:X} :: {} <-> {} = {}".format(ip, opvalue1, opvalue2, result))
 
 
 @opcode
@@ -246,8 +249,8 @@ def CVTDQ2PD(cpu_context, ip, mnem, opvalues):
     dpfp0 = utils.float_to_int(dword0)
     dpfp1 = utils.float_to_int(dword1)
     result = (dpfp1 << 64) | dpfp0
-    cpu_logger.debug("{} 0x{:X} :: {} -> {}, {} -> {} --> {}".format(mnem, ip, dword0, dpfp0, dword1, dpfp1, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: {} -> {}, {} -> {} --> {}".format(mnem, ip, dword0, dpfp0, dword1, dpfp1, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -256,8 +259,8 @@ def CVTSI2SD(cpu_context, ip, mnem, opvalues):
     opvalue2 = opvalues[1].value
     width = opvalues[1].width
     result = utils.float_to_int(opvalue2)
-    cpu_logger.debug("{} 0x{:X} :: int {} -> float equivalent {}".format(mnem, ip, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: int {} -> float equivalent {}".format(mnem, ip, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -266,8 +269,8 @@ def CVTTSD2SI(cpu_context, ip, mnem, opvalues):
     opvalue2 = opvalues[1].value
     width = opvalues[0].width
     result = int(utils.int_to_float(opvalue2))
-    cpu_logger.debug("{} 0x{:X} :: float {} -> int equivalent {}".format(mnem, ip, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: float {} -> int equivalent {}".format(mnem, ip, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -285,8 +288,8 @@ def DEC(cpu_context, ip, mnem, opvalues):
         utils.sign_bit(opvalue1, width) and not utils.sign_bit(result, width))
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("DEC 0x{:X} :: {} - 1 = {}".format(ip, opvalue1, result))
-    set_operand_value(cpu_context, ip, result & mask, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("DEC 0x{:X} :: {} - 1 = {}".format(ip, opvalue1, result))
+    set_operand_value(cpu_context, ip, result & mask, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode("div")
@@ -308,7 +311,7 @@ def DIV(cpu_context, ip, mnem, opvalues):
     if opvalue2 != 0:
         result = (opvalue1 / opvalue2) & utils.get_mask(width)
         remainder = (opvalue1 % opvalue2) & utils.get_mask(width)
-        cpu_logger.debug("DIV 0x{:X} :: {} / {} = {}".format(ip, opvalue1, opvalue2, result))
+        logger.debug("DIV 0x{:X} :: {} / {} = {}".format(ip, opvalue1, opvalue2, result))
         if width == 1:
             # Result stored in AL, remainder stored in AH
             result = ((remainder << 8) | result)
@@ -319,7 +322,7 @@ def DIV(cpu_context, ip, mnem, opvalues):
 
     else:
         # Log the instruction for a DIV / 0 error
-        cpu_logger.debug("{} 0x{:X} :: DIV / 0".format(mnem, ip))
+        logger.debug("{} 0x{:X} :: DIV / 0".format(mnem, ip))
 
 
 @opcode
@@ -334,13 +337,13 @@ def DIVSD(cpu_context, ip, mnem, opvalues):
     # Because there is no guarantee that the registers/memory have been properly initialized, ignore DIV / 0 errors.
     if opvalue2 != 0:
         result = opvalue1 / opvalue2
-        cpu_logger.debug("{} 0x{:X} :: {} / {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
+        logger.debug("{} 0x{:X} :: {} / {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
         result = utils.float_to_int(result)
-        set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0), width=opvalues[1].width)
+        set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=opvalues[1].width)
 
     else:
         # Log DIV / 0 error
-        cpu_logger.debug("{} 0x{:X} :: DIV / 0".format(mnem, ip))
+        logger.debug("{} 0x{:X} :: DIV / 0".format(mnem, ip))
 
 
 def _mul(cpu_context, ip, mnem, opvalues):
@@ -389,7 +392,7 @@ def _mul(cpu_context, ip, mnem, opvalues):
         cpu_context.registers.sf = utils.sign_bit(multiplier1, width)
         cpu_context.registers.pf = get_parity(multiplier1)
 
-    cpu_logger.debug("{} 0x{:X} :: {} * {} = {} || EAX -> {} || EDX -> {}".format(
+    logger.debug("{} 0x{:X} :: {} * {} = {} || EAX -> {} || EDX -> {}".format(
         mnem.upper(),
         ip, multiplier1,
         multiplier2,
@@ -421,7 +424,7 @@ def IMUL(cpu_context, ip, mnem, opvalues):
 
     # IDA is awesome in the fact that it isn't consistent as to what operands are assigned values.  One instance it
     # may be operand 0 and 1, another might be 0 and 2, etc...However, since we are assigning a None to operands where
-    # idc.GetOpnd returns "" (an empty string), then we can just remove all the opvalue list items which have a value
+    # idc.print_operand returns "" (an empty string), then we can just remove all the opvalue list items which have a value
     # of None and this will give us our number of operands.
     RAX_REG_SIZE_MAP = {8: "RAX", 4: "EAX", 2: "AX", 1: "AL"}
     width = get_max_operand_size(opvalues)
@@ -434,12 +437,12 @@ def IMUL(cpu_context, ip, mnem, opvalues):
     # else:
     #    if opvalues[0].value and opvalues[1].value and opvalues[2].value is None: # Two operand form
     elif op_count == 2:
-        destination = idc.GetOpnd(ip, 0)
+        destination = idc.print_operand(ip, 0)
         multiplier1 = opvalues[0].value
         multiplier2 = opvalues[1].value
         # elif opvalues[0].value and opvalues[1].value and opvalues[2].value: # Three operand form
     elif op_count == 3:
-        destination = idc.GetOpnd(ip, 0)
+        destination = idc.print_operand(ip, 0)
         multiplier1 = opvalues[1].value
         multiplier2 = opvalues[2].value
     else:
@@ -457,19 +460,19 @@ def IMUL(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.sf = utils.sign_bit(multiplier1, width)
     cpu_context.registers.pf = get_parity(multiplier1)
 
-    cpu_logger.debug("IMUL 0x{:X} :: {} * {} = {}".format(ip, multiplier1, multiplier2, result))
+    logger.debug("IMUL 0x{:X} :: {} * {} = {}".format(ip, multiplier1, multiplier2, result))
     # Notably, IDA knows that EAX is the destination for the single operand form, and properly returns
-    # idc.o_reg for idc.GetOpType (though for IMUL the destination MUST be a register, so it could technically
+    # idc.o_reg for idc.get_operand_type (though for IMUL the destination MUST be a register, so it could technically
     # be hard coded here...
-    set_operand_value(cpu_context, ip, result, destination, idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, result, destination, idc.get_operand_type(ip, 0))
 
 
 @opcode
 def INC(cpu_context, ip, mnem, opvalues):
     """ Increment """
     opvalue1 = opvalues[0].value
-    cpu_logger.debug("INC 0x{:X} :: {} + 1 = {}".format(ip, opvalue1, opvalue1 + 1))
-    set_operand_value(cpu_context, ip, opvalue1 + 1, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("INC 0x{:X} :: {} + 1 = {}".format(ip, opvalue1, opvalue1 + 1))
+    set_operand_value(cpu_context, ip, opvalue1 + 1, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
     result = opvalue1 + 1
     width = opvalues[0].width
@@ -493,8 +496,8 @@ def MOVAPD(cpu_context, ip, mnem, opvalues):
     """
     opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
     opvalue2 = opvalues[1].value
-    cpu_logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.GetOpnd(ip, 0)))
-    set_operand_value(cpu_context, ip, opvalue2, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0), width=opvalues[1].width)
+    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
+    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=opvalues[1].width)
 
 
 @opcode
@@ -506,8 +509,8 @@ def MOVAPS(cpu_context, ip, mnem, opvalues):
     opvalue2 = opvalues[1].value
     # We need to use the size of the source when accessing XMM registers.
     width = opvalues[1].width
-    cpu_logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.GetOpnd(ip, 0)))
-    set_operand_value(cpu_context, ip, opvalue2, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0), width=width)
+    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
+    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=width)
 
 
 @opcode("lea")
@@ -521,8 +524,8 @@ def _mov_lea(cpu_context, ip, mnem, opvalues):
     """
     opvalue2 = opvalues[1].value
     width = opvalues[0].width
-    cpu_logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.GetOpnd(ip, 0)))
-    set_operand_value(cpu_context, ip, opvalue2, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0), width=width)
+    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
+    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=width)
 
 
 # TODO: Do we need to handle MOVS* for our purpose?
@@ -532,9 +535,9 @@ def _mov_lea(cpu_context, ip, mnem, opvalues):
 def _movsx(cpu_context, ip, mnem, opvalues):
     """ Move with Sign Extend """
     opvalue2 = opvalues[1].value
-    cpu_logger.debug("MOVSX 0x{:X} :: Sign-extend {} into {}".format(ip, opvalue2, idc.GetOpnd(ip, 0)))
+    logger.debug("MOVSX 0x{:X} :: Sign-extend {} into {}".format(ip, opvalue2, idc.print_operand(ip, 0)))
     size = utils.sign_extend(opvalue2, opvalues[1].width, opvalues[0].width)
-    set_operand_value(cpu_context, ip, size, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, size, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode("movs")  # I don't believe IDA will ever use just "movs", but it's here just incase.
@@ -554,7 +557,7 @@ def movs(cpu_context, ip, mnem, opvalues):
         if op1.type == idc.o_reg:
             # When moving into an XMM register, the high 64 bits needs to remain untouched.
             data = (data & 0xFFFFFFFFFFFFFFFF0000000000000000) | data
-        cpu_logger.debug("{} 0x{:X} :: {} -> {}".format(mnem, ip, op2.value, data))
+        logger.debug("{} 0x{:X} :: {} -> {}".format(mnem, ip, op2.value, data))
         set_operand_value(cpu_context, ip, data, op1.text, op1.type)
 
     # movs*
@@ -571,7 +574,7 @@ def movs(cpu_context, ip, mnem, opvalues):
         size = {"movs": width, "movsb": 1, "movsw": 2, "movsd": 4}[mnem]
         src_ptr = cpu_context.registers[src]
         dst_ptr = cpu_context.registers[dst]
-        cpu_logger.debug("{} 0x{:X} :: 0x{:X} -> 0x{:X}".format(mnem, ip, src_ptr, dst_ptr))
+        logger.debug("{} 0x{:X} :: 0x{:X} -> 0x{:X}".format(mnem, ip, src_ptr, dst_ptr))
         data = cpu_context.mem_read(src_ptr, size)
         cpu_context.mem_write(dst_ptr, data)
 
@@ -588,8 +591,8 @@ def movs(cpu_context, ip, mnem, opvalues):
 def MOVQ(cpu_context, ip, mnem, opvalues):
     """ Move Quadword """
     opvalue2 = opvalues[1].value & 0xFFFFFFFFFFFFFFFF
-    cpu_logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.GetOpnd(ip, 0)))
-    set_operand_value(cpu_context, ip, opvalue2, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
+    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -613,8 +616,8 @@ def NEG(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(
         utils.sign_bit(opvalue1, width) and not utils.sign_bit(result, width))
 
-    cpu_logger.debug("NEG 0x{:X} :: {} - {}".format(ip, opvalue1, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("NEG 0x{:X} :: {} - {}".format(ip, opvalue1, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -623,8 +626,8 @@ def NOT(cpu_context, ip, mnem, opvalues):
     opvalue1 = opvalues[0].value
     width = get_max_operand_size(opvalues)
     result = ~opvalue1
-    cpu_logger.debug("NOT 0x{:X} :: {} -> {}".format(ip, opvalue1, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("NOT 0x{:X} :: {} -> {}".format(ip, opvalue1, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -641,8 +644,8 @@ def OR(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = 0
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("OR 0x{:X} :: {} | {} = {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("OR 0x{:X} :: {} | {} = {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -650,8 +653,8 @@ def POP(cpu_context, ip, mnem, opvalues):
     """ POP stack value """
     result = utils.struct_unpack(cpu_context.mem_read(cpu_context.reg_read("RSP"), cpu_context._byteness))
     cpu_context.reg_write("RSP", cpu_context.reg_read("RSP") + cpu_context._byteness)
-    cpu_logger.debug("POP 0x{:X} :: Popped value {} into {}".format(ip, result, idc.GetOpnd(ip, 0)))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("POP 0x{:X} :: Popped value {} into {}".format(ip, result, idc.print_operand(ip, 0)))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode("popa")
@@ -664,7 +667,7 @@ def POPA(cpu_context, ip, mnem, opvalues):
             sense.
     """
     # We are using a helper function anyway, so we'll use the 64-bit names for the registers
-    cpu_logger.debug("POPA 0x{:X}".format(ip))
+    logger.debug("POPA 0x{:X}".format(ip))
     reg_order = ["EDI", "ESI", "EBP", "ESP", "EBX", "EDX", "ECX", "EAX"]
     for reg in reg_order:
         if reg == "ESP":
@@ -684,7 +687,7 @@ def POPA(cpu_context, ip, mnem, opvalues):
 def PUSH(cpu_context, ip, mnem, opvalues):
     """ PUSH """
     operand = opvalues[0]
-    cpu_logger.debug("PUSH 0x{:X} :: Pushing {} onto stack".format(ip, operand.value))
+    logger.debug("PUSH 0x{:X} :: Pushing {} onto stack".format(ip, operand.value))
     cpu_context.reg_write("RSP", cpu_context.reg_read("RSP") - cpu_context._byteness)
     cpu_context.mem_write(cpu_context.reg_read("ESP"), utils.struct_pack(operand.value, width=operand.width))
 
@@ -697,7 +700,7 @@ def PUSHA(cpu_context, ip, mnem, opvalues):
     reg_order = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
     # Store the original ESP value to push
     temp_esp = cpu_context.reg_read("ESP")
-    cpu_logger.debug("PUSHA 0x{:X}".format(ip))
+    logger.debug("PUSHA 0x{:X}".format(ip))
     for reg in reg_order:
         cpu_context.reg_write("ESP", cpu_context.reg_read("ESP") - 4)
         if reg == "ESP":  # Push the original ESP value, not the current value
@@ -718,7 +721,7 @@ def RCR(cpu_context, ip, mnem, opvalues):
     if width == 8:
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
-        # Basically MOD by 9, 17, 33 when the width is 1 Byte, 2 Bytes or 4 Bytes
+        # Basically MOD by 9, 17, 33 when the width is 1 byte, 2 bytes or 4 bytes
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % ((width * 8) + 1)
     else:
         # This is undefined behavior
@@ -733,13 +736,13 @@ def RCR(cpu_context, ip, mnem, opvalues):
         cpu_context.registers.cf = tempcf
         tempcount -= 1
 
-    cpu_logger.debug("RCR 0x{:X} :: Rotate {} right by {} -> {}".format(
+    logger.debug("RCR 0x{:X} :: Rotate {} right by {} -> {}".format(
         ip,
         opvalues[0].value,
         opvalue2,
         opvalue1)
     )
-    set_operand_value(cpu_context, ip, opvalue1, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, opvalue1, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -753,7 +756,7 @@ def RCL(cpu_context, ip, mnem, opvalues):
     if width == 8:
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
-        # Basically MOD by 9, 17, 33 when width is 1 Byte, 2 Bytes or 4 Bytes
+        # Basically MOD by 9, 17, 33 when width is 1 byte, 2 bytes or 4 bytes
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % ((width * 8) + 1)
     else:
         # This is undefined behavior
@@ -768,13 +771,13 @@ def RCL(cpu_context, ip, mnem, opvalues):
     if opvalue2 == 1:
         cpu_context.registers.of = get_msb(opvalue1, width) ^ cpu_context.registers.cf
 
-    cpu_logger.debug("RCL 0x{:X} :: Rotate {} left by {} -> {}".format(
+    logger.debug("RCL 0x{:X} :: Rotate {} left by {} -> {}".format(
         ip,
         opvalues[0].value,
         opvalue2,
         opvalue1)
     )
-    set_operand_value(cpu_context, ip, opvalue1, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, opvalue1, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -788,7 +791,7 @@ def ROL(cpu_context, ip, mnem, opvalues):
     if width == 8:
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
-        # Basically MOD by 8, 16, 32 when width is 1 Byte, 2 Bytes or 4 Bytes
+        # Basically MOD by 8, 16, 32 when width is 1 byte, 2 bytes or 4 bytes
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % (width * 8)
     else:
         # This is undefined behavior
@@ -804,13 +807,13 @@ def ROL(cpu_context, ip, mnem, opvalues):
         if opvalue2 == 1:
             cpu_context.registers.of = get_msb(opvalue1, width) ^ cpu_context.registers.cf
 
-    cpu_logger.debug("ROL 0x{:X} :: Rotate {} left by {} -> {}".format(
+    logger.debug("ROL 0x{:X} :: Rotate {} left by {} -> {}".format(
         ip,
         opvalues[0].value,
         opvalue2,
         opvalue1)
     )
-    set_operand_value(cpu_context, ip, opvalue1, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, opvalue1, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -824,7 +827,7 @@ def ROR(cpu_context, ip, mnem, opvalues):
     if width == 8:
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
-        # Basically MOD by 8, 16, 32 when width is 1 Byte, 2 Bytes or 4 Bytes
+        # Basically MOD by 8, 16, 32 when width is 1 byte, 2 bytes or 4 bytes
         tempcount = (opvalue2 & 0x3F if cpu_context._bitness == 64 else 0x1F) % (width * 8)
     else:
         # This is undefined behavior
@@ -840,13 +843,13 @@ def ROR(cpu_context, ip, mnem, opvalues):
         if opvalue2 == 1:
             cpu_context.registers.of = get_msb(opvalue1, width) ^ (get_msb(opvalue1, width) - 1)
 
-    cpu_logger.debug("ROR 0x{:X} :: Rotate {} right by {} -> {}".format(
+    logger.debug("ROR 0x{:X} :: Rotate {} right by {} -> {}".format(
         ip,
         opvalues[0].value,
         opvalue2,
         opvalue1)
     )
-    set_operand_value(cpu_context, ip, opvalue1, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, opvalue1, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode("sal")
@@ -878,8 +881,8 @@ def sal_shl(cpu_context, ip, mnem, opvalues):
         else:
             cpu_context.registers.of = utils.sign_bit((opvalue1 << (opvalue2 - 1)) ^ result, width)
 
-    cpu_logger.debug("SAL 0x{:X} :: Shift {} left by {} -> {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SAL 0x{:X} :: Shift {} left by {} -> {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -909,8 +912,8 @@ def SAR(cpu_context, ip, mnem, opvalues):
 
         result |= (msb << cpu_context._bitness)
 
-    cpu_logger.debug("SAR 0x{:X} :: Shift {} right by {} -> {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SAR 0x{:X} :: Shift {} right by {} -> {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -927,9 +930,9 @@ def SBB(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("SBB 0x{:X} :: {} - {} = {}".format(
+    logger.debug("SBB 0x{:X} :: {} - {} = {}".format(
         ip, opvalue1, (opvalue2 + cpu_context.registers.cf), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 # TODO: Do we need SCAS* implemented????
@@ -939,56 +942,56 @@ def SBB(cpu_context, ip, mnem, opvalues):
 def SETNA(cpu_context, ip, mnem, opvalues):
     """ Set if Not Above """
     result = int(cpu_context.registers.zf or cpu_context.registers.cf)
-    cpu_logger.debug("SETNA 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNA 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETLE(cpu_context, ip, mnem, opvalues):
     """ Set if Less than or Equal """
     result = int(cpu_context.registers.zf or (cpu_context.registers.sf != cpu_context.registers.of))
-    cpu_logger.debug("SETLE 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETLE 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETGE(cpu_context, ip, mnem, opvalues):
     """ Set if Greater than or Equal """
     result = int(cpu_context.registers.sf == cpu_context.registers.of)
-    cpu_logger.debug("SETGE 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETGE 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETG(cpu_context, ip, mnem, opvalues):
     """ Set if Greather than """
     result = int(cpu_context.registers.zf and (cpu_context.registers.sf == cpu_context.registers.of))
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETE(cpu_context, ip, mnem, opvalues):
     """ Set if Equal """
     result = int(cpu_context.registers.zf)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETC(cpu_context, ip, mnem, opvalues):
     """ Set if Carry """
     result = int(cpu_context.registers.cf)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETBE(cpu_context, ip, mnem, opvalues):
     """ Set if Below or Equal """
     result = int(cpu_context.registers.cf and cpu_context.registers.zf)
-    cpu_logger.debug("SETBE 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETBE 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -1007,24 +1010,24 @@ def SETAE(cpu_context, ip, mnem, opvalues):
 def SETA(cpu_context, ip, mnem, opvalues):
     """ Set if Above """
     result = int(not (cpu_context.registers.cf | cpu_context.registers.zf))
-    cpu_logger.debug("SETA 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETA 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETPS(cpu_context, ip, mnem, opvalues):
     """ Set if Not??? Parity """
     result = int(cpu_context.registers.sf)
-    cpu_logger.debug("SETPS 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETPS 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETPO(cpu_context, ip, mnem, opvalues):
     """ Set if Parity Odd """
     result = int(cpu_context.registers.pf)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -1043,80 +1046,80 @@ def SETP(cpu_context, ip, mnem, opvalues):
 def SETO(cpu_context, ip, mnem, opvalues):
     """ Set if Overflow """
     result = int(cpu_context.registers.of)
-    cpu_logger.debug("SETO 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETO 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNS(cpu_context, ip, mnem, opvalues):
     """ Set if Not Sign """
     result = int(not cpu_context.registers.sf)
-    cpu_logger.debug("SETNS 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNS 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNP(cpu_context, ip, mnem, opvalues):
     """ Set if Not Parity """
     result = int(not cpu_context.registers.pf)
-    cpu_logger.debug("SETNP 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNP 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNO(cpu_context, ip, mnem, opvalues):
     """ Set if Not Overflow """
     result = int(not cpu_context.registers.of)
-    cpu_logger.debug("SETNO 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNO 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNL(cpu_context, ip, mnem, opvalues):
     """ Set if Not Less """
     result = int(cpu_context.registers.sf == cpu_context.registers.of)
-    cpu_logger.debug("SETNL 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNL 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNGE(cpu_context, ip, mnem, opvalues):
     """ Set if Not Greater Than or Equal """
     result = int(cpu_context.registers.sf != cpu_context.registers.of)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNG(cpu_context, ip, mnem, opvalues):
     """ Set if Not Greater """
     result = int(cpu_context.registers.zf or (cpu_context.registers.sf != cpu_context.registers.of))
-    cpu_logger.debug("SETNG 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNG 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNE(cpu_context, ip, mnem, opvalues):
     """ Set if Not Equal """
     result = int(not cpu_context.registers.zf)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNC(cpu_context, ip, mnem, opvalues):
     """ Set if Not Carry """
     result = int(not cpu_context.registers.cf)
-    cpu_logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: Setting {} to {}".format(mnem.upper(), ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
 def SETNBE(cpu_context, ip, mnem, opvalues):
     """ Set if Not Below or Equal """
     result = int(not (cpu_context.registers.cf | cpu_context.registers.zf))
-    cpu_logger.debug("SETNBE 0x{:X} :: Setting {} to {}".format(ip, idc.GetOpnd(ip, 0), result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SETNBE 0x{:X} :: Setting {} to {}".format(ip, idc.print_operand(ip, 0), result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -1181,8 +1184,8 @@ def SHR(cpu_context, ip, mnem, opvalues):
         cpu_context.registers.of = 0
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("SHR 0x{:X} :: Shift {} right by {} -> {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SHR 0x{:X} :: Shift {} right by {} -> {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -1201,8 +1204,8 @@ def SUB(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("SUB 0x{:X} :: {} - {} = {}".format(ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("SUB 0x{:X} :: {} - {} = {}".format(ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode
@@ -1221,7 +1224,7 @@ def TEST(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("TEST 0x{:X} :: {} & {} -> {}".format(ip, opvalue1, opvalue2, result))
+    logger.debug("TEST 0x{:X} :: {} & {} -> {}".format(ip, opvalue1, opvalue2, result))
 
 
 @opcode
@@ -1229,9 +1232,9 @@ def XCHG(cpu_context, ip, mnem, opvalues):
     """ Exchange two values """
     opvalue1 = opvalues[0].value
     opvalue2 = opvalues[1].value
-    cpu_logger.debug("XCHG 0x{:X} :: exchange {} and {}".format(ip, opvalue1, opvalue2))
-    set_operand_value(cpu_context, ip, opvalue1, idc.GetOpnd(ip, 1), idc.GetOpType(ip, 1))
-    set_operand_value(cpu_context, ip, opvalue2, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("XCHG 0x{:X} :: exchange {} and {}".format(ip, opvalue1, opvalue2))
+    set_operand_value(cpu_context, ip, opvalue1, idc.print_operand(ip, 1), idc.get_operand_type(ip, 1))
+    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 @opcode("xor")
@@ -1249,8 +1252,8 @@ def _xor(cpu_context, ip, mnem, opvalues):
     cpu_context.registers.of = 0
     cpu_context.registers.pf = get_parity(result)
 
-    cpu_logger.debug("{} 0x{:X} :: {} ^ {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
-    set_operand_value(cpu_context, ip, result, idc.GetOpnd(ip, 0), idc.GetOpType(ip, 0))
+    logger.debug("{} 0x{:X} :: {} ^ {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
+    set_operand_value(cpu_context, ip, result, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0))
 
 
 # Global helper functions

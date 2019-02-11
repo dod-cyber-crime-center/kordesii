@@ -1,5 +1,5 @@
 """
-Provides user-facing API for function_tracingutils.
+Provides user-facing API for function_tracing.
 """
 
 # Import functions and classes we want to expose as the API.

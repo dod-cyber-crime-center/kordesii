@@ -1,9 +1,17 @@
+"""Utility tool for running YARA within IDA."""
+
+import logging
+import os
+
+import yara
+
 import idc
 import idaapi
 import idautils
-import yara
-import os
-from kordesii.kordesiiidahelper import append_debug
+
+from kordesii import logutil
+
+logger = logging.getLogger(__name__)
 
 
 _YARA_MATCHES = []
@@ -28,9 +36,9 @@ def _yara_callback(data):
 
     for datum in data['strings']:
         if FROM_FILE:
-            _YARA_MATCHES.append((idc.ItemHead(idaapi.get_fileregion_ea(datum[0])), datum[1]))
+            _YARA_MATCHES.append((idc.get_item_head(idaapi.get_fileregion_ea(datum[0])), datum[1]))
         else:
-            _YARA_MATCHES.append((idc.ItemHead(datum[0] + SECTION_START), datum[1]))
+            _YARA_MATCHES.append((idc.get_item_head(datum[0] + SECTION_START), datum[1]))
 
     return yara.CALLBACK_CONTINUE
 
@@ -53,17 +61,17 @@ def _read_bytes(start_ea, end_ea):
     block_start = start_ea
     block_end = end_ea
     while block_start < end_ea:
-        while block_start < end_ea and idaapi.get_many_bytes(block_start, 1) is None:
+        while block_start < end_ea and idc.get_bytes(block_start, 1) is None:
             block_start += 1
         if block_start >= end_ea:
             break
         block_end = block_start + 1
-        while block_end < end_ea and idaapi.get_many_bytes(block_end, 1) is not None:
+        while block_end < end_ea and idc.get_bytes(block_end, 1) is not None:
             block_end += 1
 
         SECTION_START = block_start
         while block_start < block_end:
-            yield idaapi.get_many_bytes(block_start, min(READ_LENGTH, block_end - block_start))
+            yield idc.get_bytes(block_start, min(READ_LENGTH, block_end - block_start))
             SECTION_START += READ_LENGTH
             block_start += READ_LENGTH
 
@@ -95,13 +103,13 @@ def run_yara_on_segment(rule_text, name=None, start_ea=None, callback_func=_yara
     rule = yara.compile(source=rule_text)
     found_segment = False
     for seg in map(idaapi.getseg, idautils.Segments()):
-        if seg.startEA == start_ea or idaapi.get_segm_name(seg) == name:
+        if seg.start_ea == start_ea or idaapi.get_segm_name(seg) == name:
             found_segment = True
-            for bites in _read_bytes(seg.startEA, seg.endEA):
+            for bites in _read_bytes(seg.start_ea, seg.end_ea):
                 rule.match(data=bites, callback=callback_func)
 
     if not found_segment:
-        append_debug("Failed to find segment \"" + name + "\"")
+        logger.error("Failed to find segment \"" + name + "\"")
 
     return _YARA_MATCHES
 

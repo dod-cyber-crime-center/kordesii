@@ -48,7 +48,9 @@ setup(
         'numpy',
         'pyelftools',
         'pefile',
+        'PyCrypto',
         'requests',
+        'pyyaml',
         'yara-python',
     ]
 )

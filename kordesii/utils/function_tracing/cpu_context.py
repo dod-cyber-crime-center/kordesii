@@ -2,6 +2,10 @@
 Implements the "hardware" for tracing a function.
 
 Will perform the instructions and updates CPU registers, stack information, etc.
+
+WARNING:
+    Do NOT rely on the flags registers being correct.  There are places were flags are NOT being updated when they 
+    should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
 
 # Python libraries
@@ -16,18 +20,11 @@ import idautils
 import idc
 
 # kordesii imports
-import kordesii.kordesiiidahelper as kordesiiidahelper
-
-from kordesii.utils.function_tracingutils import utils
-from kordesii.utils.function_tracingutils.constants import *
+from kordesii.utils.function_tracing import utils
+from kordesii.utils.function_tracing.constants import *
 
 # create logger
-# HACKY work around for allowing for enabling/disabling of debug statements
-import os
-tracing_cpu_logger = logging.getLogger("tracing_cpu")
-DEBUG = os.environ.get("ENABLE_DEBUG", "False")
-if DEBUG == "True":
-    tracing_cpu_logger.debug = kordesiiidahelper.append_debug
+logger = logging.getLogger(__name__)
 
 
 class MemController(object):
@@ -54,6 +51,14 @@ class MemController(object):
                 return addr
 
         return -1
+
+    def get_all_base_addresses(self):
+        """
+        Return a list consisting of the base address of every memory block mapped.
+
+        :return: list
+        """
+        return sorted(self._memmap.keys())
 
     def is_base_address(self, address):
         """
@@ -268,7 +273,7 @@ class MemController(object):
             raise ValueError("Offset 0x{:X} is not mapped.".format(offset))
 
         loc = self._memmap[block_base].find(val, offset - block_base)
-        return loc if loc == -1 else (loc + offset)
+        return loc if loc == -1 else (block_base + loc)
 
     def __repr__(self):
         """
@@ -549,14 +554,14 @@ class ProcessorContext(object):
 
         :param int address: address within a segment to map
         """
-        segStart = idc.SegStart(address)
-        segEnd = idc.SegEnd(address)
+        segStart = idc.get_segm_start(address)
+        segEnd = idc.get_segm_end(address)
         segSize = utils.align_page_up(segEnd - segStart)
         segRange = iter(itertools.count(segStart).next, (segStart + segSize))
-        segBytes = str(bytearray(idc.Byte(i) if idc.isLoaded(i) else 0 for i in segRange))
-        tracing_cpu_logger.debug(
+        segbytes = str(bytearray(idc.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in segRange))
+        logger.debug(
             "[map_segment] :: Mapping memory for segment from 0x{:X}::0x{:X}".format(segStart, segStart + segSize))
-        self.mem_write(segStart, segBytes, False)        
+        self.mem_write(segStart, segbytes, False)        
 
     def mem_read(self, address, size):
         """
@@ -577,7 +582,7 @@ class ProcessorContext(object):
             # Check if the memory is loaded in IDA, if so, then map it
             try:
                 # IDA 7 throws a AssertionError instead of BADADDR if segment doesn't exist.
-                seg_start = idc.SegStart(address)
+                seg_start = idc.get_segm_start(address)
             except AssertionError:
                 seg_start = None
             if seg_start is None or utils.signed(seg_start, utils.get_bits()) == -1:
@@ -614,10 +619,19 @@ class ProcessorContext(object):
         :param bool align_page: whether to align to 4K page or not
         """
         if not self._memctrlr.is_mapped(address) or not self._memctrlr.is_mapped(address + len(data)):
-            tracing_cpu_logger.debug("[mem_write] :: Mapping memory block at 0x{:X} of size {}".format(address, len(data)))
+            logger.debug("[mem_write] :: Mapping memory block at 0x{:X} of size {}".format(address, len(data)))
             self.mem_map(address, utils.align_page_up(len(data)) if align_page else len(data))
 
         self._memctrlr.write(address, data)
+
+    def mem_get_all_base_addresses(self):
+        """
+        Return a list consisting of the base address of every memory block mapped. This makes searching the entire
+        space of modified memory possible.
+
+        :return: list
+        """
+        return self._memctrlr.get_all_base_addresses()
 
     def mem_search_block(self, address, value):
         """
@@ -672,16 +686,16 @@ class ProcessorContext(object):
         if not ip:
             ip = self.reg_read("rip")
 
-        optype = idc.GetOpType(ip, opnd)
+        optype = idc.get_operand_type(ip, opnd)
 
         # Pull data based on operand type.
         if optype == idc.o_imm:
             # Just return an immediate value, ignoring the specified data type
-            return idc.GetOperandValue(ip, opnd)
+            return idc.get_operand_value(ip, opnd)
 
         elif optype == idc.o_reg:
             # If the operand is a register, do what we can to fulfill the user requested type.
-            value = self.reg_read(idc.GetOpnd(ip, opnd).upper())
+            value = self.reg_read(idc.print_operand(ip, opnd).upper())
             # Make a byte string for consistency when return proper data type
             value = utils.struct_pack(value)
 
@@ -693,12 +707,12 @@ class ProcessorContext(object):
                 offset = utils.calc_displacement(self, ip, opnd)
 
             # Need to account for "lea" instructions here so we return the calculated value
-            if idc.GetMnem(ip) == "lea":
+            if idc.print_insn_mnem(ip) == "lea":
                 return offset
             value = self.mem_read(offset, size)
 
         elif optype == idc.o_mem:
-            value = self.mem_read(idc.GetOperandValue(ip, opnd), size)
+            value = self.mem_read(idc.get_operand_value(ip, opnd), size)
 
         else:
             raise AssertionError('Unexpected optype: {}'.format(optype))

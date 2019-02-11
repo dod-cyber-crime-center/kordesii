@@ -1,10 +1,16 @@
+
+import logging
+import itertools
+
 import idc
 import idaapi
 import idautils
 
-import itertools
 
-from kordesii.kordesiiidahelper import append_debug
+from kordesii import logutil
+
+
+logger = logging.getLogger(__name__)
 
 
 def try_make_function(function_start, function_end=idc.BADADDR, target_location=None, require_term=True,
@@ -16,8 +22,8 @@ def try_make_function(function_start, function_end=idc.BADADDR, target_location=
         If function creation succeeds, ensure all of the function's bytes are analyzed as code.
 
     Input:
-        function_start - The startEA of the function to create
-        function_end - The endEA of the function to create. IDA will calculate if not provided.
+        function_start - The start_ea of the function to create
+        function_end - The end_ea of the function to create. IDA will calculate if not provided.
         target_location - If provided, fail function creation if it does not include this EA
         require_term - If provided, fail function creation if the last instruction is not a ret or jmp
         end_mnem_bytes - If provided, fail function creation if the last instruction is not the provided bytes
@@ -27,35 +33,37 @@ def try_make_function(function_start, function_end=idc.BADADDR, target_location=
         Returns a tuple (function_start, function_end) for the created function if successful, None otherwise
     """
     if function_start <= function_end:
-        if idc.MakeFunction(function_start, function_end):
-            append_debug('Created a function 0x%X - 0x%X.' % (function_start, function_end))
+        if idc.add_func(function_start, function_end):
+            logger.debug('Created a function 0x%X - 0x%X.' % (function_start, function_end))
             if require_term:
-                last_mnem_ea = idc.ItemHead(idaapi.get_func(function_start).endEA - 1)
-                last_mnem = idc.GetMnem(last_mnem_ea)
+                last_mnem_ea = idc.get_item_head(idaapi.get_func(function_start).end_ea - 1)
+                last_mnem = idc.print_insn_mnem(last_mnem_ea)
                 if (end_mnem_bytes is None and 'ret' not in last_mnem and 'jmp' not in last_mnem) or \
-                        (end_mnem_bytes and idaapi.get_many_bytes(last_mnem_ea, idc.ItemSize(last_mnem_ea)).encode('hex').upper() != end_mnem_bytes.upper()):
-                    idc.DelFunction(function_start)
-                    append_debug(
+                        (end_mnem_bytes and idc.get_bytes(last_mnem_ea, idc.get_item_size(last_mnem_ea)).encode('hex').upper() != end_mnem_bytes.upper()):
+                    idc.del_func(function_start)
+                    logger.debug(
                         'Deleted function at 0x%X - the function didn\'t end with the correct mnem/bytes.' % function_start)
                     return
             if target_location is not None:
-                if function_start <= target_location < idaapi.get_func(function_start).endEA:
-                    idc.AnalyzeArea(function_start, idaapi.get_func(function_start).endEA)
+                if function_start <= target_location < idaapi.get_func(function_start).end_ea:
+                    idc.plan_and_wait(function_start, idaapi.get_func(function_start).end_ea)
                     return function_start, function_end
                 else:
-                    idc.DelFunction(function_start)
-                    append_debug(
+                    idc.del_func(function_start)
+                    logger.debug(
                         'Deleted function at 0x%X - the function didn\'t contain the target location.' % function_start)
                     return
         else:
-            append_debug(
+            logger.debug(
                 'Tried to create a function 0x%X - 0x%X, but IDA wouldn\'t do it.' % (function_start, function_end))
     else:
-        append_debug('The end address was not greater than the start address!')
+        logger.debug('The end address was not greater than the start address!')
 
 
-def find_binary_instruction_start(search_start_location, search_direction, target, min_location=idc.MinEA(),
-                                  max_location=idc.MaxEA()):
+def find_binary_instruction_start(
+        search_start_location, search_direction, target,
+        min_location=idc.get_inf_attr(idc.INF_MIN_EA),
+        max_location=idc.get_inf_attr(idc.INF_MAX_EA)):
     """
     Description:
         Given a starting location, target, and direction, find an instruction starting with the target bytes.
@@ -64,18 +72,18 @@ def find_binary_instruction_start(search_start_location, search_direction, targe
         search_start_location - The EA to start searching at
         search_direction - either idc.SEARCH_UP or idc.SEARCH_DOWN
         target - The target as space separated bytes (i.e. '55' for 'push ebp')
-        min_location - The minimum EA to accept results for (default: idc.MinEA())
-        max_location - The maximum EA to accept results for (default: idc.MaxEA())
+        min_location - The minimum EA to accept results for (default: idc.get_inf_attr(idc.INF_MIN_EA))
+        max_location - The maximum EA to accept results for (default: idc.get_inf_attr(idc.INF_MAX_EA))
 
     Output:
         Returns the first matching location if found, otherwise idc.BADADDR
     """
     target = target.upper()
     while search_start_location < max_location:
-        ea = idc.FindBinary(search_start_location, search_direction, target)
+        ea = idc.find_binary(search_start_location, search_direction, target)
         if (min_location <= ea < max_location
-                and ea == idc.ItemHead(ea)
-                and idaapi.get_many_bytes(ea, idc.ItemSize(ea)).encode('hex').upper().startswith(target.replace(' ', ''))):
+                and ea == idc.get_item_head(ea)
+                and idc.get_bytes(ea, idc.get_item_size(ea)).encode('hex').upper().startswith(target.replace(' ', ''))):
             return ea
         else:
             search_start_location = ea + (1 if search_direction == idc.SEARCH_DOWN else -1)
@@ -93,8 +101,8 @@ def calc_most_common_start_bytes():
     """
     counts = {}
     for func_ea in idautils.Functions():
-        if not idc.GetFunctionFlags(func_ea) & (idc.FUNC_LIB | idc.FUNC_THUNK):
-            start_bytes = idaapi.get_many_bytes(func_ea, idc.ItemSize(func_ea))
+        if not idc.get_func_attr(func_ea, idc.FUNCATTR_FLAGS) & (idc.FUNC_LIB | idc.FUNC_THUNK):
+            start_bytes = idc.get_bytes(func_ea, idc.get_item_size(func_ea))
             if start_bytes in counts:
                 counts[start_bytes] += 1
             else:
@@ -116,12 +124,12 @@ def sanity_checks(location):
         None if there is already a function containing the provided EA
     """
     if idaapi.get_func(location):
-        append_debug('There\'s already a function here! (0x%X)' % location)
+        logger.debug('There\'s already a function here! (0x%X)' % location)
         return None
-    elif idc.isAlign(idc.GetFlags(location)) or idc.GetMnem(location) == 'nop' or \
-            (idaapi.isData(idc.GetFlags(location)) and idc.Byte(location) == 0x90):
+    elif idc.is_align(idc.get_full_flags(location)) or idc.print_insn_mnem(location) == 'nop' or \
+            (idaapi.is_data(idc.get_full_flags(location)) and idc.get_wide_byte(location) == 0x90):
         # Yes, the nop bit may be incorrect, but it's gonna be a very special case that needs a function with nops
-        append_debug('Can\'t make a function including aligns and/or nops!')
+        logger.warning('Can\'t make a function including aligns and/or nops!')
         return False
     else:
         return True
@@ -134,13 +142,13 @@ def trim_func(ea, GetHead):
 
     Input:
         ea - The location to adjust for nops and Aligns. EA must be a head.
-        GetHead - either PrevHead or NextHead
+        GetHead - either prev_head or next_head
 
     Output:
         The corrected EA.
     """
-    while idc.GetMnem(ea) == 'nop' or (idaapi.isData(idc.GetFlags(ea)) and idc.Byte(ea) == 0x90) or \
-            idc.isAlign(idc.GetFlags(ea)) or (not idc.isCode(idc.GetFlags(ea)) and idc.Byte(ea) == 0xCC):
+    while idc.print_insn_mnem(ea) == 'nop' or (idaapi.is_data(idc.get_full_flags(ea)) and idc.get_wide_byte(ea) == 0x90) or \
+            idc.is_align(idc.get_full_flags(ea)) or (not idc.is_code(idc.get_full_flags(ea)) and idc.get_wide_byte(ea) == 0xCC):
         ea = GetHead(ea)
     return ea
 
@@ -173,12 +181,12 @@ def find_function_starts_near(location, start_mnem_bytes=None):
     min_location = None
     ea = location
     while min_location is None:
-        ea = idc.PrevHead(ea)
-        if idaapi.get_func(ea) or idc.isAlign(idc.GetFlags(ea)):
+        ea = idc.prev_head(ea)
+        if idaapi.get_func(ea) or idc.is_align(idc.get_full_flags(ea)):
             min_location = ea
         elif ea == idc.BADADDR:
-            min_location = idaapi.getseg(location).startEA
-    min_location = max(min_location, idaapi.getseg(location).startEA)
+            min_location = idaapi.getseg(location).start_ea
+    min_location = max(min_location, idaapi.getseg(location).start_ea)
 
     targets = ['55', '54', '56', '57']
     if start_mnem_bytes:
@@ -221,12 +229,12 @@ def find_function_starts(location, start_mnem_bytes=None):
     min_location = None
     ea = location
     while min_location is None:
-        ea = idc.PrevHead(ea)
-        if idaapi.get_func(ea) or idc.isAlign(idc.GetFlags(ea)):
+        ea = idc.prev_head(ea)
+        if idaapi.get_func(ea) or idc.is_align(idc.get_full_flags(ea)):
             min_location = ea
         elif ea == idc.BADADDR:
-            min_location = idaapi.getseg(location).startEA
-    min_location = max(min_location, idaapi.getseg(location).startEA)
+            min_location = idaapi.getseg(location).start_ea
+    min_location = max(min_location, idaapi.getseg(location).start_ea)
 
     targets = ['55', '54', '56', '57']
     if start_mnem_bytes:
@@ -277,12 +285,12 @@ def find_function_ends_near(location, end_mnem_bytes=None):
     max_location = None
     ea = location
     while max_location is None:
-        ea = idc.NextHead(ea)
-        if idaapi.get_func(ea) or idc.isAlign(idc.GetFlags(ea)):
+        ea = idc.next_head(ea)
+        if idaapi.get_func(ea) or idc.is_align(idc.get_full_flags(ea)):
             max_location = ea
         elif ea == idc.BADADDR:
-            max_location = idaapi.getseg(location).endEA
-    max_location = min(max_location, idaapi.getseg(location).endEA)
+            max_location = idaapi.getseg(location).end_ea
+    max_location = min(max_location, idaapi.getseg(location).end_ea)
 
     targets = ['C2', 'C3', 'E9', 'EA', 'EB']
     if end_mnem_bytes:
@@ -294,7 +302,7 @@ def find_function_ends_near(location, end_mnem_bytes=None):
         if ea <= max_location:
             ends[target] = ea
 
-    return [end + idc.ItemSize(end) for end in
+    return [end + idc.get_item_size(end) for end in
             (([ends.get(end_mnem_bytes, None), ends.get('C2', None), ends.get('C3', None)]) +
              sorted(ends.get(target, None) for target in targets[-3:])) if end]
 
@@ -327,12 +335,12 @@ def find_function_ends(location, end_mnem_bytes=None):
     max_location = None
     ea = location
     while max_location is None:
-        ea = idc.NextHead(ea)
-        if idaapi.get_func(ea) or idc.isAlign(idc.GetFlags(ea)):
+        ea = idc.next_head(ea)
+        if idaapi.get_func(ea) or idc.is_align(idc.get_full_flags(ea)):
             max_location = ea
         elif ea == idc.BADADDR:
-            max_location = idaapi.getseg(location).endEA
-    max_location = min(max_location, idaapi.getseg(location).endEA)
+            max_location = idaapi.getseg(location).end_ea
+    max_location = min(max_location, idaapi.getseg(location).end_ea)
 
     targets = ['C3', 'C2', 'E9', 'EA', 'EB']
     if end_mnem_bytes:
@@ -350,7 +358,7 @@ def find_function_ends(location, end_mnem_bytes=None):
             ea = find_binary_instruction_start(ea + 11, idc.SEARCH_DOWN, target, max_location=max_location)
         ends[target] = function_ends
 
-    return [end + idc.ItemSize(end) for end in
+    return [end + idc.get_item_size(end) for end in
             ((ends[end_mnem_bytes] if end_mnem_bytes else []) + sorted(ends['C3'] + ends['C2']) +
              sorted(itertools.chain.from_iterable(ends[target] for target in targets[-3:])))]
 
@@ -414,7 +422,7 @@ def create_function_precise(location, require_term=True, start_mnem_bytes=None, 
     elif sanity is False:  # There was something preventing function creation
         return False
 
-    append_debug('Trying to make function for 0x%X' % location)
+    logger.debug('Trying to make function for 0x%X' % location)
     function_starts = find_function_starts_near(location, start_mnem_bytes)
     if not function_starts:
         return False  # If we don't have any start points, we're up a creek
@@ -468,10 +476,10 @@ def ida_make_functions(location, require_term=True):
     target_location = location
     function_start = location
     ea = location
-    while not (idaapi.get_func(ea) or idc.isAlign(idc.GetFlags(ea))):
+    while not (idaapi.get_func(ea) or idc.is_align(idc.get_full_flags(ea))):
         function_start = ea
-        ea = idc.PrevHead(ea)
-    function_start = trim_func(function_start, idc.NextHead)
+        ea = idc.prev_head(ea)
+    function_start = trim_func(function_start, idc.next_head)
 
     if try_make_function(function_start, require_term=require_term):
         if not idaapi.get_func(target_location):
@@ -519,12 +527,12 @@ def create_functions(location, require_term=True, start_mnem_bytes=None, end_mne
     for function_start, function_end in itertools.product(function_starts, function_ends):
         if function_start < function_end:
             if try_make_function(function_start, function_end, require_term=require_term) \
-                    and function_start <= location < idaapi.get_func(function_start).endEA:
+                    and function_start <= location < idaapi.get_func(function_start).end_ea:
                 found_func = (function_start, function_end)
                 break  # Don't return here in case we have to split it yet.
 
     if found_func:
         return True
     else:
-        append_debug('Failed to find function based on location 0x%X.' % location)
+        logger.warning('Failed to find function based on location 0x%X.' % location)
         return False

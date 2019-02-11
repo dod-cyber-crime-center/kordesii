@@ -8,6 +8,7 @@ from __future__ import print_function, division
 import argparse
 import datetime
 import json
+import logging
 import os
 import locale
 import sys
@@ -15,9 +16,9 @@ import timeit
 
 # DC3-kordesii framework imports
 import kordesii
-from kordesii.kordesiireporter import kordesiireporter
-from kordesii.kordesiitester import DEFAULT_EXCLUDE_FIELDS
-from kordesii.kordesiitester import kordesiitester
+from kordesii.reporter import Reporter
+from kordesii.tester import DEFAULT_EXCLUDE_FIELDS
+from kordesii.tester import Tester
 
 
 def _median(data):
@@ -89,6 +90,11 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          dest="nprocs",
                          default=None,
                          help="Number of test cases to run simultaneously. Default: 3/4 * logical CPU cores.")
+    decoder.add_argument("--debug",
+                        action="store_true",
+                        default=False,
+                        dest="debug",
+                        help="Turn on all debugging messages. (WARNING: This WILL spam the console)")
 
     # Arguments used to generate and update test cases
     decoder.add_argument("-i",
@@ -142,11 +148,18 @@ def main():
     argparser = get_arg_parser()
     args = argparser.parse_args()
 
+    # Setup logging
+    kordesii.setup_logging()
+    if args.debug:
+        logging.root.setLevel(logging.DEBUG)
+    else:
+        logging.root.setLevel(logging.ERROR)  # By default, ignore all warning, info, and debug messages.
+
     # Configure reporter based on args
-    reporter = kordesiireporter(enableidalog=True)
+    reporter = Reporter(enableidalog=True)
 
     # Configure test object
-    tester = kordesiitester(reporter=reporter, results_dir=args.test_case_dir)
+    tester = Tester(reporter=reporter, results_dir=args.test_case_dir)
 
     valid_decoder_names = reporter.list_decoders()
 

@@ -1,28 +1,94 @@
+"""
+Core components that will be integrated as part of the root "kordesii" module.
 
+NOTE: Importing "kordesii" is safe to do outside of IDA. Other modules, not so much.
+"""
 import atexit
 import glob
+import inspect
 import os
+import logging
 import re
 import shutil
 import subprocess
+import sys
 import threading
 
-import elftools.common.exceptions as elfexceptions
-import elftools.elf.elffile as elffile
 import pefile
+from elftools.common.exceptions import ELFError
+from elftools.elf import elffile
 
-# Output files
+from kordesii import logutil
+
+try:
+    import idc
+    in_ida = True
+except ImportError:
+    idc = None
+    in_ida = False
+
+from kordesii.logutil import setup_logging
+
+
+logger = logging.getLogger(__name__)
+
+
+__all__ = ['decoder_entry', 'called_from_framework', 'in_ida', 'find_ida',
+           'run_ida', 'is_64_bit', 'append_string', 'write_unique_file']
+
+
+# Determines if the code was called from framework or directly from IDA
+# TODO: Determine better way to do this.
+called_from_framework = in_ida and 'exit' in idc.ARGV
+
+
 IDA_LOG_FILE = "ida_log.txt"
-IDA_DEBUG_FILE = "ida_debug.txt"
 IDA_STRINGS_FILE = "ida_strings.txt"
-
-# Directory for decoder specific output files
 DECODER_OUTPUT_DIR = "decoder_output_files"
-
-# Return codes
 RETURN_CODE_TIMEOUT = 20
 
-LOG_TOKEN = '[*] '
+
+def decoder_entry(main_func):
+    """
+    Main entry code that will trigger IDA script execution.
+
+    Decorate your main function like so:
+
+        @kordesii.script_entry
+        def main():
+            # ....
+
+    WARNING: The decorated function MUST be at the end of the module.
+
+    :param main_func: function to call
+    """
+    decoder_locals = inspect.stack()[1][0].f_locals
+    if decoder_locals.get('__name__') == '__main__':
+        if in_ida:
+            # Setup logging.
+            setup_logging()
+            if called_from_framework:
+                log_level = int(idc.ARGV[1])
+                logging.root.setLevel(log_level)
+            elif logging.root.getEffectiveLevel() == logging.NOTSET:
+                logging.root.setLevel(logging.INFO)
+
+            # Run main()
+            idc.auto_wait()
+            try:
+                main_func()
+            except Exception as e:
+                # Catch all exceptions, otherwise we have to go fish it out of ida_log.txt
+                logger.exception(e)
+            finally:
+                # Exit if called from framework
+                if called_from_framework:
+                    idc.qexit(0)
+        else:
+            sys.exit('Script must be called from IDA or kordesii.')
+            # TODO: We could possibly call run_ida() if outside.
+
+    return main_func
 
 
 def find_ida(is_64_bit=False):
@@ -95,7 +161,7 @@ def is_64_bit(input_file):
             with open(input_file, 'rb') as f:
                 elf = elffile.ELFFile(f)
                 result = elf.get_machine_arch() == "x64"
-        except elfexceptions.ELFError:
+        except ELFError:
             result = False
     elif first_bytes[0:4] == "\xCE\xFA\xED\xFE":
         # 32 bit MACH-O executable
@@ -129,7 +195,7 @@ def run_ida(reporter,
         input_file - Path to the file for which an IDB should be built and analyzed.
         autonomous - When set to True, IDA will not display dialog boxes. Setting to False
                      is useful in debugging errors as the IDB will remain open barring an
-                     explicit idc.exit().
+                     explicit idc.qexit().
         ida_path - Full path to idaq.exe file to run IDA. If None, use find_ida() function to
                    determine the path.
         timeout - run_ida will wait <timeout> seconds before killing the process. Setting
@@ -143,7 +209,6 @@ def run_ida(reporter,
         Information will be added to the reporter object.
         Output files will exist after execution based on the cleanup parameters and the script itself.
     """
-
     # First find IDA executable to run
     ida_path = ida_path if ida_path else find_ida(is_64_bit(input_file))
     if ida_path is None:
@@ -152,24 +217,27 @@ def run_ida(reporter,
     # Setup some variables for files that may be output by the decoder and IDA
     base_dir = reporter.filedir()
     log_file_path = os.path.join(base_dir, IDA_LOG_FILE)
-    debug_file_path = os.path.join(base_dir, IDA_DEBUG_FILE)
     strings_file_path = os.path.join(base_dir, IDA_STRINGS_FILE)
     output_dir_path = os.path.join(base_dir, DECODER_OUTPUT_DIR)
 
     # Cleanup any preexisting standard files to avoid overlap with previous decoder runs
     if os.path.exists(log_file_path):
         os.remove(log_file_path)
-    if os.path.exists(debug_file_path):
-        os.remove(debug_file_path)
     if os.path.exists(strings_file_path):
         os.remove(strings_file_path)
 
-        # Configure command line flags based on parameters
-    autonomous = '-A' if autonomous else ''
-    log = ('-L' + log_file_path) if log else ''
-
     # Setup the process to run the IDA decoder script
-    command = '"%s" %s -P %s -OMANA:MANA -S"\"%s\" exit" "%s"' % (ida_path, autonomous, log, script_path, input_file)
+    log_level = logging.root.getEffectiveLevel()
+    command = [ida_path, '-P', '-OMANA:MANA', '-S"\"{}\" {} exit"'.format(script_path, log_level)]
+    if autonomous:
+        command.append('-A')
+    if log:
+        command.append('-L"{}"'.format(log_file_path))
+
+    command.append('"{}"'.format(input_file))
+    command = ' '.join(command)  # Doesn't work unless we convert to string!
+
+    logger.debug('Running command: {}'.format(command))
     process = subprocess.Popen(command)
 
     atexit.register(process.kill)
@@ -196,12 +264,6 @@ def run_ida(reporter,
         with open(log_file_path, "r") as f:
             reporter.set_ida_log(f.read())
 
-    # Ingest any debug information output by the script
-    if os.path.isfile(debug_file_path):
-        with open(debug_file_path, "r") as f:
-            for line in f:
-                reporter.debug("ida_debug: %s" % (line.rstrip("\r\n")))
-
     # Ingest any strings output by the script
     if os.path.isfile(strings_file_path):
         with open(strings_file_path, "r") as f:
@@ -224,25 +286,24 @@ def run_ida(reporter,
         for root, dirs, files in os.walk(output_dir_path):
             for file in files:
                 file_path = os.path.join(root, file)
-                file_data = open(file_path, 'rb').read()
+                with open(file_path, 'rb') as fo:
+                    file_data = fo.read()
                 reporter.add_output_file(file, file_data)
 
     # Perform cleanup as specified in the parameters
     if cleanup_txt_files:
         if os.path.exists(log_file_path):
             os.remove(log_file_path)
-        if os.path.exists(debug_file_path):
-            os.remove(debug_file_path)
         if os.path.exists(strings_file_path):
             os.remove(strings_file_path)
     if cleanup_output_files:
         if os.path.exists(output_dir_path):
             shutil.rmtree(output_dir_path)
     if cleanup_idb_files:
-        remove_idbs(input_file)
+        _remove_idbs(input_file)
 
 
-def remove_idbs(input_file):
+def _remove_idbs(input_file):
     """
     Description:
         Remove all IDB/I64 files and their components from the specified directory.
@@ -270,23 +331,15 @@ def remove_idbs(input_file):
             # of the others do either.
 
 
-def append_debug(message, log_token=LOG_TOKEN):
-    """
-    Append debug message to file for access outside of IDA.
-    """
-    message = log_token + message
-    try:
-        print message
-        with open(IDA_DEBUG_FILE, 'ab') as f:
-            f.write("%s\n" % message)
-    except Exception as e:
-        print("Error writing debug message to %s: %s" % (IDA_DEBUG_FILE, str(e)))
-
-
 def append_string(string):
     """
     Append decoded string to file for access outside of IDA.
+
+    :raises ValueError: If run outside of IDA.
     """
+    if not in_ida:
+        raise ValueError("This function can only be run within IDA.")
+
     try:
         # Make sure string is unicode escaped before writing!
         if not isinstance(string, unicode):
@@ -298,29 +351,17 @@ def append_string(string):
         print("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
 
 
-def remove_string(string, remove_all=False):
-    """
-    Remove the first instance of a string from the file. Opposite of append_string.
-    """
-    try:
-        with open(IDA_STRINGS_FILE, 'rb') as f:
-            current = f.read()
-
-        if '\n%s\n' % string in current or current.startswith('%s\n' % string):
-            with open(IDA_STRINGS_FILE, 'wb') as f:
-                f.write(current.replace('%s\n' % string, '',
-                                        (1 if not remove_all else None)))  # None is default for remove all
-                # else quietly succeed if string wasn't present
-    except Exception as e:
-        print("Error removing string from %s: %s" % (IDA_STRINGS_FILE, str(e)))
-
-
 def write_unique_file(filename, data):
     """
     Some IDA scripts will output files in addition to strings and debug messages.
     This function will append the provided data to the specified file name in
     a designated directory for access later.
+
+    :raises ValueError: If run outside of IDA.
     """
+    if not in_ida:
+        raise ValueError("This funciton can only run within IDA.")
+
     if not os.path.exists(DECODER_OUTPUT_DIR):
         os.makedirs(DECODER_OUTPUT_DIR)
 
@@ -329,6 +370,6 @@ def write_unique_file(filename, data):
     try:
         with open(filepath, 'wb') as f:
             f.write(data)
-        append_debug('Wrote file: ' + filepath)
+        logger.info('Wrote file: {}'.format(filepath))
     except Exception as e:
         print("Error writing data to %s: %s" % (filepath, str(e)))

@@ -4,19 +4,25 @@ import copy
 import hashlib
 import functools
 import itertools
+import logging
 import os
 import re
 import yara
 import sys
 import warnings
 
+import ida_name
 import idaapi
 import idautils
 import idc
 
-from kordesii.kordesiiidahelper import append_debug, append_string
-from kordesii.utils import function_tracingutils
-from kordesii.utils.functioncreator import create_function_precise
+from kordesii import append_string
+from kordesii.utils import function_tracing
+from kordesii.utils.function_creator import create_function_precise
+
+
+logger = logging.getLogger(__name__)
+
 
 INVALID = -1
 UNUSED = None
@@ -34,7 +40,7 @@ CODE_PAGES = [
     'iso8859-6', 'cp1256',  # Arabic (cp864, cp720 omitted)
     'latin1',  # If all else fails, latin1 is always is successful.
 ]
-INPUT_FILE_PATH = idc.GetInputFilePath()
+INPUT_FILE_PATH = idc.get_input_file_path()
 # Put these here for increased robustness. Please don't depend on these very often.
 ENCODED_STRINGS = []
 DECODED_STRINGS = []
@@ -52,7 +58,7 @@ class SuperFunc_t(object):
     Fields:
         function_obj - The idaapi.func_t object for this function. (<ea> must be within a function.)
         name - The name of the function.
-        xrefs_to - EA's for all of the non-recursive references to this function's startEA.
+        xrefs_to - EA's for all of the non-recursive references to this function's start_ea.
         xref_count - len(xrefs_to)
 
     Input:
@@ -70,19 +76,39 @@ class SuperFunc_t(object):
             if create_if_not_exists:
                 if create_function_precise(ea, False):
                     self.function_obj = idaapi.get_func(ea)
-                    append_debug("Created function at 0x%X" % self.function_obj.startEA)
+                    logger.debug("Created function at 0x%X" % self.function_obj.start_ea)
                 else:
                     raise AttributeError("No function at 0x%X" % ea)
             else:
                 raise AttributeError("No function at 0x%X" % ea)
         if self.function_obj:
-            self.startEA = self.function_obj.startEA
-            self.endEA = self.function_obj.endEA
-        self.name = idaapi.get_func_name(self.function_obj.startEA)
-        self.xrefs_to = [ref.frm for ref in idautils.XrefsTo(self.function_obj.startEA)
+            self.start_ea = self.function_obj.start_ea
+            self.end_ea = self.function_obj.end_ea
+        self.name = idaapi.get_func_name(self.function_obj.start_ea)
+        self.xrefs_to = [ref.frm for ref in idautils.XrefsTo(self.function_obj.start_ea)
                          if idaapi.get_func_name(ref.frm) != self.name]
         self.xref_count = len(self.xrefs_to)
         self._flowchart = None
+        
+    @classmethod
+    def from_name(cls, func_name, ignore_underscore=False):
+        """
+        Factory method for obtaining SuperFunc_t by name.
+
+        :param str func_name: Name of function to obtain
+        :param bol ignore_underscore: Whether to ignore underscores in function name.
+            (Will return the first found function if enabled.)
+
+        :return: SuperFunc_t object
+        :raises ValueError: If function name was not found.
+        """
+        for ea in idautils.Functions():
+            _func_name = idc.get_func_name(ea)
+            if ignore_underscore:
+                _func_name = _func_name.strip('_')
+            if func_name == _func_name:
+                return cls(ea)
+        raise ValueError('Unable to find function with name: {}'.format(func_name))
 
     def __eq__(self, other):
         return self.__hash__() == other.__hash__()
@@ -91,23 +117,23 @@ class SuperFunc_t(object):
         return self.__repr__().__hash__()
 
     def __str__(self):
-        return '%s 0x%X - 0x%X' % (self.name, self.function_obj.startEA, self.function_obj.endEA)
+        return '%s 0x%X - 0x%X' % (self.name, self.function_obj.start_ea, self.function_obj.end_ea)
 
     def __repr__(self):
-        return '<SuperFunc_t : {}() : {:#08x} - {:#08x}>'.format(self.name, self.startEA, self.endEA)
+        return '<SuperFunc_t : {}() : {:#08x} - {:#08x}>'.format(self.name, self.start_ea, self.end_ea)
 
     def heads(self, start=None, reverse=False):
         """
         Iterates all the heads for the given function.
 
-        :param start: Start address (defaults to startEA or endEA)
+        :param start: Start address (defaults to start_ea or end_ea)
         :param reverse:  Direction to iterate
         :return:
         """
         if not self._flowchart:
-            self._flowchart = function_tracingutils.FlowChart(self.startEA)
+            self._flowchart = function_tracing.FlowChart(self.start_ea)
         if not start:
-            start = self.endEA if reverse else self.startEA
+            start = self.end_ea if reverse else self.start_ea
 
         for ea in self._flowchart.bfs_iter_heads(start, reverse=reverse):
             yield ea
@@ -123,17 +149,17 @@ class SuperFunc_t(object):
         :return str: The name that ended up getting set (unless no name was set, then return None).
         """
         if new_name == '':
-            if idaapi.set_name(self.function_obj.startEA, new_name):
-                return idaapi.get_name(self.function_obj.startEA)
+            if idaapi.set_name(self.start_ea, new_name):
+                return idaapi.get_name(self.function_obj.start_ea)
             else:
-                append_debug('Failed to reset name at 0x%X' % self.function_obj.startEA)
-        elif idaapi.do_name_anyway(self.function_obj.startEA, new_name):
-            self.name = idaapi.get_name(self.function_obj.startEA)
+                logger.warning('Failed to reset name at 0x%X' % self.start_ea)
+        elif ida_name.force_name(self.start_ea, new_name):
+            self.name = idaapi.get_name(self.start_ea)
             if self.name != new_name:
-                append_debug('IDA changed name "%s" to "%s"' % (new_name, self.name))
+                logger.info('IDA changed name "%s" to "%s"' % (new_name, self.name))
             return self.name
         else:
-            append_debug('Failed to rename at 0x%X' % self.function_obj.startEA)
+            logger.warning('Failed to rename at 0x%X' % self.start_ea)
 
 
 @functools.total_ordering
@@ -161,7 +187,7 @@ class EncodedString(object):
         code_page - Code page used to decode string when unicode() is called.
 
     Input:
-        string_location - Required. Wait until you know this to build the object if at all possible.
+        string_location - Required. wait until you know this to build the object if at all possible.
         string_reference - The location the string is referenced from. Often helpful
         size - The size of the string. Required to use self.get_bytes.
         offset - Used when there is an offset based accessing scheme.
@@ -211,19 +237,19 @@ class EncodedString(object):
         :param offset: Used when there is an offset based accessing scheme.
         :param key: Used when there is a key that can vary by string.
         """
-        if idc.isLoaded(string_location):
+        if idc.is_loaded(string_location):
             return EncodedString(
                 string_location, string_reference, size=size, offset=offset, key=key)
 
         # otherwise assume string_location is a pointer within the stack
-        # (using function_tracingutils's CPU emulator) and create an EncodedStackString object.
-        stack = idc.GetFrame(string_reference)
+        # (using function_tracing's CPU emulator) and create an EncodedStackString object.
+        stack = idc.get_func_attr(string_reference, idc.FUNCATTR_FRAME)
         # FIXME: This method isn't always super accurate because... IDA
         stack_offset = (
                 string_location
-                + function_tracingutils.RSP_OFFSET
-                + idc.GetFrameLvarSize(string_reference)
-                - function_tracingutils.STACK_BASE
+                + function_tracing.RSP_OFFSET
+                + idc.get_func_attr(string_reference, idc.FUNCATTR_FRSIZE)
+                - function_tracing.STACK_BASE
         )
 
         return EncodedStackString(
@@ -271,6 +297,9 @@ class EncodedString(object):
     def __unicode__(self):
         return self.decode_unknown_charset()
 
+    def __repr__(self):
+        return '<{!r} at 0x{:08x}>'.format(self.encoded_data, self.string_location)
+
     @property
     def xrefs_to(self):
         if self._xrefs_to is None:
@@ -290,9 +319,8 @@ class EncodedString(object):
         """
         name = name or self.display_name
         if not name:
-            append_debug(
-                'Unable to rename encoded string due to no decoded string: {!r}'.format(self),
-                log_token='[!]')
+            logger.warning(
+                'Unable to rename encoded string due to no decoded string: {!r}'.format(self))
             return
 
         # Add comment
@@ -300,13 +328,13 @@ class EncodedString(object):
         if len(name) > self._MAX_COMMENT_LENGTH:
             comment += ' (truncated)'
         if self.string_location not in (INVALID, UNUSED):
-            idc.MakeRptCmt(self.string_location, comment)
+            idc.set_cmt(self.string_location, comment, 1)
         if self.string_reference not in (INVALID, UNUSED):
-            idc.MakeRptCmt(self.string_reference, comment)
+            idc.set_cmt(self.string_reference, comment, 1)
 
         # Set variable name
         if self.string_location not in (INVALID, UNUSED):
-            idaapi.do_name_anyway(self.string_location, name[:self._MAX_NAME_LENGTH])
+            ida_name.force_name(self.string_location, name[:self._MAX_NAME_LENGTH])
 
     def patch(self, fill_char=None, define=True):
         """
@@ -325,11 +353,11 @@ class EncodedString(object):
         if fill_char:
             decoded_data += fill_char * (len(self.encoded_data) - len(decoded_data))
         try:
-            idaapi.patch_many_bytes(self.startEA, decoded_data)
+            idaapi.patch_bytes(self.start_ea, decoded_data)
             if define:
                 self.define()
         except TypeError:
-            append_debug("String type for decoded string from location 0x{:08x}.".format(self.startEA))
+            logger.debug("String type for decoded string from location 0x{:08x}.".format(self.start_ea))
 
     # TODO: Can this just be embedded in patch()?
     def define(self):
@@ -337,21 +365,21 @@ class EncodedString(object):
         Defines the string in the IDB.
         """
         try:
-            idc.MakeUnknown(self.startEA, self.byte_length, idc.DOUNK_SIMPLE)
-            idaapi.make_ascii_string(self.startEA, self.byte_length, self.string_type)
+            idc.del_items(self.start_ea, idc.DELIT_SIMPLE, self.byte_length)
+            idaapi.create_strlit(self.start_ea, self.byte_length, self.string_type)
         except:
-            append_debug('Unable to define string at 0x%X' % self.startEA)
+            logger.warning('Unable to define string at 0x%X' % self.start_ea)
 
     @property
-    def startEA(self):
+    def start_ea(self):
         if self.string_location in (UNUSED, INVALID, idc.BADADDR):
             return INVALID
         else:
             return self.string_location + (self.offset if self.offset not in [INVALID, UNUSED] else 0)
 
     @property
-    def endEA(self):
-        start_ea = self.startEA
+    def end_ea(self):
+        start_ea = self.start_ea
         length = self.byte_length
         if start_ea == INVALID or length == INVALID:
             return INVALID
@@ -361,7 +389,7 @@ class EncodedString(object):
     # TODO: This property probably can be replace by __str__()
     @property
     def as_bytes(self):
-        # patch_many_bytes wants an ascii string (str) of the bytes (or their char form)
+        # patch_bytes wants an ascii string (str) of the bytes (or their char form)
         # therefore for wide chars, this conversion is necessary.
         # This also allows us to calculate the on-disk size.
         if not self.decoded_data:
@@ -382,7 +410,7 @@ class EncodedString(object):
         if not self.decoded_data:
             return INVALID
         else:
-            return idc.ASCSTR_UNICODE if isinstance(self.decoded_data, unicode) else idc.ASCSTR_C
+            return idc.STRTYPE_C_16 if isinstance(self.decoded_data, unicode) else idc.STRTYPE_C
 
     def calc_size(self, width=1):
         """
@@ -393,7 +421,7 @@ class EncodedString(object):
             Returns size if it is found, idc.BADADDR otherwise.
             Updates encoded_data if self.size was INVALID.
         """
-        end_location = idc.FindBinary(self.string_location, idc.SEARCH_DOWN, "00 " * width)
+        end_location = idc.find_binary(self.string_location, idc.SEARCH_DOWN, "00 " * width)
         if end_location == idc.BADADDR:
             return idc.BADADDR
 
@@ -423,7 +451,7 @@ class EncodedString(object):
         """
         if self.size == INVALID:
             raise ValueError("Size was never calculated!")
-        bytes = idaapi.get_many_bytes(self.string_location, self.size) if self.size else ''
+        bytes = idc.get_bytes(self.string_location, self.size) if self.size else ''
         return bytes if bytes is not None else INVALID
 
     def _num_raw_bytes(self, string):
@@ -506,7 +534,7 @@ class EncodedStackString(EncodedString):
         self.stack_offset = stack_offset
         # TODO: Remove memory_ptr, it should be manually added by the decoder after initialization
         # if they want to use it.
-        # Optional extra argument to keep track of pointer to string in memory when using function_tracingutils.
+        # Optional extra argument to keep track of pointer to string in memory when using function_tracing.
         self.memory_ptr = memory_ptr
 
     def _compare_key(self):
@@ -560,25 +588,24 @@ class EncodedStackString(EncodedString):
         """
         name = name or self.display_name
         if not name:
-            append_debug(
-                'Unable to rename encoded string due to no decoded string: {!r}'.format(self),
-                log_token='[!]')
+            logger.warning(
+                'Unable to rename encoded string due to no decoded string: {!r}'.format(self))
 
         # Set name and comment in stack variable.
         comment = '"{}"'.format(name[:self._MAX_COMMENT_LENGTH])
         if len(name) > self._MAX_COMMENT_LENGTH:
             comment += ' (truncated)'
         if self.frame_id and self.stack_offset:
-            idc.SetMemberComment(self.frame_id, self.stack_offset, comment, repeatable=1)
+            idc.set_member_cmt(self.frame_id, self.stack_offset, comment, repeatable=1)
             var_name = re.sub('[^_$?@0-9A-Za-z]', '_', name[:self._MAX_NAME_LENGTH])  # Replace invalid characters
             if not var_name:
                 raise ValueError('Unable to calculate var_name for : {!r}'.format(self))
             var_name = 'a' + var_name.capitalize()
-            idc.SetMemberName(self.frame_id, self.stack_offset, var_name)
+            idc.set_member_name(self.frame_id, self.stack_offset, var_name)
 
         # Add a comment where the string is being used.
         if self.string_reference:
-            idc.MakeRptCmt(self.string_reference, comment)
+            idc.set_cmt(self.string_reference, comment, 1)
 
     def patch(self, fill_char=None, define=True):
         """Does nothing, patching is not a thing for stack strings."""
@@ -609,8 +636,8 @@ class StringTracer(object):
 
     Fields:
         initial_offset - The EA the searching starts at. This is usually a yara match EA or a
-                         func_t.startEA. (<initial_offset> must be within a function.)
-        func_ea - The startEA of the function containing the initial_offset.
+                         func_t.start_ea. (<initial_offset> must be within a function.)
+        func_ea - The start_ea of the function containing the initial_offset.
         string_location - The EA the encoded string starts at. Defaults to idc.BADADDR.
         string_reference - The EA from which the encoded string is referenced. Defaults to
                            idc.BADADDR.
@@ -633,7 +660,7 @@ class StringTracer(object):
         if self.initial_offset != UNUSED:
             if not idaapi.get_func(initial_offset):
                 raise AttributeError("No function at 0x%X" % initial_offset)
-            self.func_ea = idaapi.get_func(initial_offset).startEA
+            self.func_ea = idaapi.get_func(initial_offset).start_ea
         else:
             self.func_ea = INVALID
         self.string_location = idc.BADADDR
@@ -681,7 +708,7 @@ def is_valid_ea(ea):
     Output:
         True if the EA is valid, False if it is not
     """
-    return ea not in [INVALID, UNUSED, idc.BADADDR] and idc.MinEA() <= ea <= idc.MaxEA()
+    return ea not in [INVALID, UNUSED, idc.BADADDR] and idc.get_inf_attr(idc.INF_MIN_EA) <= ea <= idc.get_inf_attr(idc.INF_MAX_EA)
 
 
 def split_decoded_string(decoded_string, identify=False):
@@ -775,7 +802,7 @@ def split_decoded_string(decoded_string, identify=False):
                 section_end += section_start
             string_end = section_end
 
-    results.sort(key=lambda decoded_string: decoded_string.startEA)
+    results.sort(key=lambda decoded_string: decoded_string.start_ea)
 
     if identify:
         for new_string in results:
@@ -806,7 +833,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter=None):
 
     while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)):
         # Consume bytes while we continue to find the delimiter
-        if idc.GetManyBytes(index, len(delimiter)) == delimiter:
+        if idc.get_bytes(index, len(delimiter)) == delimiter:
             if len(delimiter) > 1:
                 # if the delimiter is multiple bytes, we could have stepped over a ref
                 # in the middle of the delimiter
@@ -820,7 +847,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter=None):
             # For cases where the delimiter has repeated values (like unicode null),
             # step until the delimiter is right aligned
             while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.GetManyBytes(index + 1, len(delimiter)) == delimiter:
+                    idc.get_bytes(index + 1, len(delimiter)) == delimiter:
                 index += 1
             # Technically we need to check this again to be super safe
             if list(idautils.XrefsTo(index, idaapi.XREF_ALL)):
@@ -830,7 +857,7 @@ def find_unrefd_encoded_strings(encoded_string, delimiter=None):
             # Consume non-delimiter bytes until we encounter another delimiter or a ref
             index += 1
             while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.GetManyBytes(index, len(delimiter)) != delimiter:
+                    idc.get_bytes(index, len(delimiter)) != delimiter:
                 index += 1
 
             new_string = copy.copy(encoded_string)
@@ -861,9 +888,9 @@ def find_encoded_strings_inline(matches, Tracer, **kwargs):
             if tracer.search():
                 encoded_strings.extend(tracer.encoded_strings)
             else:
-                append_debug('Failed to find strings at 0x%X' % ea)
+                logger.warning('Failed to find strings at 0x%X' % ea)
         except AttributeError:
-            append_debug('Error tracing at 0x%X' % ea)
+            logger.warning('Error tracing at 0x%X' % ea)
     return encoded_strings
 
 
@@ -883,17 +910,18 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
     encoded_strings = []
     for func in funcs:
         for ref in func.xrefs_to:
-            if idc.SegName(ref) == '.pdata':
-                append_debug('Segment .pdata for ref 0x%08x is not a relevant code segment and will be skipped' % ref)
+            if idc.get_segm_name(ref) == '.pdata':
+                logger.info('Segment .pdata for ref 0x%08x is not a relevant code segment and will be skipped' % ref)
             else:
+                # NOTE: Setting errors to info because it is common and will spam our console.
                 try:
                     tracer = Tracer(ref, func.identifier, **kwargs)
                     if tracer.search():
                         encoded_strings.extend(tracer.encoded_strings)
                     else:
-                        append_debug('Failed to find strings at 0x%X' % ref)
+                        logger.info('Failed to find strings at 0x%X' % ref)
                 except AttributeError:
-                    append_debug(
+                    logger.info(
                         'No function exists at 0x%X. Create a function at this location to obtain strings.' % ref)
     return encoded_strings
 
@@ -911,16 +939,17 @@ def decode_strings(encoded_strings, decode):
     Output:
         A list of successfully decoded EncodedStrings.
     """
+    # NOTE: Setting errors to info because it is common and will spam our console.
     decoded_strings = []
     for encoded_string in encoded_strings:
         if encoded_string.encoded_data == INVALID:
-            append_debug('Unable to find string at: 0x%X' % encoded_string.string_location)
+            logger.info('Unable to find string at: 0x%X' % encoded_string.string_location)
             continue
         encoded_string.decoded_string = decode(encoded_string)
         if encoded_string.decoded_string:  # Allow decoders to abort/fail quietly
             decoded_strings.append(encoded_string)
         else:
-            append_debug('Failed to decode string: {!r}'.format(encoded_string), '[!]')
+            logger.info('Failed to decode string: {!r}'.format(encoded_string))
     return decoded_strings
 
 
@@ -939,7 +968,7 @@ def _yara_callback(data):
         return False
 
     for datum in data['strings']:
-        _YARA_MATCHES.append((idc.ItemHead(idaapi.get_fileregion_ea(datum[0])), datum[1]))
+        _YARA_MATCHES.append((idc.get_item_head(idaapi.get_fileregion_ea(datum[0])), datum[1]))
 
     return yara.CALLBACK_CONTINUE
 
@@ -1097,12 +1126,12 @@ def find_input_file():
     ida_path = INPUT_FILE_PATH
     if not os.path.exists(ida_path):
         # If IDA does not know, check if the (correct) file is sitting next to the IDB.
-        local_path = os.path.join(idautils.GetIdbDir(), idc.GetInputFile())
+        local_path = os.path.join(idautils.GetIdbDir(), idc.get_root_filename())
         if os.path.exists(local_path) and \
-                hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper() == idc.GetInputMD5():
+                hashlib.md5(open(local_path, 'rb').read()).hexdigest().upper() == idc.retrieve_input_file_md5():
             INPUT_FILE_PATH = local_path
-            append_debug('Guessed the input file path: ' + INPUT_FILE_PATH)
-            append_debug('IDA thought it was:          ' + ida_path)
+            logger.debug('Guessed the input file path: ' + INPUT_FILE_PATH)
+            logger.debug('IDA thought it was:          ' + ida_path)
             return True
         else:
             return False
@@ -1149,12 +1178,12 @@ def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string
 
     # We could just check if there is a 'search' method, but handle it this way to enforce conventions.
     if not issubclass(Tracer, StringTracer):
-        append_debug("Tracer does not extend StringTracer!")
+        logger.error("Tracer does not extend StringTracer!")
         return
 
     # Check that IDA actually knows where the original input file is.
     if not find_input_file():
-        append_debug("Unable to locate the file used to create the IDB: " + INPUT_FILE_PATH)
+        logger.error("Unable to locate the file used to create the IDB: " + INPUT_FILE_PATH)
         return
 
     # Do the decoding.
@@ -1171,8 +1200,8 @@ def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string
             patch_decoded(ENCODED_STRINGS)
         return string_list
     except RuntimeError:
-        append_debug("The provided YARA rule failed to match. No strings can be decrypted for this YARA rule.")
+        logger.error("The provided YARA rule failed to match. No strings can be decrypted for this YARA rule.")
         return
 
 
-idc.Wait()  # Force wait on import just to be sure
+idc.auto_wait()  # Force wait on import just to be sure

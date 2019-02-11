@@ -1,3 +1,5 @@
+
+import logging
 import optparse
 import os
 import pkgutil
@@ -5,7 +7,8 @@ import sys
 import traceback
 import tempfile
 
-from kordesii.kordesiireporter import kordesiireporter
+import kordesii
+from kordesii.reporter import Reporter
 
 USAGE = 'Usage: kordesii.py [options] INPUT_FILE' + \
         '\n\tDECODER may either be the path to the file or the name of the family.' + \
@@ -25,7 +28,7 @@ def make_opt_parser():
 
     # create reporter to get default paths, ignore if this fails
     try:
-        default_reporter = kordesiireporter()
+        default_reporter = Reporter()
         default_decoderdir = default_reporter.decoderdir
     except Exception as e:
         traceback.print_exc()
@@ -35,12 +38,6 @@ def make_opt_parser():
                           default=True,
                           dest='autonomous',
                           help='Launch IDA without autonomous mode so IDA GUI appears.')
-    opt_parser.add_option('-c',
-                          '--hidedebug',
-                          action="store_true",
-                          default=False,
-                          dest='hidedebug',
-                          help='Hide debug messages in output')
     opt_parser.add_option('-p',
                           '--decoder',
                           action='store',
@@ -54,6 +51,18 @@ def make_opt_parser():
                           default=False,
                           dest='enableidalog',
                           help='include the log contents produced by IDA in the results')
+
+    opt_parser.add_option("--no-debug", "-c", "--hidedebug",
+                          action="store_true",
+                          default=False,
+                          dest="hidedebug",
+                          help="Hide debug messages in output.")
+    opt_parser.add_option("--debug",
+                          action="store_true",
+                          default=False,
+                          dest="debug",
+                          help="Turn on all debugging messages. (WARNING: This WILL spam the console)")
+
     opt_parser.add_option('-f',
                           '--includefileinfo',
                           action='store_true',
@@ -133,13 +142,22 @@ def main():
     opt_parse = make_opt_parser()
     options, args = opt_parse.parse_args()
 
+    # Setup logging
+    kordesii.setup_logging()
+    if options.hidedebug:
+        logging.root.setLevel(logging.ERROR)
+    elif options.debug:
+        logging.root.setLevel(logging.DEBUG)
+    else:
+        logging.root.setLevel(logging.INFO)
+
     # If we can not create reporter object there is very little we can do. Just die immediately.
     try:
-        reporter = kordesiireporter(decoderdir=options.decoderdir,
-                                    tempdir=options.tempdir,
-                                    disabletempcleanup=options.disabletempcleanup,
-                                    disabledebug=options.hidedebug,
-                                    enableidalog=options.enableidalog)
+        reporter = Reporter(decoderdir=options.decoderdir,
+                            tempdir=options.tempdir,
+                            disabletempcleanup=options.disabletempcleanup,
+                            disabledebug=options.hidedebug,
+                            enableidalog=options.enableidalog)
     except Exception as e:
         error_message = "Error loading DC3-MWCP reporter object, please check installation: %s" % (
             traceback.format_exc())
@@ -184,10 +202,6 @@ def main():
         except ValueError as e:
             print "Error: {}".format(e)
             return
-
-        # Ensure the decoder script will close IDA properly
-        if "idc.Exit(" not in open(decoder_path, 'r').read():
-            print "Error: The decoder will leave IDA open indefinitely. Ensure it has a call to 'idc.Exit'."
 
         # IDA doesn't like backslashes in it's argv.
         input_file = input_file.replace('\\', '/').strip()

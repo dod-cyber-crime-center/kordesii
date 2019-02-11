@@ -227,17 +227,18 @@ OPERAND_BYTE_SIZES = {0: 1,
 
 def get_byte_size_of_operand(ea, pos):
     """Gets the byte size of the operand at the given ea and position"""
-    idaapi.decode_insn(ea)
-    return OPERAND_BYTE_SIZES.get(idaapi.cmd.Operands[pos].dtyp, 4)  # 4 is Unknown
+    cmd = idaapi.insn_t()
+    idaapi.decode_insn(cmd, ea)
+    return OPERAND_BYTE_SIZES.get(cmd.ops[pos].dtype, 4)  # 4 is Unknown
 
 
 def get_opnd_replacement(ea, pos):
-    """ A replacement for IDA's idc.GetOpnd that can de-alias register names"""
+    """ A replacement for IDA's idc.print_operand that can de-alias register names"""
     # TODO: Support renames in other operand types
-    if idc.GetOpType(ea, pos) == idc.o_reg:
-        return idaapi.get_reg_name(idc.GetOperandValue(ea, pos), get_byte_size_of_operand(ea, pos))
+    if idc.get_operand_type(ea, pos) == idc.o_reg:
+        return idaapi.get_reg_name(idc.get_operand_value(ea, pos), get_byte_size_of_operand(ea, pos))
     else:
-        return idc.GetOpnd(ea, pos)
+        return idc.print_operand(ea, pos)
 
 
 def obtain_phrase_register(ea, pos):
@@ -249,7 +250,7 @@ def obtain_phrase_register(ea, pos):
 
     :return: Register or None
     """
-    if idc.GetOpType(ea, pos) == idc.o_phrase:
+    if idc.get_operand_type(ea, pos) == idc.o_phrase:
         opnd = get_opnd_replacement(ea, pos)
         for family in REG_FAM:
             for member in family:
@@ -268,11 +269,11 @@ def is_displ(ea, pos):
 
         :return: True or False
     """
-    return idc.GetOpType(ea, pos) in (idc.o_phrase, idc.o_displ)
+    return idc.get_operand_type(ea, pos) in (idc.o_phrase, idc.o_displ)
 
 
 def get_operand_value_replacement(ea, pos, state):
-    """ A replacement for Ida's idc.GetOperandValue that handles displacements more reasonably
+    """ A replacement for Ida's idc.get_operand_value that handles displacements more reasonably
 
         :param ea: memory location
         :param pos: argument location
@@ -286,16 +287,17 @@ def get_operand_value_replacement(ea, pos, state):
     if is_displ(ea, pos):
         bit_size = 64 if is_64_bit() else 32
         stack_reg = 'rsp' if bit_size == 64 else 'esp'
-        idaapi.decode_insn(ea)
-        offset = idaapi.cmd.Operands[pos].addr
+        cmd = idaapi.insn_t()
+        idaapi.decode_insn(cmd, ea)
+        offset = cmd.ops[pos].addr
         # Convert the offset to a signed value
         if offset & (1 << (bit_size - 1)):
             offset -= (1 << bit_size)
         if stack_reg in get_opnd_replacement(ea, pos):
-            offset += idc.GetSpd(ea) or 0
+            offset += idc.get_spd(ea) or 0
         return offset
     else:
-        return idc.GetOperandValue(ea, pos)
+        return idc.get_operand_value(ea, pos)
 
 
 def get_encoded_stack_string(stack, startoffset, size=None):
@@ -358,8 +360,8 @@ def set_stack(offset, ea, pos, state):
 
         :return: None - updates state
     """
-    if idc.GetOpType(ea, pos) == idc.o_imm:
-        val = idc.GetOperandValue(ea, pos)
+    if idc.get_operand_type(ea, pos) == idc.o_imm:
+        val = idc.get_operand_value(ea, pos)
     else:
         val = state.get_reg_value(get_opnd_replacement(ea, pos))
     if val is not None:
@@ -379,28 +381,29 @@ def handle_string_mov(ea, state):
 
         :return: None - updates stack or regs
     """
-    opcode = idaapi.get_many_bytes(ea, 1)
+    opcode = idaapi.get_bytes(ea, 1)
     rep_inst = opcode in ['\xf2', '\xf3']
     count = state.get_reg_value('ecx') if rep_inst else 1
     if not count or count < 0:
         return
 
-    inslen = idaapi.decode_insn(ea)
-    dtyp = idaapi.cmd.Operands[0].dtyp
-    word_size = [1, 2, 4][dtyp] if dtyp < 3 else 4
+    cmd = idaapi.insn_t()
+    inslen = idaapi.decode_insn(cmd, ea)
+    dtype = cmd.ops[0].dtype
+    word_size = [1, 2, 4][dtype] if dtype < 3 else 4
     count *= word_size
 
     src = state.get_reg_value('esi')
     dst = state.get_reg_value('edi')
     if src is None or dst is None:
         return
-    # In IDA 7, get_many_bytes doesn't return None on failure, instead it will return
+    # In IDA 7, get_bytes doesn't return None on failure, instead it will return
     # a string of \xff the size of count. My theory is that the function changed
     # to return -1 for each byte within the c code and something is casting it to a string before returning.
     # Since, all \xff's could be valid we need to check if src is valid instead.
     if not idc.is_loaded(src):
         return
-    bytes = idaapi.get_many_bytes(src, count)
+    bytes = idaapi.get_bytes(src, count)
     if bytes in (None, -1):  # Keep this around in-case they fix it in a future version.
         return
     for i in xrange(count):
@@ -421,22 +424,22 @@ def handle_mov(ea, state):
         :return: None - updates stack or regs
     """
     op1 = get_opnd_replacement(ea, POS_FIRST)
-    if idc.GetOpType(ea, POS_FIRST) != idc.o_reg:
+    if idc.get_operand_type(ea, POS_FIRST) != idc.o_reg:
         offset = get_operand_value_replacement(ea, POS_FIRST, state)
         set_stack(offset, ea, POS_SECOND, state)
     else:
-        type_ = idc.GetOpType(ea, POS_SECOND)
+        type_ = idc.get_operand_type(ea, POS_SECOND)
         val = None
         if type_ == idc.o_reg:
             val = state.get_reg_value(get_opnd_replacement(ea, POS_SECOND))
         elif type_ == idc.o_mem:
-            bytes = idc.GetManyBytes(idc.GetOperandValue(ea, POS_SECOND), get_byte_size_of_operand(ea, POS_SECOND))
+            bytes = idc.get_bytes(idc.get_operand_value(ea, POS_SECOND), get_byte_size_of_operand(ea, POS_SECOND))
             if bytes:
                 val = 0
                 for x in range(len(bytes)):
                     val += ord(bytes[x]) << (8 * x)
         elif type_ == idc.o_imm:
-            val = idc.GetOperandValue(ea, POS_SECOND)
+            val = idc.get_operand_value(ea, POS_SECOND)
         else:
             offset = get_operand_value_replacement(ea, POS_SECOND, state)
             val, ea = state.stack.get(offset, (None, ea))
@@ -452,7 +455,7 @@ def handle_lea(ea, state):
         :return: None - updates stack or regs
     """
     value = get_operand_value_replacement(ea, POS_SECOND, state)
-    if not value and idc.GetOpType(ea, POS_SECOND) != idc.o_mem:
+    if not value and idc.get_operand_type(ea, POS_SECOND) != idc.o_mem:
         return
 
     state.set_reg_value(get_opnd_replacement(ea, POS_FIRST), value, ea)
@@ -466,7 +469,7 @@ def handle_push(ea, state):
         :param ea: instruction location
         :param state: the current TraceState
     """
-    op_type = idc.GetOpType(ea, POS_FIRST)
+    op_type = idc.get_operand_type(ea, POS_FIRST)
     if op_type == idc.o_reg:
         value = state.get_reg_value(get_opnd_replacement(ea, POS_FIRST))
     elif op_type == idc.o_imm:
@@ -485,7 +488,7 @@ def handle_pop(ea, state):
         :param state: the current TraceState
     """
     value = state.pp_track.pop() if state.pp_track else None
-    if idc.GetOpType(ea, POS_FIRST) == idc.o_reg:
+    if idc.get_operand_type(ea, POS_FIRST) == idc.o_reg:
         state.set_reg_value(get_opnd_replacement(ea, POS_FIRST), value, ea)
 
 
@@ -498,32 +501,32 @@ def handle_test(ea, state):
         :param ea: instruction location
         :param state: the current TraceState
     """
-    if idc.GetOpType(ea, POS_FIRST) == idc.o_reg and idc.GetOpType(ea, POS_SECOND) == idc.o_reg:
+    if idc.get_operand_type(ea, POS_FIRST) == idc.o_reg and idc.get_operand_type(ea, POS_SECOND) == idc.o_reg:
         op1 = get_opnd_replacement(ea, POS_FIRST)
         op2 = get_opnd_replacement(ea, POS_SECOND)
-        next_ea = ea + idc.ItemSize(ea)
-        if op1 == op2 and idc.GetMnem(next_ea) == 'jnz':
-            next_ea += idc.ItemSize(next_ea)
-            if not idc.GetMnem(next_ea).startswith('j'):
+        next_ea = ea + idc.get_item_size(ea)
+        if op1 == op2 and idc.print_insn_mnem(next_ea) == 'jnz':
+            next_ea += idc.get_item_size(next_ea)
+            if not idc.print_insn_mnem(next_ea).startswith('j'):
                 state.set_reg_value(op1, 0, ea)
 
 
-def create_state(endEA, startEA=None):
+def create_state(end_ea, start_ea=None):
     """
         Quick and dirty representation of stack and regs from start of function to this ea.
 
-        :param endEA: The EA of which you want to compute the stack up until
-        :param startEA: Optional param of the beginning of the function - sometimes necessary if ida can't
+        :param end_ea: The EA of which you want to compute the stack up until
+        :param start_ea: Optional param of the beginning of the function - sometimes necessary if ida can't
                         compute and you can
 
         :return A newly created TraceState
     """
-    if not startEA:
-        startEA = idaapi.get_func(endEA).startEA
+    if not start_ea:
+        start_ea = idaapi.get_func(end_ea).start_ea
     state = TraceState()
-    ea = startEA
-    while ea < endEA:
-        mnemonic = idc.GetMnem(ea)
+    ea = start_ea
+    while ea < end_ea:
+        mnemonic = idc.print_insn_mnem(ea)
         if mnemonic.startswith('movs'):
             handle_string_mov(ea, state)
         elif mnemonic.startswith('mov'):
@@ -539,10 +542,10 @@ def create_state(endEA, startEA=None):
         elif mnemonic in ['test', 'cmp']:
             handle_test(ea, state)
         elif mnemonic:
-            if idc.GetOpType(ea, POS_FIRST) == idc.o_reg:
+            if idc.get_operand_type(ea, POS_FIRST) == idc.o_reg:
                 state.set_reg_value(get_opnd_replacement(ea, POS_FIRST), None, ea)
 
-        ea += idc.ItemSize(ea)
+        ea += idc.get_item_size(ea)
     return state
 
 
@@ -550,14 +553,14 @@ def trace_rep_mov(stack_var, loc, func_ea, state):
     """
     Helper function to trace back a rep mov
     """
-    loc = idc.PrevHead(loc)
+    loc = idc.prev_head(loc)
     while loc != func_ea:
-        mnem = idc.GetMnem(loc)
-        if mnem == 'lea' and idc.GetOpnd(loc, 0) == 'edi':
+        mnem = idc.print_insn_mnem(loc)
+        if mnem == 'lea' and idc.print_operand(loc, 0) == 'edi':
             if stack_var == get_operand_value_replacement(loc, 1, state):
                 return trace_register('esi', loc, func_ea, state)
             return None
-        loc = idc.PrevHead(loc)
+        loc = idc.prev_head(loc)
     return None
 
 
@@ -578,19 +581,19 @@ def trace_stack_var(stack_var, loc, func_ea, state=None):
     """
     if state is None:
         state = TraceState()
-    loc = idc.PrevHead(loc)
+    loc = idc.prev_head(loc)
     while loc != func_ea:
-        op_type_1 = idc.GetOpType(loc, 1)
-        opval_1 = idc.GetOperandValue(loc, 1)
-        mnem = idc.GetMnem(loc)
+        op_type_1 = idc.get_operand_type(loc, 1)
+        opval_1 = idc.get_operand_value(loc, 1)
+        mnem = idc.print_insn_mnem(loc)
         dis = idc.GetDisasm(loc)
         if mnem == 'mov' and stack_var == get_operand_value_replacement(loc, 0, state):
             if op_type_1 == idc.o_reg:
-                return trace_register(idc.GetOpnd(loc, 1), loc, func_ea, state)
+                return trace_register(idc.print_operand(loc, 1), loc, func_ea, state)
             elif op_type_1 == idc.o_imm:
                 return opval_1
             elif op_type_1 == idc.o_mem:
-                poss_loc = idc.Dword(opval_1)
+                poss_loc = idc.get_wide_dword(opval_1)
                 if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
                     return poss_loc
                 else:
@@ -601,7 +604,7 @@ def trace_stack_var(stack_var, loc, func_ea, state=None):
             result = trace_rep_mov(stack_var, loc, func_ea, state)
             if result:
                 return result
-        loc = idc.PrevHead(loc)
+        loc = idc.prev_head(loc)
     return idc.BADADDR
 
 
@@ -624,17 +627,17 @@ def trace_register(reg, loc, func_ea, state=None):
     """
     if state is None:
         state = TraceState()
-    loc = idc.PrevHead(loc)
+    loc = idc.prev_head(loc)
     while loc != func_ea:
-        opnd = idc.GetOpnd(loc, 0)
-        op_type_1 = idc.GetOpType(loc, 1)
-        opval_1 = idc.GetOperandValue(loc, 1)
-        mnem = idc.GetMnem(loc)
+        opnd = idc.print_operand(loc, 0)
+        op_type_1 = idc.get_operand_type(loc, 1)
+        opval_1 = idc.get_operand_value(loc, 1)
+        mnem = idc.print_insn_mnem(loc)
         if 'mov' in mnem and opnd == reg:
             if op_type_1 == idc.o_imm:
                 return opval_1
             elif op_type_1 == idc.o_mem:
-                poss_loc = idc.Dword(opval_1)
+                poss_loc = idc.get_wide_dword(opval_1)
                 if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
                     return poss_loc
                 else:
@@ -647,7 +650,7 @@ def trace_register(reg, loc, func_ea, state=None):
         elif is_64_bit() and mnem == 'lea' and opnd == reg:
             if op_type_1 == idc.o_mem:
                 return opval_1
-        loc = idc.PrevHead(loc)
+        loc = idc.prev_head(loc)
     return idc.BADADDR
 
 
@@ -672,17 +675,17 @@ def trace_register_family(reg, loc, func_ea, state=None):
         state = TraceState()
     reg_fam = unsafe_get_reg_fam(reg)
     if reg_fam:
-        loc = idc.PrevHead(loc)
+        loc = idc.prev_head(loc)
         while loc != func_ea:
-            opnd = idc.GetOpnd(loc, 0)
-            op_type_1 = idc.GetOpType(loc, 1)
-            opval_1 = idc.GetOperandValue(loc, 1)
-            mnem = idc.GetMnem(loc)
+            opnd = idc.print_operand(loc, 0)
+            op_type_1 = idc.get_operand_type(loc, 1)
+            opval_1 = idc.get_operand_value(loc, 1)
+            mnem = idc.print_insn_mnem(loc)
             if 'mov' in mnem and opnd in reg_fam:
                 if op_type_1 == idc.o_imm:
                     return opval_1
                 elif op_type_1 == idc.o_mem:
-                    poss_loc = idc.Dword(opval_1)
+                    poss_loc = idc.get_wide_dword(opval_1)
                     if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
                         return poss_loc
                     else:
@@ -695,7 +698,7 @@ def trace_register_family(reg, loc, func_ea, state=None):
             elif is_64_bit() and mnem == 'lea' and opnd in reg_fam:
                 if op_type_1 == idc.o_mem:
                     return opval_1
-            loc = idc.PrevHead(loc)
+            loc = idc.prev_head(loc)
     return idc.BADADDR
 
 
@@ -716,23 +719,23 @@ def trace_register_family_x64(reg, loc, func_ea, state=None):
         state = TraceState()
     reg_fam = unsafe_get_reg_fam(reg)
     if reg_fam:
-        loc = idc.PrevHead(loc)
+        loc = idc.prev_head(loc)
         while loc != func_ea:
-            opnd = idc.GetOpnd(loc, 0)
-            op_type_1 = idc.GetOpType(loc, 1)
-            opval_1 = idc.GetOperandValue(loc, 1)
-            mnem = idc.GetMnem(loc)
+            opnd = idc.print_operand(loc, 0)
+            op_type_1 = idc.get_operand_type(loc, 1)
+            opval_1 = idc.get_operand_value(loc, 1)
+            mnem = idc.print_insn_mnem(loc)
             if 'mov' in mnem and opnd in reg_fam:
                 if op_type_1 == idc.o_imm:
                     return opval_1
                 elif op_type_1 == idc.o_mem:
-                    poss_loc = idc.Dword(opval_1)
+                    poss_loc = idc.get_wide_dword(opval_1)
                     if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
                         return poss_loc
                     else:
                         return opval_1
                 elif op_type_1 == idc.o_reg:
-                    return trace_register_family_x64(idc.GetOpnd(loc, 1), loc, func_ea, state)
+                    return trace_register_family_x64(idc.print_operand(loc, 1), loc, func_ea, state)
                 else:
                     return idc.BADADDR
             elif mnem == 'lea' and op_type_1 == idc.o_displ and opnd in reg_fam:
@@ -741,5 +744,5 @@ def trace_register_family_x64(reg, loc, func_ea, state=None):
             elif is_64_bit() and mnem == 'lea' and opnd in reg_fam:
                 if op_type_1 == idc.o_mem:
                     return opval_1
-            loc = idc.PrevHead(loc)
+            loc = idc.prev_head(loc)
     return idc.BADADDR

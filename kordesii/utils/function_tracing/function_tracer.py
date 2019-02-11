@@ -19,7 +19,7 @@ import idautils
 import idc
 
 # kordesii imports
-import kordesii.kordesiiidahelper as kordesiiidahelper
+from kordesii import logutil
 
 # Import FlowChart functionality and CPU implementation
 from .constants import *
@@ -27,12 +27,7 @@ from .flowchart import FlowChart, CustomBasicBlock
 from .utils import struct_unpack, struct_pack, get_bits, get_stack_offset, calc_displacement, get_function_data, get_mask, REG_MAP
 
 
-# HACKY work around for allowing for enabling/disabling of debug statements
-import os
-function_tracing_logger = logging.getLogger("function_tracingutils")
-DEBUG = os.environ.get("ENABLE_DEBUG", "False")
-if DEBUG == "True":
-    function_tracing_logger.debug = kordesiiidahelper.append_debug
+logger = logging.getLogger(__name__)
 
 
 class FunctionTracer(object):
@@ -53,16 +48,15 @@ class FunctionTracer(object):
     initialize the state of execution when a previously unanalyzed block is being inspected rather than having to
     completely reanalyze the entire function again.
     """
-
     def __init__(self, func_ea):
         """
         :param func_ea: any address in the function of interest
         """
         self.func_obj = idaapi.get_func(func_ea)
-        self.func_ea = self.func_obj.startEA
+        self.func_ea = self.func_obj.start_ea
         # Create the graph object of the function
         self.flowchart = FlowChart(self.func_ea, node_type=CustomBasicBlock)
-        # The following dictionary contains an entry for every idaapi.BasicBlock.startEA contained in the function.
+        # The following dictionary contains an entry for every idaapi.BasicBlock.start_ea contained in the function.
         # Each dictionary entry contains a list of BlockStateNode objects for every path in which the BasicBlock
         # appears.  When a block is requested, this list will be used to walk the associated path backwards looking
         # for states which have not been obtained and will begin executing the instructions on the path from that
@@ -91,7 +85,7 @@ class FunctionTracer(object):
         :yield: cpu_context or None (if ea is the function's first address)
         """
         # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.  
-        if ea == idc.GetFunctionAttr(ea, idc.FUNCATTR_START):
+        if ea == idc.get_func_attr(ea, idc.FUNCATTR_START):
             # Return None since a context can't be built if there is no code to "execute"
             return
 
@@ -139,12 +133,12 @@ class FunctionTracer(object):
         values = set()
         
         # Iterate all the nodes to obtain the CPU context
-        _ea = idc.NextHead(ea) if include_inst else ea
+        _ea = idc.next_head(ea) if include_inst else ea
         for cpu_context in self.context_at_iter(_ea):
             value = cpu_context.get_operand_value(opnd, data_size, ip=ea, data_type=data_type)
             # Prevent returning multiple values which are the same....
             if value in values:
-                function_tracing_logger.debug("trace :: value 0x{:X} already returned.".format(value))
+                logger.debug("trace :: value 0x{:X} already returned.".format(value))
                 continue
 
             values.add(value)
@@ -188,10 +182,10 @@ class FunctionTracer(object):
         """
         # Iterate all the paths leading up to ea
         for cpu_context in self.context_at_iter(ea):
-            if idc.GetOpType(ea, 0) == idc.o_reg:
+            if idc.get_operand_type(ea, 0) == idc.o_reg:
                 func_ea = cpu_context.get_operand_value(0, ip=ea, data_type=DWORD)
             else:
-                func_ea = idc.GetOperandValue(ea, 0)
+                func_ea = idc.get_operand_value(ea, 0)
             yield cpu_context, cpu_context.get_function_args(func_ea)
 
     def get_function_args(self, ea):

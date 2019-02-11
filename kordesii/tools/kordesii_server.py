@@ -19,7 +19,7 @@ local_path = os.path.dirname(__file__)
 if local_path not in sys.path:
     sys.path.append(local_path)
 
-from kordesii.kordesiireporter import kordesiireporter
+from kordesii.reporter import Reporter
 from kordesii import decoders
 from bottle import Bottle, run, request, response
 
@@ -116,7 +116,7 @@ def descriptions():
     """
     try:
         response.content_type = "application/json"
-        reporter = kordesiireporter(decoderdir=DECODER_DIR, base64outputfiles=True)
+        reporter = Reporter(decoderdir=DECODER_DIR, base64outputfiles=True)
         output = {"decoders": reporter.list_decoders()}
         return reporter.pprint(output)
     except Exception as e:
@@ -129,7 +129,7 @@ def __run_decoder(name, data, filename, append_output_text=True):
     output = {}
     logger.info("__run_decoder %s %s %s" % (name, filename, hashlib.md5(data).hexdigest()))
     try:
-        reporter = kordesiireporter(decoderdir=DECODER_DIR, base64outputfiles=True)
+        reporter = Reporter(decoderdir=DECODER_DIR, base64outputfiles=True)
 
         # Since we want the marked up IDB returned using the original filename, we
         # want to pass in a file to the reporter instead of data.

@@ -1,6 +1,28 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+- Created `kordesii.decoder_entry` function decorator to be used to wrap the decoder entry point function. 
+    - This replaces the need to create a `if __name__ == "__main__":` condition statement.
+
+### Changed
+- Renamed IDA API function calls to the new 7.* snake_case names. This removes the need to enable 
+their compatibility layer: `AUTOIMPORT_COMPAT_IDA695`
+- Renamed and moved modules:
+    - `kordesii.utils.tracingutils` -> `kordesii.utils.tracing`
+    - `kordesii.utils.function_tracingutils` - > `kordesii.utils.function_tracing`
+    - `kordesii.utils.kordesiiidautils` -> `kordesii.utils.utils`
+    - `kordesii.utils.functioncreator` -> `kordesii.utils.function_creator`
+- Renamed and moved classes and functions:
+    - `kordesii.kordesiireporter.kordesiireporter` -> `kordesii.reporter.Reporter`
+    - `kordesii.kordesiitester.kordesiitester` -> `kordesii.tester.Tester`
+- Removed `append_debug` from `kordesiiidahelper` in exchange for 
+using Python's builtin `logging` functionality.
+- Moved the content of `kordesii.kordesiiidahelper` to `kordesii` and provided easy import 
+from within the root `kordesii` module.
+- Removed the need for decoder to end with `_StringDecode`.
+
 
 ## [1.2.0] - 2018-10-31
 ### Added

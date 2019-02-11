@@ -1,7 +1,7 @@
 ﻿#
 # utils.py
 #
-# This file contains utility functions utilized throughout the function_tracingutils package.
+# This file contains utility functions utilized throughout the function_tracing package.
 #
 # version: 0.1
 # created: 14 Jun 18
@@ -107,13 +107,14 @@ def get_stack_offset(cpu_context, ip, n):
 
     :return int: signed offset of operand
     """
-    opnd = idc.GetOpnd(ip, n)
+    opnd = idc.print_operand(ip, n)
     if not any(stack_reg in opnd for stack_reg in ["rsp", "esp", "rbp", "ebp"]):
         raise ValueError("Opnd {} does not appear to reference the stack.".format(opnd))
 
     # Pulling offset from within esp
-    idaapi.decode_insn(ip)  # Must be called before cmd.Operands
-    offset = idaapi.cmd.Operands[n].addr
+    cmd = idaapi.insn_t()
+    idaapi.decode_insn(cmd, ip)
+    offset = cmd.ops[n].addr
     width = get_bits()
     if "esp" in opnd or "rsp" in opnd:
         return cpu_context.reg_read("RSP") + signed(offset, width)
@@ -142,7 +143,7 @@ def calc_displacement(cpu_context, ea, opnd):
 
     :return int: calculated value or None
     """
-    operand = idc.GetOpnd(ea, opnd)
+    operand = idc.print_operand(ea, opnd)
     # Store our original value for debugging purposes?
     _operand = operand
     # remove everything before "[" (ie: word ptr [ecx+14])
@@ -163,7 +164,7 @@ def calc_displacement(cpu_context, ea, opnd):
     # Use the python parser module to create code to execute with eval
     equation = parser.expr(operand).compile()
     result = eval(equation)
-    #function_tracing_logger.debug("calc_displacement :: Displacement {} -> {}".format(idc.GetOpnd(ea, opnd), result))
+    #function_tracing_logger.debug("calc_displacement :: Displacement {} -> {}".format(idc.print_operand(ea, opnd), result))
     return result
 
 
@@ -340,16 +341,16 @@ def get_function_data(offset):
     tif = idaapi.tinfo_t()
 
     # First see if a type is already set.
-    if idc.GetType(offset):
-        idaapi.get_tinfo2(offset, tif)
+    if idc.get_type(offset):
+        idaapi.get_tinfo(tif, offset)
 
     else:
         # Otherwise, try to use the Hexrays decompiler to determine function signature.
-        # (It's better than IDA's GuessType)
+        # (It's better than IDA's guess_type)
         try:
             # This requires Hexrays decompiler, load it and make sure it's available before continuing.
             if not idaapi.init_hexrays_plugin():
-                idc.RunPlugin("hexrays", 0) or idc.RunPlugin("hexx64", 0)
+                idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
             if not idaapi.init_hexrays_plugin():
                 raise RuntimeError('Unable to load Hexrays decompiler.')
 
@@ -364,14 +365,14 @@ def get_function_data(offset):
             # The 2's remove the unknown bytes always found at the start and end.
             idc.SetType(offset, "{};".format(format[2:-2]))
 
-        # If we fail, resort to using GuessType+
+        # If we fail, resort to using guess_type+
         except RuntimeError:
             # Documentation states the type must be ';' terminated, also the function name must be inserted
-            guessed_type = idc.GuessType(offset)
+            guessed_type = idc.guess_type(offset)
             if guessed_type is None:
                 raise RuntimeError("failed to guess function type for offset 0x{:X}".format(offset))
 
-            func_name = idc.GetFunctionName(offset)
+            func_name = idc.get_func_name(offset)
             if func_name is None:
                 raise RuntimeError("failed to get function name for offset 0x{:X}".format(offset))
 
@@ -381,7 +382,7 @@ def get_function_data(offset):
                                   )
             idc.SetType(offset, guessed_type)
             # Try one more time to get the tinfo_t object
-            if not idaapi.get_tinfo2(offset, tif):
+            if not idaapi.get_tinfo(tif, offset):
                 raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
 
     funcdata = idaapi.func_type_data_t()

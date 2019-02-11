@@ -1,9 +1,11 @@
+import codecs
+
 import idc
 import idaapi
 import idautils
-import codecs
-import kordesii.utils.tracingutils as tracingutils
-import kordesii.kordesiiidahelper as kordesiiidahelper
+
+import kordesii
+from kordesii.utils import tracing
 
 # main things to modify based on what you're looking for
 STRING_GAP_TOLERANCE = 0  # should generally be 0
@@ -50,10 +52,10 @@ JUMPS = ['ja', 'jna',
 
 def get_function(ea):
     func = idaapi.func_t()
-    func.startEA = idc.GetFunctionAttr(ea, idc.FUNCATTR_START)
-    func.endEA = idc.GetFunctionAttr(ea, idc.FUNCATTR_END)
-    func.flags = idc.GetFunctionAttr(ea, idc.FUNCATTR_FLAGS)
-    if idc.BADADDR == func.startEA or idc.BADADDR == func.endEA:
+    func.start_ea = idc.get_func_attr(ea, idc.FUNCATTR_START)
+    func.end_ea = idc.get_func_attr(ea, idc.FUNCATTR_END)
+    func.flags = idc.get_func_attr(ea, idc.FUNCATTR_FLAGS)
+    if idc.BADADDR == func.start_ea or idc.BADADDR == func.end_ea:
         return False
     else:
         return func
@@ -91,11 +93,11 @@ class StackStrings(object):
     @property
     def strings(self):
         return self._strings
-            
-    def strings_in_range(self, startEA, endEA):
+
+    def strings_in_range(self, start_ea, end_ea):
         strings = []
         for string in self.strings:
-            if startEA <= string.ea < endEA:
+            if start_ea <= string.ea < end_ea:
                 strings.append((string, "string"))
         return strings
     
@@ -237,13 +239,13 @@ class StackStrings(object):
         for char_width in xrange(1, MAX_CHARACTER_WIDTH + 1):
             parsed_strs = self.parse_strings(stack, stack_min_value, stack_max_value, char_width)
             for string, eas, length in parsed_strs:
-                startEA, endEA = self.find_start_and_end(eas)
+                start_ea, end_ea = self.find_start_and_end(eas)
                 for string_obj in strs:
-                    if string_obj[2] == string and string_obj[0] == startEA and string_obj[1] == endEA:
+                    if string_obj[2] == string and string_obj[0] == start_ea and string_obj[1] == end_ea:
                         break
                 else:  # if we didn't break
-                    strs.add((startEA, endEA, string))
-                    old_cmt = idc.GetCommentEx(eas[0], 0)
+                    strs.add((start_ea, end_ea, string))
+                    old_cmt = idc.get_cmt(eas[0], 0)
                     old_cmt = '' if not old_cmt else old_cmt
                     if not is_string_ascii(string):
                         new_cmt = string.encode('hex')
@@ -253,8 +255,8 @@ class StackStrings(object):
                         new_cmt = old_cmt + '\nStack String: ' + new_cmt
                     new_cmt += '\nSize: ' + str(length)
                     new_cmt = '\n'.join(list(set(new_cmt.split('\n'))))  # Remove duplicates.
-                    idc.MakeComm(eas[0], str(new_cmt).strip('\r\n'))
-    
+                    idc.set_cmt(eas[0], str(new_cmt).strip('\r\n'), 0)
+
     def find_start_and_end(self, eas):
         """Find the highest and lowest ea in the given list of eas"""
         eas = [ea for ea in eas if ea is not None]
@@ -272,72 +274,72 @@ class StackStrings(object):
         performing a lookup in the register dictionary if needed.
         """
         fill = False
-        if idc.GetOpType(ea, pos) == idc.o_imm:
-            val = idc.GetOperandValue(ea, pos)
+        if idc.get_operand_type(ea, pos) == idc.o_imm:
+            val = idc.get_operand_value(ea, pos)
             state.stack[offset] = (val, ea)
             fill = True
         else:
-            reg = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(ea, pos))
+            reg = tracing.get_reg_fam(tracing.get_opnd_replacement(ea, pos))
             if reg and reg[0] in state.regs:
                 val = state.regs[reg[0]][0]
                 state.stack[offset] = (state.regs[reg[0]][0], ea)
                 fill = True
         if fill:
-            for i in xrange(0, tracingutils.get_byte_size_of_operand(ea, pos)):
+            for i in xrange(0, tracing.get_byte_size_of_operand(ea, pos)):
                 state.stack[offset + i] = (val & 0xff, ea)
                 val /= 256
                 
     def handle_lea(self, state):
         """Updates the state of the stack string finding based on an lea instruction"""
-        if idc.GetOpType(state.ea, POS_SECOND) == idc.o_reg:
-            source_reg = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_SECOND))
+        if idc.get_operand_type(state.ea, POS_SECOND) == idc.o_reg:
+            source_reg = tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_SECOND))
             if source_reg and source_reg[0] in state.regs:
                 value = state.regs[source_reg[0]]
             else:
                 value = None
         else:
-            value = tracingutils.get_operand_value_replacement(state.ea, POS_SECOND, state)
+            value = tracing.get_operand_value_replacement(state.ea, POS_SECOND, state)
         if value is not None and value in state.stack:
             self.report_strings(state.strs, state.stack)
-        self.clear_reg_if_needed(tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_FIRST)), state.regs)
+        self.clear_reg_if_needed(tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_FIRST)), state.regs)
         
     def handle_call(self, state):
         """Updates the state of the stack string finding based on a call instruction"""
-        stack_pointer = idc.GetSpd(state.ea)
-        next_ea = state.ea + idc.ItemSize(state.ea)
-        stack_pointer_delta = idc.GetSpDiff(next_ea)
+        stack_pointer = idc.get_spd(state.ea)
+        next_ea = state.ea + idc.get_item_size(state.ea)
+        stack_pointer_delta = idc.get_sp_delta(next_ea)
         if stack_pointer is not None and stack_pointer_delta is not None:
-            next_reg = tracingutils.get_reg_fam(idc.GetOpnd(next_ea, POS_FIRST))
+            next_reg = tracing.get_reg_fam(idc.print_operand(next_ea, POS_FIRST))
             # Caller cleanup handling, vulnerable to instruction reordering though.
-            if next_reg and 'esp' in next_reg and "add" in idc.GetMnem(next_ea).lower():
-                stack_pointer_delta += idc.GetSpDiff(next_ea + idc.ItemSize(next_ea))
+            if next_reg and 'esp' in next_reg and "add" in idc.print_insn_mnem(next_ea).lower():
+                stack_pointer_delta += idc.get_sp_delta(next_ea + idc.get_item_size(next_ea))
             for index in xrange(stack_pointer, stack_pointer + stack_pointer_delta):
                 if index in state.stack:
                     del state.stack[index]
                     
     def handle_mov(self, state):
         """Updates the state of the stack string finding based on a mov instruction"""
-        op1 = tracingutils.get_opnd_replacement(state.ea, POS_FIRST)
+        op1 = tracing.get_opnd_replacement(state.ea, POS_FIRST)
         if '[' in op1:
-            offset = tracingutils.get_operand_value_replacement(state.ea, POS_FIRST, state)
+            offset = tracing.get_operand_value_replacement(state.ea, POS_FIRST, state)
             self.set_stack(offset, state.ea, POS_SECOND, state)
         else:
-            reg = tracingutils.get_reg_fam(op1)
-            type_ = idc.GetOpType(state.ea, POS_SECOND)
+            reg = tracing.get_reg_fam(op1)
+            type_ = idc.get_operand_type(state.ea, POS_SECOND)
             if reg:
                 if type_ != idc.o_phrase and type_ != idc.o_displ:
                     if type_ == idc.o_reg:
-                        reg2 = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_SECOND))
+                        reg2 = tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_SECOND))
                         if reg2 and reg2[0] in state.regs:
                             val = state.regs[reg2[0]][0]
                         else:
                             val = None
                     else:
-                        val = idc.GetOperandValue(state.ea, POS_SECOND)
+                        val = idc.get_operand_value(state.ea, POS_SECOND)
                     if val is not None:
                         state.regs[reg[0]] = (val, state.ea)
                 else:
-                    offset = tracingutils.get_operand_value_replacement(state.ea, POS_SECOND, state)
+                    offset = tracing.get_operand_value_replacement(state.ea, POS_SECOND, state)
                     value = state.stack.get(offset, None)
                     if value is not None:
                         state.regs[reg[0]] = value
@@ -355,45 +357,45 @@ class StackStrings(object):
         """
         stack_strings = []
         for func in functions:
-            state = tracingutils.BranchingTraceState(func.startEA)
+            state = tracing.BranchingTraceState(func.start_ea)
             state.strs = set()
             states = [state]
             func_eas = []
             ea = state.ea
-            while ea < func.endEA:
+            while ea < func.end_ea:
                 func_eas.append(ea)
-                ea += idc.ItemSize(ea)
+                ea += idc.get_item_size(ea)
             while states:
                 state = states.pop()
-                while state.ea < func.endEA:
+                while state.ea < func.end_ea:
                     try:
                         func_eas.remove(state.ea)
                     except:
                         pass
                     state.visited_eas.append(state.ea)
-                    mnemonic = idc.GetMnem(state.ea)
+                    mnemonic = idc.print_insn_mnem(state.ea)
                     if mnemonic in IGNORED_MNEMONICS:
                         pass
                     elif 'pop' in mnemonic:
-                        reg = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_FIRST))
+                        reg = tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_FIRST))
                         if reg:
-                            value = state.stack.get(idc.GetSpd(state.ea), None)
+                            value = state.stack.get(idc.get_spd(state.ea), None)
                             if value is not None:
                                 state.regs[reg[0]] = value
                             else:
                                 self.clear_reg_if_needed(reg, state.regs)
                     elif 'push' in mnemonic:
-                        pass  # bug where idc.GetSpd was not correctly tracking the pointer, this case also hasn't really been seen often as part of a stack string
-                        # self.set_stack(idc.GetSpd(ea), ea, POS_FIRST, regs, stack)
+                        pass  # bug where idc.get_spd was not correctly tracking the pointer, this case also hasn't really been seen often as part of a stack string
+                        # self.set_stack(idc.get_spd(ea), ea, POS_FIRST, regs, stack)
                     elif 'mov' in mnemonic:
                         self.handle_mov(state)
-                    elif ('xor' in mnemonic and tracingutils.get_reg_fam(
-                            tracingutils.get_opnd_replacement(state.ea, POS_FIRST)) ==
-                          tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_SECOND))) or \
-                            ('lea' in mnemonic and idc.GetOpnd(state.ea, POS_SECOND) == '[0]') or \
-                            ('sub' in mnemonic and tracingutils.get_opnd_replacement(state.ea, POS_FIRST) ==
-                             tracingutils.get_opnd_replacement(state.ea, POS_SECOND)):
-                        reg = tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_FIRST))
+                    elif ('xor' in mnemonic and tracing.get_reg_fam(
+                            tracing.get_opnd_replacement(state.ea, POS_FIRST)) ==
+                          tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_SECOND))) or \
+                            ('lea' in mnemonic and idc.print_operand(state.ea, POS_SECOND) == '[0]') or \
+                            ('sub' in mnemonic and tracing.get_opnd_replacement(state.ea, POS_FIRST) ==
+                             tracing.get_opnd_replacement(state.ea, POS_SECOND)):
+                        reg = tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_FIRST))
                         if reg:
                             state.regs[reg[0]] = (0, state.ea)
                     elif 'loop' in mnemonic or 'movsb' in mnemonic:
@@ -404,9 +406,9 @@ class StackStrings(object):
                         except StopIteration:
                             target = None
                         if target and target not in state.visited_eas:
-                            if func.endEA > target >= func.startEA:
+                            if func.end_ea > target >= func.start_ea:
                                 state.visited_eas.append(target)
-                                new_state = tracingutils.BranchingTraceState(target, state)
+                                new_state = tracing.BranchingTraceState(target, state)
                                 new_state.strs = state.strs
                                 states.append(new_state)
                             else:
@@ -423,12 +425,12 @@ class StackStrings(object):
                         self.handle_call(state)
                     elif 'ret' in mnemonic:
                         break
-                    elif idc.GetOpType(state.ea, POS_FIRST) == idc.o_reg: # If we find a target register we were tracking, stop tracking it.
-                        self.clear_reg_if_needed(tracingutils.get_reg_fam(tracingutils.get_opnd_replacement(state.ea, POS_FIRST)), state.regs)
-                    state.ea += idc.ItemSize(state.ea)
+                    elif idc.get_operand_type(state.ea, POS_FIRST) == idc.o_reg: # If we find a target register we were tracking, stop tracking it.
+                        self.clear_reg_if_needed(tracing.get_reg_fam(tracing.get_opnd_replacement(state.ea, POS_FIRST)), state.regs)
+                    state.ea += idc.get_item_size(state.ea)
                 self.report_strings(state.strs, state.stack)
                 if not states and func_eas:
-                    new_state = tracingutils.BranchingTraceState(func_eas[0])
+                    new_state = tracing.BranchingTraceState(func_eas[0])
                     new_state.strs = set()
                     states.append(new_state)
                 stack_strings.extend(state.strs)
@@ -470,6 +472,7 @@ def getstackstrings():
     return stacked
 
 
+@kordesii.decoder_entry
 def main():
     stacked = getstackstrings()
     
@@ -478,12 +481,5 @@ def main():
         func_name = idaapi.get_func_name(loc)
         line = func_name + ', 0x%X: \x00' % loc + string + '"'  # Use the \x00 for the replace below
         print line.encode('string-escape').replace('\\x00', '"\n\t\t"').replace('"\n', '\n', 1) + '\n'
-        kordesiiidahelper.append_string(string.replace('\\x00', '\n'))
+        kordesii.append_string(string.replace('\\x00', '\n'))
     print "Found " + str(len(stacked.strings)) + " stack strings."
-    
-    
-if __name__ == '__main__':
-    idc.Wait()
-    main()
-    if 'exit' in idc.ARGV:
-        idc.Exit(0)

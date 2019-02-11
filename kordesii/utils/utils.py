@@ -1,14 +1,23 @@
+"""
+Extra utility functions for interfacing with ida.
+"""
+
+# TODO: For lack of a better name, this is called "utils". Change this.
+
+from __future__ import absolute_import
 
 import itertools
 import re
 import numbers
+import logging
 
 import idaapi
 import idc
 import idautils
 
-from decoderutils import SuperFunc_t
-from kordesii.kordesiiidahelper import append_debug
+
+logger = logging.getLogger(__name__)
+
 
 READ_LENGTH = 65536
 
@@ -70,7 +79,7 @@ class IterApis(object):
             if addr != idc.BADADDR:
                 self.api_addrs[api_name] = addr
             else:
-                append_debug('Address for %s was not located by name.' % api_name)
+                logger.warning('Address for %s was not located by name.' % api_name)
 
     def _callback_func(self, ea, name, ord):
         """
@@ -146,8 +155,8 @@ def lines(start=None, end=None, reverse=False, max_steps=None):
             end = max_ea + 1
         start = min(start, end)
 
-    func = idc.PrevHead if reverse else idc.NextHead
-    ea = idc.ItemHead(start)
+    func = idc.prev_head if reverse else idc.next_head
+    ea = idc.get_item_head(start)
     while ea != idc.BADADDR:
         yield ea
         ea = func(ea, end)
@@ -161,8 +170,8 @@ def get_string(ea):
 
     :return: A string
     """
-    stype = idc.GetStringType(ea)
-    return idc.GetString(ea, strtype=stype)
+    stype = idc.get_str_type(ea)
+    return idc.get_strlit_contents(ea, strtype=stype)
 
 
 class Segments(object):
@@ -185,8 +194,8 @@ class Segments(object):
         # Reconstruct the segment, account for bytes which are not loaded.
         # Can't use xrange() here because we can get a "Python int too large to conver to C long" error
         seg_range = iter(itertools.count(start).next, end)  # a range from start -> end
-        return str(bytearray(idc.Byte(i) if idc.isLoaded(i) else 0 for i in seg_range))
-        
+        return str(bytearray(idc.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in seg_range))
+
     def segment_bytes(self, val):
         """
         Will obtain segment bytes for the segment in which EA is contained or by segment name.  This will be on demand 
@@ -197,23 +206,23 @@ class Segments(object):
         :return string: bytes which are contained with the segment
         """
         if isinstance(val, str):
-            seg_start = idaapi.get_segm_by_name(val).startEA
+            seg_start = idaapi.get_segm_by_name(val).start_ea
             if seg_start is None:
                 raise AssertionError("could not find segment for {}".format(val))
             
         elif isinstance(val, numbers.Number):
-            seg_start = idc.GetSegmentAttr(val, idc.SEGATTR_START)
+            seg_start = idc.get_segm_attr(val, idc.SEGATTR_START)
         
         seg_bytes = self.segments.get(seg_start)
         if seg_bytes is None:
-            seg_end = idc.GetSegmentAttr(seg_start, idc.SEGATTR_END)
+            seg_end = idc.get_segm_attr(seg_start, idc.SEGATTR_END)
             seg_bytes = self._get_segment_bytes(seg_start, seg_end)
             self.segments[seg_start] = seg_bytes
             
         return seg_bytes
 
 
-kordesiiidautils_segments = Segments()
+_segments = Segments()
 
 
 class IDA_MatchObject(object):
@@ -280,13 +289,13 @@ class IDA_re(object):
         :yield: seg_start, seg_bytes
         """
         if segname and isinstance(segname, str):
-            segments = [idaapi.get_segm_by_name(segname).startEA]
-        
+            segments = [idaapi.get_segm_by_name(segname).start_ea]
+
         else:
             segments = idautils.Segments()
             
         for segment in segments:
-            yield segment, kordesiiidautils_segments.segment_bytes(segment)
+            yield segment, _segments.segment_bytes(segment)
 
     def search(self, segname=None):
         """
@@ -332,26 +341,12 @@ def obtain_function_by_name(func_name):
 
     :param func_name: Name of function to obtain
 
-    :return: startEA of function or idc.BADADDR
+    :return: start_ea of function or idc.BADADDR
     """
     for func in idautils.Functions():
-        if func_name == idc.GetFunctionName(func):
+        if func_name == idc.get_func_name(func):
             return func
     return idc.BADADDR
-
-
-def obtain_superfunct_by_name(func_name):
-    """
-    Obtain a decoderutils.SuperFunc_t object for a function by name.
-
-    :param func_name: Name of function to obtain
-
-    :return: decoderutils.SuperFunc_t object or None
-    """
-    start_ea = obtain_function_by_name(func_name)
-    if start_ea != idc.BADADDR:
-        return SuperFunc_t(start_ea)
-    return None
 
 
 def obtain_export_by_name(export_name):
