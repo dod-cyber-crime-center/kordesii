@@ -489,21 +489,16 @@ def INC(cpu_context, ip, mnem, opvalues):
 # TODO: Do we need to handle JUMP instructions for our purpose???
 
 
-@opcode
-def MOVAPD(cpu_context, ip, mnem, opvalues):
-    """ 
-    Move Aligned Packed Double-Precision Floating-Point Values 
-    """
-    opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
-    opvalue2 = opvalues[1].value
-    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
-    set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=opvalues[1].width)
-
-
-@opcode
+@opcode("movapd")
+@opcode("movaps")
+@opcode("movupd")
+@opcode("movups")
 def MOVAPS(cpu_context, ip, mnem, opvalues):
-    """ 
-    Move Aligned Packed Single-Precision Floating-Point Values 
+    """
+    Handle the MOVAPD, MOVAPS, MOVUPD, and MOVUPS instructions in the same manner, a move on a single-precision floating
+    point value
+
+    MOVAPS: Move Aligned Packed Single-Precision Floating-Point Values
     """
     opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
     opvalue2 = opvalues[1].value

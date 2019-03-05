@@ -361,7 +361,7 @@ def get_function_data(offset):
             decompiled.get_func_type(tif)
 
             # Save type for next time.
-            format = decompiled.print_dcl2()
+            format = decompiled.print_dcl()
             # The 2's remove the unknown bytes always found at the start and end.
             idc.SetType(offset, "{};".format(format[2:-2]))
 
