@@ -19,15 +19,14 @@ local_path = os.path.dirname(__file__)
 if local_path not in sys.path:
     sys.path.append(local_path)
 
-from kordesii.reporter import Reporter
-from kordesii import decoders
 from bottle import Bottle, run, request, response
+
+import kordesii
 
 logger = logging.getLogger("kordesii-server")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
 
-DECODER_DIR = os.path.dirname(decoders.__file__)
 
 DEFAULT_PAGE = """<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
     <html>
@@ -44,47 +43,6 @@ DEFAULT_PAGE = """<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
 app = Bottle()
 
 
-@app.get('/git_hash')
-def git_hash():
-    """
-    Run git status on repo.
-    """
-    return __run_git_command("rev-parse HEAD")
-
-
-@app.get('/git_update')
-def git_update():
-    """
-    Update master branch of repo.
-    """
-    __run_git_command("checkout master")
-    return __run_git_command("pull")
-
-
-def __run_git_command(command):
-    """
-    Command should be a string of basic git options to use.
-    Examples:
-        status
-        rev-parse HEAD
-    The function will run the provided git command and specify the repository
-    based on this server files location.
-    """
-    git_work_dir = os.path.dirname(os.path.realpath(__file__))
-    options = command.split(" ")
-    args = ['git', '-C', git_work_dir] + options
-
-    try:
-        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, error = process.communicate()
-        errors = []
-        if len(error) > 0:
-            errors.append(error)
-        return {"output": output.strip(), "errors": errors}
-    except:
-        return {"output": None, "errors": [traceback.format_exc()]}
-
-
 @app.post('/run_decoder/<decoder>')
 def run_decoder(decoder):
     """
@@ -98,7 +56,7 @@ def run_decoder(decoder):
     if datafile:
         data = datafile.file.read()
         logger.info("run_decoder %s %s %s" % (decoder, datafile.filename, hashlib.md5(data).hexdigest()))
-        return __run_decoder(decoder, data=data, filename=datafile.filename)
+        return _run_decoder(decoder, data=data, filename=datafile.filename)
     else:
         logger.error("run_decoder %s no input file" % decoder)
     return {'error': 'No input file provided'}
@@ -116,20 +74,19 @@ def descriptions():
     """
     try:
         response.content_type = "application/json"
-        reporter = Reporter(decoderdir=DECODER_DIR, base64outputfiles=True)
-        output = {"decoders": reporter.list_decoders()}
-        return reporter.pprint(output)
+        # NOTE: Only presenting name for backwards compatibility.
+        output = {"decoders": [decoder.name for decoder in kordesii.iter_decoders()]}
+        return json.dumps(output, indent=4)
     except Exception as e:
         output = {'error': traceback.format_exc()}
         logger.error("descriptions %s" % (traceback.format_exc()))
         return output
 
 
-def __run_decoder(name, data, filename, append_output_text=True):
-    output = {}
-    logger.info("__run_decoder %s %s %s" % (name, filename, hashlib.md5(data).hexdigest()))
+def _run_decoder(name, data, filename, append_output_text=True):
+    logger.info("_run_decoder %s %s %s" % (name, filename, hashlib.md5(data).hexdigest()))
     try:
-        reporter = Reporter(decoderdir=DECODER_DIR, base64outputfiles=True)
+        reporter = kordesii.Reporter(base64outputfiles=True)
 
         # Since we want the marked up IDB returned using the original filename, we
         # want to pass in a file to the reporter instead of data.
@@ -146,14 +103,14 @@ def __run_decoder(name, data, filename, append_output_text=True):
         try:
             shutil.rmtree(tempdir, ignore_errors=True)
         except Exception as e:
-            reporter.debug("Failed to purge server temp dir: %s, %s" % (tempdir, str(e)))
+            logger.debug("Failed to purge server temp dir: %s, %s" % (tempdir, str(e)))
 
         # Format and return results
         output = reporter.metadata
         if reporter.errors:
             output["error"] = str(reporter.errors)
             for error in reporter.errors:
-                logger.error("__run_decoder %s %s %s" % (name, filename, error))
+                logger.error("_run_decoder %s %s %s" % (name, filename, error))
         if append_output_text:
             output["output_text"] = reporter.get_output_text()
 
@@ -161,25 +118,17 @@ def __run_decoder(name, data, filename, append_output_text=True):
 
     except Exception as e:
         output = {'error': traceback.format_exc()}
-        logger.error("__run_decoder %s %s %s" % (name, filename, traceback.format_exc()))
+        logger.error("_run_decoder %s %s %s" % (name, filename, traceback.format_exc()))
         return output
 
 
 def main():
-    global DECODER_DIR
-    import argparse
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument('--decoderdir', help='Decoder directory to use.')
-    options = argparser.parse_args()
-
-    if options.decoderdir:
-        if not os.path.isdir(options.decoderdir):
-            raise IOError('Unable to find decoder dir: {}'.format(options.decoderdir))
-        DECODER_DIR = options.decoderdir
+    kordesii.register_entry_points()
     run(app, server='auto', host='localhost', port=8081)
 
 
 if __name__ == '__main__':
     main()
 else:
+    kordesii.register_entry_points()
     application = app

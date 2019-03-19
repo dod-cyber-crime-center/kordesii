@@ -17,7 +17,6 @@ import idautils
 import idaapi
 import idc
 
-
 # Make a list of registers used on x86 CPUs for later use
 REG_NAMES = ["RAX", "EAX", "AX", "AH", "AL",
              "RBX", "EBX", "BX", "BH", "BL",
@@ -45,14 +44,14 @@ def signed(n, bit_width):
     Convert an unsigned integer to a signed integer
 
     :param uint n: value to convert
-    
+
     :param int bit_width: byte width of n
 
     :return int: signed conversion
     """
     if n >> (bit_width - 1):  # Is the hi-bit set?
         return n - (1 << bit_width)
-        
+
     return n
 
 
@@ -121,7 +120,7 @@ def get_stack_offset(cpu_context, ip, n):
     elif "rbp" in opnd or "ebp" in opnd:
         return cpu_context.reg_read("RBP") + signed(offset, width)
     # if "esp" in opnd or "rsp" in opnd:
-        # return cpu_context.reg_read("RSP") + offset
+    # return cpu_context.reg_read("RSP") + offset
 
     # # signed because operand values need to be negative and IDA wasn't nice enough to do this for us.
     # return cpu_context.reg_read("RBP") + signed(offset)
@@ -132,6 +131,7 @@ conversion_width = {
     'o': 8,
     'b': 2
 }
+
 
 def calc_displacement(cpu_context, ea, opnd):
     """
@@ -164,7 +164,7 @@ def calc_displacement(cpu_context, ea, opnd):
     # Use the python parser module to create code to execute with eval
     equation = parser.expr(operand).compile()
     result = eval(equation)
-    #function_tracing_logger.debug("calc_displacement :: Displacement {} -> {}".format(idc.print_operand(ea, opnd), result))
+    # function_tracing_logger.debug("calc_displacement :: Displacement {} -> {}".format(idc.print_operand(ea, opnd), result))
     return result
 
 
@@ -225,7 +225,7 @@ def struct_unpack(buffer, signed=False, offs=0):
     # Unpack
     fmt = "{}{}".format((">" if idaapi.cvar.inf.is_be() else "<"), struct_unpack_table[n][signed])
     if n == 16:
-        # Struct can only handle up to 64-bit values...so work in 64-bit chunks        
+        # Struct can only handle up to 64-bit values...so work in 64-bit chunks
         return (struct.unpack(fmt, buffer[8:])[0] << 64) | (struct.unpack(fmt, buffer[:8])[0])
     else:
         return struct.unpack_from(fmt, buffer, offs)[0]
@@ -300,7 +300,7 @@ def int_to_float(val, precision=2):
     else:
         raise ValueError("Precision {} is not valid.".format(precision))
 
-    
+
 def get_mask(size):
     """
     Get bit mask based on byte size.
@@ -309,7 +309,7 @@ def get_mask(size):
 
     :return: mask of width size
     """
-    return 2**(8 * size) - 1
+    return 2 ** (8 * size) - 1
 
 
 def get_bits():
@@ -361,7 +361,7 @@ def get_function_data(offset):
             decompiled.get_func_type(tif)
 
             # Save type for next time.
-            format = decompiled.print_dcl2()
+            format = decompiled.print_dcl()
             # The 2's remove the unknown bytes always found at the start and end.
             idc.SetType(offset, "{};".format(format[2:-2]))
 

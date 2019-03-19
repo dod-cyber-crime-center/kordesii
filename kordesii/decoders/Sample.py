@@ -1,71 +1,48 @@
-
-import idc
+"""
+Description: Sample decoder
+Author: DC3
+"""
+import re
 
 import kordesii
 from kordesii.utils import decoderutils
+from kordesii.utils import function_tracing
 
 
-YARA_RULE = """rule sample_decode
-{
-    strings:
-        $sample_xor_decode = { 8B 45 08 0F BE 08 }
-    condition:
-        $sample_xor_decode
-}"""
+logger = kordesii.get_logger()
+tracers = function_tracing.TracerCache()
 
 
-class Sample_Tracer(decoderutils.StringTracer):
-    def __init__(self, initial_offset, identifier):
-        super(Sample_Tracer, self).__init__(initial_offset, identifier)
+def find_strings():
+    """
+    Extracts and creates EncodedString objects for the parameters following xor encryption function:
 
-    def search(self):
-        """
-        Function Description:
-            Attempts to identify the string location and key based upon the values which are
-            passed to the string decode function.  In this simple example, we know the values
-            will be in the pushes immediately preceding the call.
-            The encoded string location is the first argument for the string decode function and
-            the xor key is the second argument
-            Populates the encoded_strings list
+        void encrypt(char *s, char key)
+        {
+	        while (*s)
+		        *s++ ^= key;
+        }
 
-        Return Value:
-            Boolean value, True if the encoded string location and key are identified, False if
-            the encoded string information is not identified
-        """
-        function_call_loc = self.initial_offset
-        offset_loc = idc.prev_head(function_call_loc)
-        key_loc = idc.prev_head(offset_loc)
-
-        # some basic validation checks to make sure we have the correct locations
-        # ie, ensure that we are pushing values onto the stack for the call
-        if idc.print_insn_mnem(offset_loc) != 'push':
-            return False
-        if idc.print_insn_mnem(key_loc) != 'push':
-            return False
-
-        # args for EncodedString object init
-        string_reference = offset_loc
-        string_location = idc.get_operand_value(offset_loc, 0)
-        key = idc.get_operand_value(key_loc, 0)
-
-        # create EncodedString and check if valid
-        encoded_string = decoderutils.EncodedString(string_location,
-                                                    string_reference,
-                                                    key=key)
-        if encoded_string.calc_size() == idc.BADADDR:
-            return False  # if we can't determine a size, fail the search
-
-        # decoderutils extends its list of encoded strings from this class, so add
-        # this encoded string to our list
-        self.encoded_strings.append(encoded_string)
-
-        return True
+    :returns: list of EncodedString objects.
+    """
+    encoded_strings = []
+    for encrypt_func in decoderutils.re_find_functions(re.compile(r'\x8b\x45\x08\x0f\xbe\x08')):
+        logger.info('Found XOR encrypt function at: 0x{:0x}'.format(encrypt_func.start_ea))
+        for call_ea in encrypt_func.xrefs_to:
+            logger.debug('Tracing {:0x}'.format(call_ea))
+            # Extract arguments for call to xor function.
+            tracer = tracers.get(call_ea)
+            context, args = tracer.get_function_args(call_ea)
+            enc_str_ptr, key = args
+            encoded_string = decoderutils.EncodedString(enc_str_ptr, string_reference=call_ea, key=key)
+            encoded_string.calc_size()  # Calculate size for given encoded string.
+            encoded_strings.append(encoded_string)
+    return encoded_strings
 
 
 def sample_decode(encoded_string):
     """
-    Function Description:
-        Given an encoded_string instance, decode the data using xor with key that was found.
+    Given an encoded_string instance, decode the data using xor with key that was found.
     """
     return ''.join(chr(ord(x) ^ encoded_string.key) for x in encoded_string.encoded_data)
 
@@ -73,8 +50,9 @@ def sample_decode(encoded_string):
 @kordesii.decoder_entry
 def main():
     """
-    Function Description:
-        Calls decoderutils string_decoder_main, which conducts all decryption operations
-        Passes the YARA rule, the Sample_Tracer class, and the sample_decode decryption function
+    Finds xor encrypted strings then decrypts and outputs them.
     """
-    decoderutils.string_decoder_main(YARA_RULE, Sample_Tracer, sample_decode)
+    encoded_strings = find_strings()
+
+    strings = decoderutils.decode_strings(encoded_strings, sample_decode)
+    decoderutils.output_strings(strings)

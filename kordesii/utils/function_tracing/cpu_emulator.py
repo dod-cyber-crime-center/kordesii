@@ -2,7 +2,6 @@
 Emulates an X86 cpu by "executing" the instructions provided to it.
 """
 # Python imports
-import numpy
 import logging
 
 import idaapi
@@ -191,60 +190,6 @@ def builtin_func(builtin_name_or_func):
         return func  # Must return function afterwards.
 
     return _wrapper
-
-
-# TODO: Can this be moved into the Operand class?
-def set_operand_value(cpu_context, ip, value, opnd, optype, width=None):
-    """
-    Function to set the operand to the specified value.
-
-    :param cpu_context: current context of cpu
-    :param ip: instruction pointer
-    :param value: value to set operand to
-    :param opnd: value returned by idc.print_operand()
-    :param optype: value returned by idc.get_operand_type()
-    :param width: byte width of the operand value being set
-
-    """
-    if optype == idc.o_reg:
-        # Convert the value from string to integer...
-        if isinstance(value, str):
-            value = utils.struct_unpack(value)
-
-        cpu_context.reg_write(opnd.upper(), value)
-
-    elif optype in [idc.o_phrase, idc.o_displ]:
-        # For data written to the frame or memory, this data MUST be in string form so convert it
-        if numpy.issubdtype(type(value), numpy.integer):
-            value = utils.struct_pack(value, signed=(value < 0), width=width)
-
-        # These need to be handled in the same way even if they don't contain the same types of data.
-        try:
-            offset = utils.get_stack_offset(cpu_context, ip, 0)
-
-        except ValueError:   # Not a stack variable, calculate the displacement and set it using .memctrlr
-            addr = utils.calc_displacement(cpu_context, ip, 0)
-            cpu_context.mem_write(addr, value)
-
-        else:
-            cpu_context.mem_write(offset, value)
-
-    elif optype == idc.o_mem:
-        # FS, GS are identified as memory addresses, rather use them as registers
-        if "fs" in opnd:
-            cpu_context.reg_write("FS", value)
-        elif "gs" in opnd:
-            cpu_context.reg_write("GS", value)
-        else:
-            if numpy.issubdtype(type(value), numpy.integer):
-                value = utils.struct_pack(value, signed=(value < 0), width=width)
-
-            cpu_context.mem_write(idc.get_operand_value(ip, 0), value)
-
-    elif optype == idc.o_imm:
-        offset = idc.get_operand_value(ip, 0)
-        if idaapi.is_loaded(offset):
-            cpu_context.mem_write(offset, value)
 
 
 def get_operands(cpu_context, ip):

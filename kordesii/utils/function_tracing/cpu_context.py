@@ -4,11 +4,12 @@ Implements the "hardware" for tracing a function.
 Will perform the instructions and updates CPU registers, stack information, etc.
 
 WARNING:
-    Do NOT rely on the flags registers being correct.  There are places were flags are NOT being updated when they 
+    Do NOT rely on the flags registers being correct.  There are places were flags are NOT being updated when they
     should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
 
 # Python libraries
+import numpy
 from copy import deepcopy
 import logging
 import itertools
@@ -121,7 +122,7 @@ class MemController(object):
 
         :return:
         """
-        # First a new chunk of memory of size <size> and the max_base data will be concatenated to the block at 
+        # First a new chunk of memory of size <size> and the max_base data will be concatenated to the block at
         # min_base
         self._memmap[min_base] += bytearray(size) + self._memmap[max_base]
         # Remove the original block at max_base
@@ -137,24 +138,24 @@ class MemController(object):
 
             1. Is the memory block already completely allocated?
                 -------------$$$$$$$$$$$$$-----------
-            
+
             2. Is the memory block partially allocated starting from its base address?
                 -----------$$$$$$$$******************
-            
+
             3. Is the memory block partially allocated from an arbitrary address within the block?
                 ***********$$$$$$$$------------------
-            
+
             4. Is none of the memory block allocated, but the base is immediately adjacent to the last address of
                 already allocated memory?
                 ------------------------*************
-            
+
             5. Is none of the memory block allocated, but the end address is immediately adjacent to the base address
                 of already allocated memory?
                 *************------------------------
-            
+
             6. Is a low chunk and a high chunk of memory already allocated?
                 $$$$$$$$$$$****************$$$$$$$$$$
-            
+
             7. Is the memory block disjointed from all other allocated memory?
                 ----------------........*************
 
@@ -177,6 +178,7 @@ class MemController(object):
         # If both address and max_address are mapped and are contained within the same block, then there's nothing to
         # be done as the entire block is already mapped.  This handles scenario 1 in the comments.
         if is_min_mapped and is_max_mapped and min_base == max_base:
+            logger.debug("[map] :: Memory block already mapped with base address 0x{:X}".format(min_base))
             return
 
         # If only the requested address is mapped, then we need to extend an already existing block by the value:
@@ -184,6 +186,8 @@ class MemController(object):
         # This handles scenario 2 above.
         if is_min_mapped and not is_max_mapped:
             extend_size = max_address - (min_base + len(self._memmap[min_base]))
+            logger.debug("[map] :: Memory block partially mapped, extending block at 0x{:X} by 0x{:X} bytes".format(
+                min_base, extend_size))
             self._append_block(min_base, extend_size)
 
         # If only the block's max address is mapped, then we need to prepend to an already existing block by the value:
@@ -191,6 +195,8 @@ class MemController(object):
         # This handles scenario 3 above.
         elif not is_min_mapped and is_max_mapped:
             prepend_size = max_base - address
+            logger.debug("[map] :: Memory block partially mapped, prepending block at 0x{:X} with 0x{:X} bytes "
+                         "creating new base 0x{:X}".format(max_base, prepend_size, max_base - prepend_size))
             self._prepend_block(address, max_base, prepend_size)
 
         # If both the min and max address are mapped, but min_base != max_base, then 2 disjoint blocks will be
@@ -199,17 +205,23 @@ class MemController(object):
         # This handles scenrio 6 above
         elif is_min_mapped and is_max_mapped:
             join_size = max_base - (min_base + len(self._memmap[min_base]))
+            logger.debug("[map] :: Memory block creation causing merge of blocks 0x{:X} and 0x{:X}".format(
+                min_base, max_base))
             self._join_blocks(min_base, max_base, join_size)
 
         else:
-            # If (address - 1) is mapped, then the requested block is going to be immediately following an existing 
+            # If (address - 1) is mapped, then the requested block is going to be immediately following an existing
             # block, so this will just be an append.  This handles scenario 4 above.
             if self.is_mapped(address - 1):
-                self._append_block(self.get_base_address(address - 1), size)
+                base_address = self.get_base_address(address - 1)
+                logger.debug("[map] :: Memory block appended to memory block at 0x{:X}".format(base_address))
+                self._append_block(base_address, size)
 
             # if (address + size) is mapped, then the requested block is immediately before an existing block,
             # so this will just be a prepend.  This handles scenario 5 above.
             elif self.is_mapped(address + size):
+                logger.debug("[map] :: Memory block prepended to memory block at 0x{:X}, new base at 0x{:X}".format(
+                    address + size, address))
                 self._prepend_block(address, address + size, size)
 
             # If this point is reached, then this is a disjoing memory block request and it can just be created.  This
@@ -246,7 +258,7 @@ class MemController(object):
         """
         if not isinstance(data, bytes):
             raise TypeError("Data written to 0x{:08X} must be bytes, not {}".format(offset, type(data)))
-            
+
         if offset in self._memmap:
             self._memmap[offset][:len(data)] = data
         else:
@@ -261,7 +273,7 @@ class MemController(object):
 
     def search_block(self, offset, val):
         """
-        Search a memory block containing the specified offset from that offset for the specified val.  Return the 
+        Search a memory block containing the specified offset from that offset for the specified val.  Return the
         offset of the location where val was located within the block.  This function will not span blocks.
 
         :param int offset: offset of location to search from
@@ -279,13 +291,19 @@ class MemController(object):
         """
         Print information about current memory map.
         """
-        output = "Base Address\t\tAddress Range\t\t\t\tSize\n{}"
+        _just = 25 if utils.get_bits() == 32 else 50
+        _hex_fmt = "0x{:08X}" if utils.get_bits() == 32 else "0x{:016X}"
+        output = "{}{}{}".format("Base Address".ljust(_just), "Address Range".ljust(_just), "Size")
         temp = []
         for base_addr in sorted(self._memmap):
             addr_size = len(self._memmap[base_addr])
-            temp.append("0x{:X}\t\t0x{:X} - 0x{:X}\t\t{}".format(base_addr, base_addr, base_addr + addr_size, addr_size))
+            temp.append("{}{}{}".format(
+                _hex_fmt.format(base_addr).ljust(_just),
+                "{} - {}".format(_hex_fmt.format(base_addr), _hex_fmt.format(base_addr + addr_size)).ljust(_just),
+                addr_size
+            ))
 
-        return output.format("\n".join(temp))
+        return "{}\n{}".format(output, "\n".join(temp))
 
     def __str__(self):
         return self.__repr__()
@@ -358,7 +376,8 @@ class Register(object):
             mask, shift = self._masks[reg_name]
         except KeyError:
             raise AttributeError('Invalid register name: {}'.format(reg_name))
-        assert isinstance(value, (int, long))
+        if not isinstance(value, (int, long)):
+            raise ValueError('Register value must be int or long, got {}'.format(type(value)))
         self.__dict__['_value'] = (self._value & (mask ^ self._size_mask)) | ((value & (mask >> shift)) << shift)
 
     def __setitem__(self, reg_name, value):
@@ -477,6 +496,65 @@ def x86_64_registers():
     return RegisterMap(registers)
 
 
+class JccContext(object):
+    """
+    Stores information pertaining to a Jcc instruction encountered when tracing.
+
+    When a Jcc instruction is encountered, several pieces of information inherently need to be tracked since
+    we are blindly taking every branch to ensure we get all possible data at any given address.  It turns out
+    we need to know the target of the Jcc instruction for the condition as emulated 
+    (condition_target_ea).  We also need to know the value of the branch we would NOT have taken (at least as
+    best of a guess as we can make in some cases) and where that value would have been set.  In order to 
+    calculate the value, we need to know what kind of test instruction was used, so that mnem is tracked as well.When 
+    we trace our condition_target_ea branch, we need not modify the context.  Whenever we trace the alternative branch, 
+    we'll need to modify the context as specified.
+    """
+    def __init__(self):
+        self.condition_target_ea = None    # The branch actually taken
+        self.alt_branch_data_dst = None    # The location which was tested (typically opnd 0 of the condition test)
+        self.alt_branch_data = None        # The data stored in _alt_branc_data_dst
+        self.flag_opnds = {}               # Dictionary containing the operands at a particular instruction which set
+                                           # specific flags.  Dictionary is keyed on flag registery names.
+    def update_flag_opnds(self, flags, opnds):
+        """
+        Set the operands which change the specified flags.
+
+        :param flags: list of flags which were modified utilizing the supplied opnds
+        :param opnds: the operands at the instruction which modified the flags
+        """
+        for flag in flags:
+            self.flag_opnds[flag] = opnds
+
+    def get_flag_opnds(self, flags):
+        """
+        Extracts all the operands of for the list of flags and reduces the set.  However, since the operands
+        need to remain in order, we can't use set operations.  In all actuality, assuming our code is correct and
+        the compiler isn't doing something funky, any more than 1 flag should really just be a duplicate list.
+
+        :param flags: list of flags for which to extract operands
+        :return: list of operands which were utilized in the instruction that modified the requested flags
+        """
+        # TODO: Is there a better way to do this?
+        opvalues = []
+        for flag in flags:
+            _opvalues = self.flag_opnds.get(flag, None)
+            if not _opvalues:
+                continue
+            
+            for _opvalue in _opvalues:
+                if _opvalue not in opvalues:
+                    opvalues.append(_opvalue)
+
+        return opvalues
+
+    def is_alt_branch(self, ip):
+        """
+        Test our IP against the branch information to determine if we are in the branch that would have been 
+        emulated or in the alternate branch.
+        """
+        return self.condition_target_ea and self.condition_target_ea != ip
+
+
 class ProcessorContext(object):
     """
     Stores the context of the processor during execution.
@@ -489,6 +567,7 @@ class ProcessorContext(object):
 
     def __init__(self):
         self.registers = x86_64_registers()
+        self.jcccontext = JccContext()
         self._memctrlr = MemController()
         self._bitness = utils.get_bits()
         self._byteness = self._bitness / 8
@@ -502,6 +581,18 @@ class ProcessorContext(object):
         self.reg_write("RSP", self.STACK_BASE - self.RSP_OFFSET)
         self.reg_write("RBP", self.STACK_BASE - self.RBP_OFFSET)
 
+    def prep_for_branch(self, bb_start_ea):
+        """
+        Modify this current context in preparation for a specific path.
+        """
+        if self.jcccontext.is_alt_branch(bb_start_ea):
+            logger.debug("Modifying context for branch at 0x{:X}".format(bb_start_ea))
+            dst_opnd = self.jcccontext.alt_branch_data_dst
+            self.set_operand_value(
+                dst_opnd.ip, self.jcccontext.alt_branch_data, dst_opnd.text, dst_opnd.type, dst_opnd.width)
+
+        self.jcccontext = JccContext()
+
     def reg_read(self, reg):
         """
         Read a register value
@@ -513,7 +604,6 @@ class ProcessorContext(object):
 
         :return int: value contained in specified register as int
         """
-        assert isinstance(reg, str)
         return self.registers[reg.upper()]
 
     def reg_write(self, reg, val):
@@ -527,8 +617,6 @@ class ProcessorContext(object):
 
         :param int val: value to be written to register as an int of width of the register (will be truncated as necessary)
         """
-        assert isinstance(val, (int, long))
-        assert isinstance(reg, str)
         self.registers[reg.upper()] = val
 
     def mem_map(self, address, size):
@@ -561,7 +649,7 @@ class ProcessorContext(object):
         segbytes = str(bytearray(idc.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in segRange))
         logger.debug(
             "[map_segment] :: Mapping memory for segment from 0x{:X}::0x{:X}".format(segStart, segStart + segSize))
-        self.mem_write(segStart, segbytes, False)        
+        self.mem_write(segStart, segbytes, False)
 
     def mem_read(self, address, size):
         """
@@ -589,13 +677,13 @@ class ProcessorContext(object):
                 self.mem_map(address, utils.align_page_up(size))
             else:
                 self.map_segment(address)
-        
+
         if not self._memctrlr.is_mapped(address):
             raise ValueError(">>> 0x{:x} Requested memory address 0x{:x} was not properly mapped".format(
                 self.reg_read("RIP"),
                 address
                 ))
-                
+
         if not self._memctrlr.is_mapped(address + size):
             raise ValueError(">>> 0x{:x} Request to read past mapped memory region: 0x{:x}.".format(
                 self.reg_read("RIP"),
@@ -722,7 +810,7 @@ class ProcessorContext(object):
             # Return the appropriate length of the string based on the string type
             if data_type == BYTE_STRING:
                 return value[:size]
-            
+
         if data_type in (STRING, WIDE_STRING):
             null_term = value.find('\0') if data_type == STRING else value.find('\0\0\0')
             if 0 < null_term < size:
@@ -744,7 +832,7 @@ class ProcessorContext(object):
 
     def get_function_args(self, func_ea):
         """
-        Returns the function argument values for this context based on the 
+        Returns the function argument values for this context based on the
         given function.
 
         >>> cpu_context = ProcessorContext()
@@ -791,3 +879,55 @@ class ProcessorContext(object):
                 raise NotImplementedError("Argument {} location of type ALOC_CUSTOM")
 
         return args
+
+    def set_operand_value(self, ip, value, opnd, optype, width=None):
+        """
+        Function to set the operand to the specified value.
+
+        :param cpu_context: current context of cpu
+        :param ip: instruction pointer
+        :param value: value to set operand to
+        :param opnd: value returned by idc.print_operand()
+        :param optype: value returned by idc.get_operand_type()
+        :param width: byte width of the operand value being set
+
+        """
+        if optype == idc.o_reg:
+            # Convert the value from string to integer...
+            if isinstance(value, str):
+                value = utils.struct_unpack(value)
+
+            self.reg_write(opnd.upper(), value)
+
+        elif optype in [idc.o_phrase, idc.o_displ]:
+            # For data written to the frame or memory, this data MUST be in string form so convert it
+            if numpy.issubdtype(type(value), numpy.integer):
+                value = utils.struct_pack(value, signed=(value < 0), width=width)
+
+            # These need to be handled in the same way even if they don't contain the same types of data.
+            try:
+                offset = utils.get_stack_offset(self, ip, 0)
+
+            except ValueError:   # Not a stack variable, calculate the displacement and set it using .memctrlr
+                addr = utils.calc_displacement(self, ip, 0)
+                self.mem_write(addr, value)
+
+            else:
+                self.mem_write(offset, value)
+
+        elif optype == idc.o_mem:
+            # FS, GS are identified as memory addresses, rather use them as registers
+            if "fs" in opnd:
+                self.reg_write("FS", value)
+            elif "gs" in opnd:
+                self.reg_write("GS", value)
+            else:
+                if numpy.issubdtype(type(value), numpy.integer):
+                    value = utils.struct_pack(value, signed=(value < 0), width=width)
+
+                self.mem_write(idc.get_operand_value(ip, 0), value)
+
+        elif optype == idc.o_imm:
+            offset = idc.get_operand_value(ip, 0)
+            if idaapi.is_loaded(offset):
+                self.mem_write(offset, value)

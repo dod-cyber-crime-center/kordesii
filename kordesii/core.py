@@ -3,9 +3,12 @@ Core components that will be integrated as part of the root "kordesii" module.
 
 NOTE: Importing "kordesii" is safe to do outside of IDA. Other modules, not so much.
 """
+from __future__ import print_function
+
 import atexit
 import glob
 import inspect
+import io
 import os
 import logging
 import re
@@ -27,20 +30,15 @@ except ImportError:
     idc = None
     in_ida = False
 
-from kordesii.logutil import setup_logging
-
 
 logger = logging.getLogger(__name__)
-
 
 __all__ = ['decoder_entry', 'called_from_framework', 'in_ida', 'find_ida',
            'run_ida', 'is_64_bit', 'append_string', 'write_unique_file']
 
-
 # Determines if the code was called from framework or directly from IDA
 # TODO: Determine better way to do this.
 called_from_framework = in_ida and 'exit' in idc.ARGV
-
 
 IDA_LOG_FILE = "ida_log.txt"
 IDA_STRINGS_FILE = "ida_strings.txt"
@@ -66,7 +64,7 @@ def decoder_entry(main_func):
     if decoder_locals.get('__name__') == '__main__':
         if in_ida:
             # Setup logging.
-            setup_logging()
+            logutil.setup_logging()
             if called_from_framework:
                 log_level = int(idc.ARGV[1])
                 logging.root.setLevel(log_level)
@@ -81,6 +79,11 @@ def decoder_entry(main_func):
                 # Catch all exceptions, otherwise we have to go fish it out of ida_log.txt
                 logger.exception(e)
             finally:
+                # Clear out the serializer so we can run multiple decoders in the same idb.
+                # Must import here to avoid cyclic import.
+                # FIXME: A proper fix for the serializer should be put in place.
+                from kordesii import serialization
+                serialization._serializers = {}
                 # Exit if called from framework
                 if called_from_framework:
                     idc.qexit(0)
@@ -175,6 +178,26 @@ def is_64_bit(input_file):
     return result
 
 
+def communicate(proc):
+    """
+    Drop the annoying swig memory leak warning. This is not a real concern for our purposes
+    and only clutters the test results.
+    """
+    stdout, stderr = proc.communicate()
+    ignore_str = "swig/python detected a memory leak of type 'std::out_of_range *', no destructor found."
+    if stdout:
+        for out_line in stdout.splitlines(True):
+            if out_line.strip() == ignore_str:
+                continue
+            sys.stdout.write(out_line)
+
+    if stderr:
+        for out_line in stderr.splitlines(True):
+            if out_line.strip() == ignore_str:
+                continue
+            sys.stderr.write(out_line)
+
+
 def run_ida(reporter,
             script_path,
             input_file,
@@ -210,12 +233,11 @@ def run_ida(reporter,
         Output files will exist after execution based on the cleanup parameters and the script itself.
     """
     # First find IDA executable to run
-    ida_path = ida_path if ida_path else find_ida(is_64_bit(input_file))
-    if ida_path is None:
-        return
+    if not ida_path:
+        ida_path = find_ida(is_64_bit(input_file))
 
     # Setup some variables for files that may be output by the decoder and IDA
-    base_dir = reporter.filedir()
+    base_dir = os.path.dirname(os.path.abspath(input_file))
     log_file_path = os.path.join(base_dir, IDA_LOG_FILE)
     strings_file_path = os.path.join(base_dir, IDA_STRINGS_FILE)
     output_dir_path = os.path.join(base_dir, DECODER_OUTPUT_DIR)
@@ -225,6 +247,9 @@ def run_ida(reporter,
         os.remove(log_file_path)
     if os.path.exists(strings_file_path):
         os.remove(strings_file_path)
+
+    # Start the logging listener (if not already started)
+    logutil.start_listener()
 
     # Setup the process to run the IDA decoder script
     log_level = logging.root.getEffectiveLevel()
@@ -238,12 +263,14 @@ def run_ida(reporter,
     command = ' '.join(command)  # Doesn't work unless we convert to string!
 
     logger.debug('Running command: {}'.format(command))
-    process = subprocess.Popen(command)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    atexit.register(process.kill)
 
     atexit.register(process.kill)
 
     # Wrap the call in a thread so we can time it out.
-    thread = threading.Thread(target=process.communicate)
+    thread = threading.Thread(target=communicate, args=(process,))
     thread.start()
     thread.join(timeout if timeout and timeout > 0 else None)  # Block on timeout of 0
     if thread.is_alive():  # This will only be true if timeout != 0
@@ -260,9 +287,11 @@ def run_ida(reporter,
         logger.error("IDA return code = {}".format(process.returncode))
 
     # Ingest any debug information output by the script
+    # TODO: Determine if/how we can pull the console output as it's produced.
+    #   If possible, we could feed the output as debug logs instead of treating them differently.
     if log and os.path.isfile(log_file_path):
-        with open(log_file_path, "r") as f:
-            reporter.set_ida_log(f.read())
+        with io.open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+            reporter.ida_log = f.read()
 
     # Ingest any strings output by the script
     if os.path.isfile(strings_file_path):
@@ -272,14 +301,6 @@ def run_ida(reporter,
                     reporter.add_string(line.rstrip("\r\n").decode("unicode-escape"))
                 except Exception as e:
                     logger.error("Bad string {!r}: {}".format(line, e))
-
-    # Ingest the IDB produced by the script
-    if is_64_bit(input_file):
-        idb_path = os.path.splitext(input_file)[0] + '.i64'
-    else:
-        idb_path = os.path.splitext(input_file)[0] + '.idb'
-    if os.path.isfile(idb_path):
-        reporter.set_idb(idb_path)
 
     # Ingest any files output by the script
     if os.path.exists(output_dir_path):
@@ -320,7 +341,7 @@ def _remove_idbs(input_file):
         elif os.path.exists(input_file_name + '.i64'):
             os.remove(input_file_name + '.i64')
     except:
-        print 'Error: Unable to remove ' + input_file
+        print('Error: Unable to remove ' + input_file)
 
     # The order of the extensions here is important.
     for ext in ('.til', '.nam', '.id0', '.id1', '.id2', '.id3'):

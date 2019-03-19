@@ -1,25 +1,20 @@
 """
 IDA logging utility.
 """
-
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
+import errno
+import inspect
 import logging
 import logging.config
 import logging.handlers
-import inspect
 import multiprocessing as mp
 import os
-import SocketServer
 import struct
 import sys
 import threading
 import warnings
 
 import yaml
+from six.moves import socketserver, cPickle as pickle
 
 import kordesii
 import kordesii.config as kordesii_config
@@ -27,6 +22,7 @@ import kordesii.config as kordesii_config
 
 class LevelCharFilter(logging.Filter):
     """Logging filter used to add a 'level_char' format variable."""
+
     def filter(self, record):
         if record.levelno >= logging.ERROR:
             record.level_char = '!'
@@ -73,7 +69,7 @@ class MPRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 raise
 
 
-class LogRecordStreamHandler(SocketServer.StreamRequestHandler):
+class LogRecordStreamHandler(socketserver.StreamRequestHandler):
     """Handler for a streaming logging request.
 
     This basically logs the record using whatever logging policy is
@@ -114,7 +110,7 @@ class LogRecordStreamHandler(SocketServer.StreamRequestHandler):
             logger.handle(record)
 
 
-class LogRecordSocketReceiver(SocketServer.ThreadingTCPServer):
+class LogRecordSocketReceiver(socketserver.ThreadingTCPServer):
     """
     Simple TCP socket-based logging receiver suitable for testing.
     """
@@ -124,7 +120,7 @@ class LogRecordSocketReceiver(SocketServer.ThreadingTCPServer):
     def __init__(self, host='localhost',
                  port=logging.handlers.DEFAULT_TCP_LOGGING_PORT,
                  handler=LogRecordStreamHandler):
-        SocketServer.ThreadingTCPServer.__init__(self, (host, port), handler)
+        socketserver.ThreadingTCPServer.__init__(self, (host, port), handler)
         self.abort = 0
         self.timeout = 1
         self.logname = None
@@ -140,9 +136,13 @@ class LogRecordSocketReceiver(SocketServer.ThreadingTCPServer):
             abort = self.abort
 
 
+_started_listener = False
+
+
 def start_listener():
     """Start the listener thread for socket-based logging."""
-    if mp.current_process().name != 'MainProcess':
+    global _started_listener
+    if mp.current_process().name != 'MainProcess' or _started_listener:
         return
 
     def _listener():
@@ -152,6 +152,8 @@ def start_listener():
     listener_thread = threading.Thread(target=_listener)
     listener_thread.daemon = True
     listener_thread.start()
+    # Make sure we only start this once.
+    _started_listener = True
 
 
 _setup_logging = False

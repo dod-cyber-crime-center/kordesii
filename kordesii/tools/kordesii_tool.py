@@ -1,11 +1,16 @@
 
+from __future__ import print_function
+
 import logging
 import optparse
 import os
+import json
 import pkgutil
 import sys
 import traceback
 import tempfile
+
+import tabulate
 
 import kordesii
 from kordesii.reporter import Reporter
@@ -23,15 +28,6 @@ def make_opt_parser():
     usage_str = 'usage:  %s [options] FILE' % (os.path.basename(sys.argv[0]))
     description = "DC3-Kordesii Framework: utility for executing string decoder modules"
     opt_parser = optparse.OptionParser(usage_str, description=description)
-
-    default_decoderdir = ''
-
-    # create reporter to get default paths, ignore if this fails
-    try:
-        default_reporter = Reporter()
-        default_decoderdir = default_reporter.decoderdir
-    except Exception as e:
-        traceback.print_exc()
 
     opt_parser.add_option('-a', '--autonomous',
                           action='store_false',
@@ -101,9 +97,15 @@ def make_opt_parser():
                           action='store',
                           type='string',
                           metavar='DIR',
-                          default=default_decoderdir,
+                          default=None,
                           dest='decoderdir',
-                          help='decoders directory' + ' [default: %default]')
+                          help='Optional extra decoder directory')
+    opt_parser.add_option("--decodersource",
+                        metavar="SOURCE_NAME",
+                        default=None,
+                        dest="decodersource",
+                        help="Set a default decoder source to use. "
+                             "If not provided parsers from all sources will be available.")
     opt_parser.add_option('-t', '--timeout',
                           action='store',
                           type=int,
@@ -134,6 +136,15 @@ def make_opt_parser():
     return opt_parser
 
 
+def _print_decoders(json_output=False):
+    """Prints out list of registered decoders."""
+    descriptions = kordesii.get_decoder_descriptions()
+    if json_output:
+        print(json.dumps(descriptions, indent=4))
+    else:
+        print(tabulate.tabulate(descriptions, headers=['NAME', 'SOURCE', 'AUTHOR', 'DESCRIPTION']))
+
+
 def main():
     """
     Takes args from the command line, runs IDA, and returns with IDA's returncode on success or a message
@@ -151,15 +162,32 @@ def main():
     else:
         logging.root.setLevel(logging.INFO)
 
+    # Register decoders
+    kordesii.register_entry_points()
+    if options.decoderdir:
+        kordesii.register_decoder_directory(options.decoderdir)
+    if options.decodersource:
+        kordesii.set_default_source(options.decodersource)
+
+    # List out decoder names and exit
+    if options.list:
+        _print_decoders(json_output=options.jsonoutput)
+        sys.exit(0)
+
+    # Currently only allow one file to be passed in
+    if not args or len(args) != 1:
+        opt_parse.print_help()
+        return
+
     # If we can not create reporter object there is very little we can do. Just die immediately.
     try:
-        reporter = Reporter(decoderdir=options.decoderdir,
-                            tempdir=options.tempdir,
-                            disabletempcleanup=options.disabletempcleanup,
-                            disabledebug=options.hidedebug,
-                            enableidalog=options.enableidalog)
+        reporter = Reporter(
+            tempdir=options.tempdir,
+            disabletempcleanup=options.disabletempcleanup,
+            disabledebug=options.hidedebug,
+        )
     except Exception as e:
-        error_message = "Error loading DC3-MWCP reporter object, please check installation: %s" % (
+        error_message = "Error loading DC3-Kordesii reporter object, please check installation: %s" % (
             traceback.format_exc())
         if options.jsonoutput:
             print('{"errors": ["%s"]}' % error_message)
@@ -167,51 +195,17 @@ def main():
             print(error_message)
         sys.exit(1)
 
-    # List out decoder names and exit
-    if options.list:
-        decoders = reporter.list_decoders()
-
-        if options.jsonoutput:
-            if reporter.errors:
-                decoders.append({"errors": reporter.errors})
-            print reporter.pprint(decoders)
-        else:
-            for name in decoders:
-                print(name)
-            if reporter.errors:
-                print("")
-                print("Errors:")
-                for error in reporter.errors:
-                    print("    %s" % error)
-        return
-
-    # Currently only allow one file to be passed in
-    if not args or len(args) != 1:
-        opt_parse.print_help()
-        return
-
     # Run decoder
     if options.decoder:
         # Grab file from arguments
         input_file = os.path.abspath(args[0])
 
-        # Verify provided decoder name is valid
-        decoder = options.decoder
-        try:
-            decoder_path = reporter.get_decoder_path(decoder)
-        except ValueError as e:
-            print "Error: {}".format(e)
-            return
-
-        # IDA doesn't like backslashes in it's argv.
-        input_file = input_file.replace('\\', '/').strip()
-        decoder_path = decoder_path.replace('\\', '/').strip()
-
         # Run the decoder
-        reporter.run_decoder(decoder,
+        reporter.run_decoder(options.decoder,
                              input_file,
                              timeout=options.timeout,
                              autonomous=options.autonomous,
+                             log=options.enableidalog,
                              cleanup_txt_files=not options.disabletxtcleanup,
                              cleanup_output_files=options.enableoutputfilecleanup,
                              cleanup_idb_files=options.enableidbcleanup)
@@ -223,9 +217,9 @@ def main():
                 output["errors"] = reporter.errors
             if reporter.ida_log:
                 output["ida_log"] = reporter.ida_log
-            print reporter.pprint(output)
+            print(json.dumps(output, indent=4))
         else:
-            reporter.output_text()
+            reporter.print_report()
 
 
 if __name__ == '__main__':

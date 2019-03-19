@@ -2,10 +2,7 @@
     {
         "debug": [
             "IDA return code = 0"
-        ], 
-        "idb": {
-            "name": "kordesii-inputfile-quvcvb.idb"
-        }, 
+        ],
         "strings": [
             "Hello World!", 
             "Test string with key 0x02", 

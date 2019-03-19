@@ -33,18 +33,18 @@ logger = logging.getLogger(__name__)
 class FunctionTracer(object):
     """
     This class should be instantiated by the user in order to trace a function.  Ideally, the object will be stored
-    for future use should the caller expect the function traced to be analyzed multiple times.  
-    
-    To use, the caller will supply the function address (or any address within the function), the address where the 
-    value of interest is set, the operand containing the value of interest, and optionally a list of arguments passed 
-    to the function.  The list of arguments will be used to set argument values for a more complete assesment of the 
+    for future use should the caller expect the function traced to be analyzed multiple times.
+
+    To use, the caller will supply the function address (or any address within the function), the address where the
+    value of interest is set, the operand containing the value of interest, and optionally a list of arguments passed
+    to the function.  The list of arguments will be used to set argument values for a more complete assesment of the
     function.
 
-    The FunctionTracer object will utilize the IDAPython FlowChart object, with custom BasicBlocks.  The FlowChart 
-    object is utilized to efficiently grab all the instructions which are known to be executed sequentially, as well 
-    as ensure that the function is traced using appropriate code paths to the interesting ea.  A "snapshot" of the 
+    The FunctionTracer object will utilize the IDAPython FlowChart object, with custom BasicBlocks.  The FlowChart
+    object is utilized to efficiently grab all the instructions which are known to be executed sequentially, as well
+    as ensure that the function is traced using appropriate code paths to the interesting ea.  A "snapshot" of the
     CPU register state and stack will be copied and stored for each custom BasicBlock.  The idea behind storing this
-    "snapshot" is that if the function needs to be traced multiple times, the "snapshot" data can be utilized to 
+    "snapshot" is that if the function needs to be traced multiple times, the "snapshot" data can be utilized to
     initialize the state of execution when a previously unanalyzed block is being inspected rather than having to
     completely reanalyze the entire function again.
     """
@@ -71,20 +71,20 @@ class FunctionTracer(object):
     def __repr__(self):
         return "<FunctionTracer for function at 0x{:X}>".format(self.func_ea)
 
-    def context_at_iter(self, ea):
+    def iter_context_at(self, ea):
         """
         Iterate over cpu context for instructions up to, but not including, a given ea.
 
         >>> ea = 0x1001b9ad
         >>> ft = FunctionTracer(ea)
-        >>> for cpu_context in ft.context_at_iter(ea):
+        >>> for cpu_context in ft.iter_context_at(ea):
         >>>     print cpu_context
 
         :param int ea: ea of interest
 
         :yield: cpu_context or None (if ea is the function's first address)
         """
-        # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.  
+        # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.
         if ea == idc.get_func_attr(ea, idc.FUNCATTR_START):
             # Return None since a context can't be built if there is no code to "execute"
             return
@@ -108,7 +108,7 @@ class FunctionTracer(object):
 
         :return: cpu_context or None
         """
-        for ctx in self.context_at_iter(ea):
+        for ctx in self.iter_context_at(ea):
             return ctx
 
     def trace_iter(self, ea, opnd, data_type, data_size, include_inst=False):
@@ -125,16 +125,16 @@ class FunctionTracer(object):
                           DWORD, QWORD
         :param int data_size: size of data, in bytes, to be extracted.  For STRING and WIDE_STRING, the size need not
                     be supplied IFF the string is NULL terminated and the data requested is the entire string up to the
-                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD, 
+                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD,
                     and QWORD, the size value is ignored in all cases.
 
         :yield: each possible value for operand per path
         """
         values = set()
-        
+
         # Iterate all the nodes to obtain the CPU context
         _ea = idc.next_head(ea) if include_inst else ea
-        for cpu_context in self.context_at_iter(_ea):
+        for cpu_context in self.iter_context_at(_ea):
             value = cpu_context.get_operand_value(opnd, data_size, ip=ea, data_type=data_type)
             # Prevent returning multiple values which are the same....
             if value in values:
@@ -158,7 +158,7 @@ class FunctionTracer(object):
 
         :param int data_size: size of data, in bytes, to be extracted.  For STRING and WIDE_STRING, the size need not
                     be supplied IFF the string is NULL terminated and the data requested is the entire string up to the
-                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD, 
+                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD,
                     and QWORD, the size value is ignored in all cases.
 
         :return: value for operand on first traversed path
@@ -181,7 +181,7 @@ class FunctionTracer(object):
         :yield tuple: (context at ea, list of function parameters passed to called function in order)
         """
         # Iterate all the paths leading up to ea
-        for cpu_context in self.context_at_iter(ea):
+        for cpu_context in self.iter_context_at(ea):
             if idc.get_operand_type(ea, 0) == idc.o_reg:
                 func_ea = cpu_context.get_operand_value(0, ip=ea, data_type=DWORD)
             else:
@@ -203,3 +203,35 @@ class FunctionTracer(object):
         """
         for cpu_context, args in self.iter_function_args(ea):
             return cpu_context, args
+
+
+class TracerCache(object):
+    """
+    Class containing a cache of all tracer objects that are used within a decoder to avoid having to do all the
+    reinitialization work on subsequent uses.
+    """
+    def __init__(self):
+        self._tracers = {}
+
+    def get(self, ea, default='NOTSET'):
+        """
+        Get either an existing tracer for a provided EA, or create a new one.
+
+        :param int ea: address within a function for which to retrieve a tracer
+        :param default: What to return, if anything, when a function cannot be created for EA
+        :return: FunctionTracer object or default
+        :raises: KeyError
+        """
+        func = idaapi.get_func(ea)
+        if not func:
+            if default != "NOTSET":
+                return default
+            else:
+                raise KeyError("Unable to create tracer")
+
+        try:
+            return self._tracers[func.start_ea]
+        except KeyError:
+            tracer = FunctionTracer(ea)
+            self._tracers[func.start_ea] = tracer
+            return tracer

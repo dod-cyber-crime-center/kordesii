@@ -15,11 +15,12 @@ import idaapi
 import idautils
 import idc
 
-from kordesii import append_string
+import kordesii
 from kordesii.utils import function_tracing
 from kordesii.utils import yara
 from kordesii.utils.function_creator import create_function_precise
-
+from kordesii.utils.utils import IDA_re
+from kordesii.serialization import serializable_class
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class SuperFunc_t(object):
                          if idaapi.get_func_name(ref.frm) != self.name]
         self.xref_count = len(self.xrefs_to)
         self._flowchart = None
-        
+
     @classmethod
     def from_name(cls, func_name, ignore_underscore=False):
         """
@@ -161,6 +162,7 @@ class SuperFunc_t(object):
             logger.warning('Failed to rename at 0x%X' % self.start_ea)
 
 
+@serializable_class
 @functools.total_ordering
 class EncodedString(object):
     """
@@ -198,17 +200,21 @@ class EncodedString(object):
 
     # TODO: Is this "INVALID", "UNUSED" stuff necessary? Can we just have them as None?
     def __init__(self, string_location,
-                 string_reference=INVALID, size=INVALID, offset=INVALID, key=INVALID):
+                 string_reference=INVALID, size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
         super(EncodedString, self).__init__()
         self.string_location = string_location
         self.string_reference = string_reference
         self.size = size
         self.offset = offset
         self.key = key
-        self.encoded_data = self.get_bytes() if size not in (INVALID, UNUSED) else INVALID
+        self.encoded_data = INVALID
         self.decoded_data = INVALID
         self.code_page = None
         self._xrefs_to = None
+        if encoded_data:
+            self.encoded_data = encoded_data
+        elif size not in (INVALID, UNUSED):
+            self.encoded_data = self.get_bytes()
 
     @property
     def decoded_string(self):
@@ -223,7 +229,7 @@ class EncodedString(object):
         self.decoded_data = value
 
     @classmethod
-    def factory(cls, string_location, string_reference, size=INVALID, offset=INVALID, key=INVALID):
+    def factory(cls, string_location, string_reference, size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
         """
         Factory function to generate an EncodedString or EncodedStackString based on type.
 
@@ -238,7 +244,7 @@ class EncodedString(object):
         """
         if idc.is_loaded(string_location):
             return EncodedString(
-                string_location, string_reference, size=size, offset=offset, key=key)
+                string_location, string_reference, size=size, offset=offset, key=key, encoded_data=encoded_data)
 
         # otherwise assume string_location is a pointer within the stack
         # (using function_tracing's CPU emulator) and create an EncodedStackString object.
@@ -253,7 +259,7 @@ class EncodedString(object):
 
         return EncodedStackString(
             stack, stack_offset, string_reference=string_reference,
-            size=size, offset=offset, key=key)
+            size=size, offset=offset, key=key, encoded_data=encoded_data)
 
     def _compare_key(self):
         # Sort by where it was found then where it is referenced
@@ -345,9 +351,9 @@ class EncodedString(object):
         :param bool define: Whether to define the string after patching.
         """
         if self.decoded_data in (INVALID, UNUSED):
-            return
+            return self
         if self.string_location in (INVALID, UNUSED, idc.BADADDR):
-            return
+            return self
         decoded_data = self.as_bytes
         if fill_char:
             decoded_data += fill_char * (len(self.encoded_data) - len(decoded_data))
@@ -357,6 +363,8 @@ class EncodedString(object):
                 self.define()
         except TypeError:
             logger.debug("String type for decoded string from location 0x{:08x}.".format(self.start_ea))
+        finally:
+            return self
 
     # TODO: Can this just be embedded in patch()?
     def define(self):
@@ -519,6 +527,7 @@ class EncodedString(object):
         return u''
 
 
+@serializable_class(skip_attrs=['xrefs_to'])
 class EncodedStackString(EncodedString):
     """
     Variant of EncodedString that represents a string built from the stack.
@@ -526,8 +535,8 @@ class EncodedStackString(EncodedString):
 
     def __init__(
             self, frame_id=None, stack_offset=None, memory_ptr=None, string_reference=INVALID,
-            size=INVALID, offset=INVALID, key=INVALID):
-        super(EncodedStackString, self).__init__(INVALID, string_reference, size, offset, key)
+            size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
+        super(EncodedStackString, self).__init__(INVALID, string_reference, size, offset, key, encoded_data)
         # Frame ID and Stack Offset are optional because it's not always easy to calculate this.
         self.frame_id = frame_id
         self.stack_offset = stack_offset
@@ -608,7 +617,7 @@ class EncodedStackString(EncodedString):
 
     def patch(self, fill_char=None, define=True):
         """Does nothing, patching is not a thing for stack strings."""
-        pass
+        return self
 
     def get_bytes(self):
         """
@@ -919,9 +928,17 @@ def find_encoded_strings(funcs, Tracer, **kwargs):
                         encoded_strings.extend(tracer.encoded_strings)
                     else:
                         logger.info('Failed to find strings at 0x%X' % ref)
-                except AttributeError:
-                    logger.info(
-                        'No function exists at 0x%X. Create a function at this location to obtain strings.' % ref)
+                except AttributeError as e:
+                    # Only catch AttributeErrors resulting from a function not existing. All other AttributeErrors
+                    # are actual errors and should go uncaught.
+                    #
+                    # TODO: Create a separate exception class for a function not existing, so that we don't have to do
+                    #  this kind of error message checking.
+                    if e.message.startswith('No function at 0x'):  #
+                        logger.info(
+                            'No function exists at 0x%X. Create a function at this location to obtain strings.' % ref)
+                    else:
+                        raise e
     return encoded_strings
 
 
@@ -1020,6 +1037,42 @@ def make_superfunc_t_from_matches(matches, func_name=None):
     return list(decode_funcs)
 
 
+def re_find_functions(regex, flags=0, section=None, func_name=None):
+    """
+    Description:
+        Use IDA_re to find the string decode functions, rename them, and return the SuperFunc_ts.
+        Clear the matches each time to prevent duplicates.
+
+    Input:
+        regex - A compiled regular expression or regular expression string or an IDA_re object
+        section - PE section to restrict searches to
+        func_name - The name to be applied to the found function(s). No name will be applied
+                    if func_name = None.
+
+    Output:
+        A list of SuperFunc_t objects.
+
+    Throws:
+        RuntimeError - Assumes that there's no point in continuing if there is no YARA match
+                       and that we were expecting a YARA match, so error in that case.
+    """
+    if isinstance(regex, IDA_re):
+        _regex = regex
+    else:
+        _regex = IDA_re(regex, flags)
+
+    funcs = set()
+    for match in _regex.finditer(section):
+        func = SuperFunc_t(match.start())
+
+        if func_name is not None:
+            func.rename(func_name)
+
+        funcs.add(func)
+
+    return list(funcs)
+
+
 def output_strings(decoded_strings, dedup=True, rename=True, patch=False):
     """
     1. Outputs the decoded string data to the console
@@ -1042,7 +1095,7 @@ def output_strings(decoded_strings, dedup=True, rename=True, patch=False):
         string_list.append(str(decoded_string))
         # FIXME: Even though we strip nulls in __unicode__(), there still seems to be some strings
         # with null characters seeping through.
-        append_string(unicode(decoded_string).rstrip(u'\x00'))
+        kordesii.append_string(unicode(decoded_string).rstrip(u'\x00'))
 
         print '\n'
         display = decoded_string.report()

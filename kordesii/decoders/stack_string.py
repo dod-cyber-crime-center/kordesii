@@ -1,3 +1,7 @@
+"""
+Description: Extracts stack strings
+AUTHOR: DC3
+"""
 import codecs
 
 import idc

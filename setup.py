@@ -35,22 +35,35 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'kordesii = kordesii.tools.kordesii_tool:main',
+            'kordesii = kordesii.cli:main',
             'kordesii-client = kordesii.tools.kordesii_client:main',
             'kordesii-server = kordesii.tools.kordesii_server:main',
             'kordesii-test = kordesii.tools.kordesii_test:main'
-        ]},
+        ],
+        'kordesii.decoders': [
+            'kordesii = kordesii.decoders',
+        ]
+    },
     packages=find_packages(),
     include_package_data=True,
     python_requires='>=2.7, <3',
     install_requires=[
         'bottle',
+        'click',
         'numpy',
         'pyelftools',
         'pefile',
         'PyCrypto',
         'requests',
         'pyyaml',
+        'tabulate',
         'yara-python',
+        'ruamel.yaml',
+        'six',
+
+        # Testing
+        'pytest',
+        'pytest-console-scripts',
+        'tox',
     ]
 )

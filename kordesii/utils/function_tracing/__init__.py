@@ -3,7 +3,7 @@ Provides user-facing API for function_tracing.
 """
 
 # Import functions and classes we want to expose as the API.
-from .function_tracer import FunctionTracer
+from .function_tracer import FunctionTracer, TracerCache
 from .flowchart import FlowChart, CustomBasicBlock
 
 # Expose constants that may be useful

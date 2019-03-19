@@ -67,6 +67,8 @@ class PathBlock(object):
                 # Need to check if there is a prev, if not, then we need to create a default context here...
                 if self.prev:
                     self._context = self.prev.cpu_context()
+                    # Modify the context for the current branch if required
+                    self._context.prep_for_branch(self.bb.start_ea)
                 else:
                     self._context = ProcessorContext()
 

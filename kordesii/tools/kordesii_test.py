@@ -58,11 +58,25 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                                       usage='%(prog)s [options]')
 
     # Required arguments
+    # TODO: dynamically pull tests based on source.
     decoder.add_argument("-o",
-                         default=os.path.join(os.path.dirname(kordesii.__file__), "decodertests"),
+                         default=None,
                          type=str,
                          dest="test_case_dir",
-                         help="Directory containing JSON test case files.")
+                         help="Directory containing JSON test case files. Defaults to a 'tests' folder in the"
+                              "root of your decoders directory"),
+    decoder.add_argument('--decoderdir',
+                         action='store',
+                         metavar='DIR',
+                         default=None,
+                         dest='decoderdir',
+                         help='Optional extra decoder directory')
+    decoder.add_argument("--decodersource",
+                         metavar="SOURCE_NAME",
+                         default=None,
+                         dest="decodersource",
+                         help="Set a default decoder source to use. "
+                              "If not provided decoders from all sources will be available.")
 
     # Arguments used to run test cases
     decoder.add_argument("-t",
@@ -91,10 +105,10 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          default=None,
                          help="Number of test cases to run simultaneously. Default: 3/4 * logical CPU cores.")
     decoder.add_argument("--debug",
-                        action="store_true",
-                        default=False,
-                        dest="debug",
-                        help="Turn on all debugging messages. (WARNING: This WILL spam the console)")
+                         action="store_true",
+                         default=False,
+                         dest="debug",
+                         help="Turn on all debugging messages. (WARNING: This WILL spam the console)")
 
     # Arguments used to generate and update test cases
     decoder.add_argument("-i",
@@ -136,6 +150,11 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          dest="silent",
                          help="Limit output to statement saying whether all tests passed or not.")
 
+    decoder.add_argument("--fail-fast",
+                         default=False,
+                         action='store_true',
+                         help="Stop tests after the first failure.")
+
     return decoder
 
 
@@ -155,119 +174,150 @@ def main():
     else:
         logging.root.setLevel(logging.ERROR)  # By default, ignore all warning, info, and debug messages.
 
+    # Register decoders
+    kordesii.register_entry_points()
+    if args.decoderdir:
+        kordesii.register_decoder_directory(args.decoderdir)
+    if args.decodersource:
+        kordesii.set_default_source(args.decodersource)
+
     # Configure reporter based on args
-    reporter = Reporter(enableidalog=True)
+    reporter = Reporter()
 
     # Configure test object
-    tester = Tester(reporter=reporter, results_dir=args.test_case_dir)
+    if args.all_tests or not args.decoder_name:
+        decoders = [None]
+    else:
+        decoders = [args.decoder_name]
 
-    valid_decoder_names = reporter.list_decoders()
-
-    decoders = []
-    if args.decoder_name:
-        if args.decoder_name in valid_decoder_names:
-            decoders = [args.decoder_name]
-        else:
-            print("Error: Invalid decoder name(s) specified. decoder names are case sensitive.")
-            exit(1)
-    if args.all_tests:
-        decoders = valid_decoder_names
-
-    if not decoders:
-        print("You must specify the decoder to test (or test all decoders)")
-        exit(2)
-
-    if args.decoder_name:
-        results_file_path = tester.get_results_filepath(args.decoder_name)
+    tester = Tester(
+        reporter,
+        results_dir=args.test_case_dir,
+        decoder_names=decoders,
+        nprocs=args.nprocs,
+        field_names=filter(None, args.field_names.split(",")),
+        ignore_field_names=filter(None, args.exclude_field_names.split(","))
+    )
 
     # Gather all our input files
     input_files = []
     if args.input_file:
         input_files = read_input_list(args.input_file)
 
-    # Default is to run test cases
-    if args.run_tests:
-        print("Running test cases. May take a while...")
-        start_time = timeit.default_timer()
-        test_infos = []
-        json_list = []
-        all_passed = True
-        for passed, test_result, test_info in tester.run_tests(
-                decoders, filter(None, args.field_names.split(",")),
-                ignore_field_names=filter(None, args.exclude_field_names.split(",")),
-                nprocs=args.nprocs):
-            test_infos.append(test_info)
-            if not passed:
-                all_passed = False
-            if not args.silent:
-                sys.stdout.write(
-                    "{finished}/{total} - {decoder} {filename} {run_time:.4f}s\n".format(**test_info)
-                )
-                sys.stdout.flush()
-                if not passed or not args.only_failed_tests:
-                    # TODO: Refactor support for json.
-                    if args.json:
-                        json_list.append(tester.format_test_result(test_result, json_format=True))
-                    else:
-                        display = tester.format_test_result(test_result)
-                        print(display.encode(locale.getpreferredencoding(), 'replace'))
-
-        if args.json:
-            print(json.dumps(json_list))
-
-        # Don't count calculating the stats and printing them as test running time
-        end_time = timeit.default_timer()
-
-        if not args.silent:
-            print('\nTest stats:')
-            print('\nTop 10 Slowest Test Cases:')
-            # Cases sorted slowest first
-            sorted_cases = sorted(test_infos, key=lambda x: x['run_time'], reverse=True)
-            for i, info in enumerate(sorted_cases[:10]):
-                print('{:2}. {} {} {:.4f}s'.format(i + 1, info['decoder'], info['filename'], info['run_time']))
-
-            print('\nTop 10 Fastest Test Cases:')
-            for i, info in enumerate(list(reversed(sorted_cases))[:10]):
-                print('{:2}. {} {} {:.4f}s'.format(i + 1, info['decoder'], info['filename'], info['run_time']))
-
-            run_times = [info['run_time'] for info in test_infos]
-            print('\nMean Running Time: {:.4}s'.format(
-                sum(run_times) / len(test_infos)
-            ))
-            print('Median Running Time: {:.4f}s'.format(
-                _median(run_times)
-            ))
-            print()
-
-        print("Total Running Time: {}".format(datetime.timedelta(seconds=end_time - start_time)))
-        print("All Passed = {0}\n".format(all_passed))
-        exit(0 if all_passed else 1)
-
-    # add files to test cases
-    elif args.decoder_name and args.delete:
-        removed_files = tester.remove_test_results(args.decoder_name, input_files)
-        for filename in removed_files:
-            print("Removing results for %s in %s" % (filename, results_file_path))
-    elif args.decoder_name and (args.update or (not args.delete and input_files)):
-        if args.update:
-            input_files.extend(tester.list_test_files(args.decoder_name))
-
+    # Add/Delete
+    if args.delete or args.update:
+        if not args.decoder_name:
+            sys.exit('Decoder must be provided when adding or deleting a file from a test case.')
         for input_file in input_files:
-            tester.gen_results(decoder_name=args.decoder_name, input_file_path=input_file)
-
-            if len(reporter.metadata) > 1 and len(reporter.errors) == 0:
-                print("Updating results for %s in %s" % (input_file, results_file_path))
-                tester.update_test_results(results_file_path=results_file_path,
-                                           results_data=reporter.metadata,
-                                           replace=True)
-            elif len(reporter.metadata) > 1 and len(reporter.errors) > 0:
-                print("Error occurred for %s in %s, not updating: " % (input_file, results_file_path))
-                print("\n".join(reporter.get_debug()))
-                print("\n".join(reporter.errors))
+            if args.delete:
+                tester.remove_test(input_file)
             else:
-                print("Empty results for %s in %s, not updating" % (input_file, results_file_path))
+                tester.add_test(input_file)
+
+    # Update
+    elif args.update:
+        if not args.decoder_name:
+            sys.exit('Decoder must be provided when updating a test case.')
+        tester.update_tests()
+
+    # Default is to run test cases
     else:
-        argparser.print_help()
+        _run_tests(tester, silent=args.silent, show_passed=not args.only_failed_tests)
+
+
+def _run_tests(tester, silent=False, show_passed=False):
+    print("Running test cases. May take a while...")
+
+    start_time = timeit.default_timer()
+    test_results = []
+    all_passed = True
+    total = tester.total
+    failed = []
+
+    # Generate format string.
+    digits = len(str(total))
+    if not tester.test_cases:
+        decoder_len = 10
+        filename_len = 10
+    else:
+        decoder_len = max(len(test_case.decoder_name) for test_case in tester.test_cases)
+        filename_len = max(len(test_case.filename) for test_case in tester.test_cases)
+    msg_format = "{{decoder:{0}}} {{filename:{1}}} {{run_time:.4f}}s".format(decoder_len, filename_len)
+
+    format_str = "{{count:> {0}d}}/{{total:0{0}d}} - ".format(digits) + msg_format
+
+    # Run tests and output progress results.
+    for count, test_result in enumerate(tester, start=1):
+        all_passed &= test_result.passed
+        if not test_result.passed:
+            failed.append((count, test_result.decoder_name, test_result.filename))
+
+        if test_result.run_time:  # Ignore missing tests from stat summary.
+            test_results.append(test_result)
+
+        if not silent:
+            message = format_str.format(
+                count=count,
+                total=total,
+                decoder=test_result.decoder_name,
+                filename=test_result.filename,
+                run_time=test_result.run_time
+            )
+            # Skip print() to immediately flush stdout buffer (issue in Docker containers)
+            sys.stdout.write(message + '\n')
+            sys.stdout.flush()
+            if not test_result.passed or show_passed:
+                test_result.print()
+
+    end_time = timeit.default_timer()
+
+    # Present test statistics
+    if not silent and test_results:
+        print('\nTest stats:')
+        print('\nTop 10 Slowest Test Cases:')
+
+        format_str = "{index:2}. " + msg_format
+
+        # Cases sorted slowest first
+        sorted_cases = sorted(test_results, key=lambda x: x.run_time, reverse=True)
+        for i, test_result in enumerate(sorted_cases[:10], start=1):
+            print(format_str.format(
+                index=i,
+                decoder=test_result.decoder_name,
+                filename=test_result.filename,
+                run_time=test_result.run_time
+            ))
+
+        print('\nTop 10 Fastest Test Cases:')
+        for i, test_result in enumerate(list(reversed(sorted_cases))[:10], start=1):
+            print(format_str.format(
+                index=i,
+                decoder=test_result.decoder_name,
+                filename=test_result.filename,
+                run_time=test_result.run_time
+            ))
+
+        run_times = [test_result.run_time for test_result in test_results]
+        print('\nMean Running Time: {:.4f}s'.format(
+            sum(run_times) / len(test_results)
+        ))
+        print('Median Running Time: {:.4f}s'.format(
+            _median(run_times)
+        ))
+        print('Cumulative Running Time: {}'.format(datetime.timedelta(seconds=sum(run_times))))
+        print()
+
+    print("Total Running Time: {}".format(datetime.timedelta(seconds=end_time - start_time)))
+
+    if failed:
+        print()
+        print("Failed tests:")
+        for test_info in failed:
+            print("#{} - {}\t{}".format(*test_info))
+        print()
+
+    print("All Passed = {0}\n".format(all_passed))
+    exit(0 if all_passed else 1)
 
 
 def read_input_list(filename):

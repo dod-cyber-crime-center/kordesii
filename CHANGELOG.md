@@ -1,6 +1,41 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+- New `seralizer` module.
+  - Access via `kordesii.get_serializer()`, and set key/value pairs
+  with `serializer.set(key, value)`.
+  - Retrieve serialized data from `Reporter` objects with the `other_data`
+  attribute or `get_serialized()`.
+- Support for using setuptool's entry_points to allow for formal python packaging of decoders. 
+(See [documentation](docs/DecoderDevelopment.md#formal-decoder-packaging) for more information.)
+- Ability to register decoder source(s) using `register_decoder_directory()` or `register_decoder_package()`
+ functions.
+- Support for relative input paths in test cases.
+- Created a new command line tool called `kordesii` which encompasses parsing and testing in one tool.
+    - This tool simplifies and cleans up the old CLI flags and uses subcommands for better organization.
+- `--parser-config` flag to specify location of a parser configuration file for a custom parser directory.
+- Ability to set a parser source with `--parser-source` flag.
+- `FunctionTracer` caching with `function_tracing.TracerCache`
+ 
+### Changed
+- "decodertests" folder has been moved to within the "decoders" folder and renamed "tests".
+- Improved CPU emulation results by modifying necessary registers to satisfy jump conditions.
+  
+### Deprecated
+- The `decoderdir` attribute as well as the `list_decoders()` and `get_decoder_path()` functions
+ in the Reporter class have been deprecated in favor of the new decoder registration methods.
+- The `disabledebug` attribute in the Reporter class is deprecated. Log level should be set using the `logging` library.
+- The `get_errors()`, `get_debug()`, `error()`, and `debug()` functions in Reporter are deprecated in favor
+of using the logging library to log and handle messages.
+- The `kordesii-tool` and `kordesii-test` tools are deprecated in exchange for using the new `kordesii` tool and
+    will be removed in a future version.
+
+### Fixed
+- Fixed missing `log_config.yml` error.
+
+
 ## [1.3.0] - 2019-02-11
 ### Added
 - Created `kordesii.decoder_entry` function decorator to be used to wrap the decoder entry point function. 
@@ -24,7 +59,7 @@ their compatibility layer: `AUTOIMPORT_COMPAT_IDA695`
 using Python's builtin `logging` functionality.
 - Moved the content of `kordesii.kordesiiidahelper` to `kordesii` and provided easy import 
 from within the root `kordesii` module.
-- Removed the need for decoder to end with `_StringDecode`.
+- Removed the need for decoders to end with `_StringDecode`.
 
 ### Deprecated
 - Old yara utility functions that have now been replace by `kordesii.utils.yara`
