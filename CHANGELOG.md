@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.4.0] - 2019-03-20
 ### Added
 - New `seralizer` module.
   - Access via `kordesii.get_serializer()`, and set key/value pairs
@@ -9,19 +9,19 @@ All notable changes to this project will be documented in this file.
   - Retrieve serialized data from `Reporter` objects with the `other_data`
   attribute or `get_serialized()`.
 - Support for using setuptool's entry_points to allow for formal python packaging of decoders. 
-(See [documentation](docs/DecoderDevelopment.md#formal-decoder-packaging) for more information.)
+(See [documentation](docs/DecoderInstallation.md#formal-packaging) for more information.)
 - Ability to register decoder source(s) using `register_decoder_directory()` or `register_decoder_package()`
  functions.
 - Support for relative input paths in test cases.
 - Created a new command line tool called `kordesii` which encompasses parsing and testing in one tool.
     - This tool simplifies and cleans up the old CLI flags and uses subcommands for better organization.
-- `--parser-config` flag to specify location of a parser configuration file for a custom parser directory.
 - Ability to set a parser source with `--parser-source` flag.
 - `FunctionTracer` caching with `function_tracing.TracerCache`
  
 ### Changed
 - "decodertests" folder has been moved to within the "decoders" folder and renamed "tests".
 - Improved CPU emulation results by modifying necessary registers to satisfy jump conditions.
+- Updated documentation!
   
 ### Deprecated
 - The `decoderdir` attribute as well as the `list_decoders()` and `get_decoder_path()` functions
@@ -104,7 +104,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.3.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.0...HEAD
+[1.4.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.3.0...1.4.0
 [1.3.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.2.0...1.3.0
 [1.2.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.0.0...1.1.0
