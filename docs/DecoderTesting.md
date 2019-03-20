@@ -1,7 +1,7 @@
 # Testing Decoders
 
 The DC3-Kordesii framework produces JSON results for given samples
-run against specified config parsers. Since the JSON output is already easily parseable,
+run against specified config decoders. Since the JSON output is already easily parseable,
 the output of a decoder itself can be used to represent both expected results and act as a test case.
 By using JSON output that is known to be valid as a test case, the creation of test cases
 becomes simplified and streamlined.
@@ -14,7 +14,8 @@ The `kordesii test` command line utility has been created for users to genereate
    - [Adding test cases](#adding-test-cases)
 - [Updating Test Cases](#updating-test-cases)
 - [Removing Test Cases](#removing-test-cases)
-- [Testing External Parsers](#testing-external-parsers)
+- [Testing External Decoders](#testing-external-decoders)
+- [Setting Test Case Directory](#setting-test-case-directory)
 - [Using a Malware Repository](#using-a-malware-repository)
 
 
@@ -76,10 +77,10 @@ decoder worked properly, results show valuable decrypted strings and/or metadata
 `kordesii test` with the `--add` flag can be used to add new test case files.
 
 ```console
-> mwcp test foo --add=file1.exe --add=file2.exe
+> kordesii test foo --add=file1.exe --add=file2.exe
 
-Updating results for file1.exe in mwcp\parsers\tests\foo.json
-Updating results for file2.exe in mwcp\parsers\tests\foo.json
+Updating results for file1.exe in kordesii\decoders\tests\foo.json
+Updating results for file2.exe in kordesii\decoders\tests\foo.json
 ```
 
 ## Updating Test Cases
@@ -91,9 +92,9 @@ extraction for all the input files in the current test cases and replace the res
 ```console
 > kordesii test foo --update
 
-Updating results for file1.exe in mwcp\parsers\tests\foo.json
-Updating results for file2.exe in mwcp\parsers\tests\foo.json
-Updating results for file3.exe in mwcp\parsers\tests\foo.json
+Updating results for file1.exe in kordesii\decoders\tests\foo.json
+Updating results for file2.exe in kordesii\decoders\tests\foo.json
+Updating results for file3.exe in kordesii\decoders\tests\foo.json
 ```
 
 ## Removing Test Cases
@@ -103,22 +104,29 @@ Test cases can be removed using the `--delete` option and specifying the path to
 ```console
 > kordesii test foo --delete=file1.exe --delete=file2.exe
 
-Removing results for file1.exe in mwcp\parsers\tests\foo.json
-Removing results for file2.exe in mwcp\parsers\tests\foo.json
+Removing results for file1.exe in kordesii\decoders\tests\foo.json
+Removing results for file2.exe in kordesii\decoders\tests\foo.json
 ```
 
 
-## Testing External Parsers
+## Testing External Decoders
 
 By default, DC3-Kordesii will only support running and updating tests that come with kordesii or have been
-installed by a [parser package](ParserInstallation.md#formal-parser-packaging).
-If you would like to use `kordesii test` with your own external parsers you will need
+installed by a [formal python package](DecoderInstallation.md#formal-packaging).
+If you would like to use `kordesii test` with your own external decoders you will need
 to use the `--kordesii-dir` and `--testcase-dir` to tell kordesii where the decoders and test cases reside.
 
 ```console
-> mwcp --decoder-dir=C:\decoders test --testcase-dir=C:\decoders\tests foo
-> mwcp --decoder-dir=C:\decoders test --testcase-dir=C:\decoders\tests foo --update
+> kordesii --decoder-dir=C:\decoders test foo
+> kordesii --decoder-dir=C:\decoders test foo --update
 ```
+
+## Setting Test Case Directory
+
+By default, tests are assumed to be located within a "tests" directory located within
+the root of the decoder directory. If you would like to provide an alternative location
+use the `--testcase-dir` flag or create a `KORDESII_TESTCASE_DIR` environment variable.
+
 
 ## Using a Malware Repository
 
@@ -128,8 +136,8 @@ which is a separate directory that organizes the samples by md5.
 To use, add `--malware-repo` pointing to your repository when adding or deleting tests:
 
 ```console
-> kordesii test --malware-repo=X:\MalwareRepo foo -a ./malware.bin
-> kordesii test --malware-repo=X:\MalwareRepo foo -x ./malware.bin
+> kordesii test --malware-repo=X:\MalwareRepo foo --add=./malware.bin
+> kordesii test --malware-repo=X:\MalwareRepo foo --delete=./malware.bin
 ```
 
 For more persistence, you can add the environment variable `KORDESII_MALWARE_REPO` which points 
@@ -137,6 +145,6 @@ to your malware repository. This will cause `--malware-repo` to automatically ap
 
 ```console
 > set KORDESII_MALWARE_REPO="X:\MalwareRepo"
-> kordesii test foo -a ./malware.bin
-> kordesii test foo -x ./malware.bin
+> kordesii test foo --add=./malware.bin
+> kordesii test foo --delete=./malware.bin
 ```

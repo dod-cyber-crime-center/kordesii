@@ -178,7 +178,6 @@ def _run_tests(tester, silent=False, show_passed=False):
 
     start_time = timeit.default_timer()
     test_results = []
-    all_passed = True
     total = tester.total
     failed = []
 
@@ -196,7 +195,6 @@ def _run_tests(tester, silent=False, show_passed=False):
 
     # Run tests and output progress results.
     for count, test_result in enumerate(tester, start=1):
-        all_passed &= test_result.passed
         if not test_result.passed:
             failed.append((count, test_result.decoder_name, test_result.filename))
 
@@ -264,8 +262,8 @@ def _run_tests(tester, silent=False, show_passed=False):
             print("#{} - {}\t{}".format(*test_info))
         print()
 
-    print("All Passed = {0}\n".format(all_passed))
-    exit(0 if all_passed else 1)
+    print("All Passed = {0}\n".format(not failed))
+    exit(0 if not failed else 1)
 
 
 def _get_malware_repo_path(file_path, malware_repo):

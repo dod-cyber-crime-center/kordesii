@@ -20,7 +20,7 @@ make sure to include `__init__.py` files so Python can see them as packages.
 1. Then pass the directory containing your parsers to the DC3-Kordesii tool being used.
 
 ```console
-> mwcp --decoder-dir=C:\my_decoders parse <name> <input_file>
+> kordesii --decoder-dir=C:\my_decoders parse <name> <input_file>
 ```
 
 You should then find your parsers available alongside the default parsers that come with Kordesii using
@@ -115,7 +115,7 @@ Then, install your package.
 > pip install .
 ```
 
-Your decoders should now be available alongside the default parsers MWCP and any other mwcp packages.
+Your decoders should now be available alongside the default decoders and any other kordesii decoder projects.
 ```console
 > kordesii list
 NAME            SOURCE          AUTHOR    DESCRIPTION
@@ -134,7 +134,16 @@ NOTE: If multiple kordesii projects contain parsers with the same name (case-sen
 
 To specify a particular decoder, you can provide the source name using ":" notation.
 ```console
-> kordesii parse acme:Sample <input>  # Will run the "Sampple" decoder from ACME only.
+> kordesii parse acme:Sample <input>  # Will run the "Sample" decoder from ACME only.
 ```
 
+
+Alternatively you can specify the source with the `--decoder-source` flag or by creating
+a `KORDESII_DECODER_SOURCE` for more persistence.
+```console
+> kordesii --decoder-source=acme parse Sample <input>
+OR
+> set KORDESII_DECODER_SOURCE="acme"
+> kordesii parse Sample <input>
+```
 

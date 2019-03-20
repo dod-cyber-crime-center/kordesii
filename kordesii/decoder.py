@@ -29,7 +29,7 @@ class Decoder(object):
         self._author = None
         self._description = None
         self.script_path = script_path
-        # Just use directory name of script it source not provided.
+        # Just use directory name of script if source not provided.
         directory = os.path.dirname(script_path)
         self.source = source or Source(directory, directory)
         if name:
@@ -45,8 +45,8 @@ class Decoder(object):
         return '<{} Decoder at {}>'.format(self.name, self.script_path)
 
     @property
-    def doc_string(self):
-        """Retrieves the doc_string within the decoder source or '' if no docstring exists."""
+    def docstring(self):
+        """Retrieves the docstring within the decoder source or '' if no docstring exists."""
         if self._doc_string is not None:
             return self._doc_string
         # Open up script file and parse for docstring.
@@ -54,20 +54,20 @@ class Decoder(object):
         #  will explode if we try to import them on the outside.)
         with open(self.script_path, 'r') as fo:
             mod = ast.parse(fo.read())
-            if mod.body and isinstance(mod.body[0], ast.Expr) and isinstance(mod.body[0].value, ast.Str):
-                self._doc_string = mod.body[0].value.s
-            else:
+            try:
+                self._doc_string = ast.get_docstring(mod)
+            except TypeError:
                 self._doc_string = ''
         return self._doc_string
 
     # TODO: Use the same "@" syntax used by ghidra.
     @property
     def description(self):
-        """Retrieves description from doc_string or '' if not found."""
+        """Retrieves description from docstring or '' if not found."""
         if self._description is not None:
             return self._description
-        doc_string = self.doc_string
-        match = re.search('Description:(.*?)$', doc_string, re.MULTILINE)
+        docstring = self.docstring
+        match = re.search('Description:(.*?)$', docstring, re.MULTILINE)
         if match:
             self._description = match.group(1).strip()
         else:
@@ -76,11 +76,11 @@ class Decoder(object):
 
     @property
     def author(self):
-        """Retrieves author from doc_string or '' if not found."""
+        """Retrieves author from docstring or '' if not found."""
         if self._author is not None:
             return self._author
-        doc_string = self.doc_string
-        match = re.search('Author:(.*?)$', doc_string, re.MULTILINE)
+        docstring = self.docstring
+        match = re.search('Author:(.*?)$', docstring, re.MULTILINE)
         if match:
             self._author = match.group(1).strip()
         else:

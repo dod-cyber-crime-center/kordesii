@@ -2,10 +2,15 @@
 
 This guide seeks to explainn how to develop decoders for DC3-Kordesii.
 
+### Guides
+- [Decoder Development](DecoderDevelopment.md)
+- [Decoder Installation](DecoderInstallation.md)
+- [Decoder Testing](DecoderTesting.md)
+
 
 ## Steps
 
-To create s aimple decoder the high level steps are:
+To create a simple decoder the high level steps are:
 
 1. [Install DC3-Kordesii](../README.md#install)
     - If you plan to contribute your decoder back to DC3-Kordesii, you can install in "development"
@@ -20,7 +25,7 @@ To create s aimple decoder the high level steps are:
 ```python
 """
 Description: Sample decoder
-Authro: DC3
+Author: DC3
 """
 ```
     
