@@ -861,10 +861,9 @@ def MOVAPS(cpu_context, ip, mnem, opvalues):
     """
     opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
     opvalue2 = opvalues[1].value
-    # We need to use the size of the source when accessing XMM registers.
-    width = opvalues[1].width
     logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
-    cpu_context.set_operand_value(cpu_context, ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=width)
+    cpu_context.set_operand_value(
+        ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=opvalues[1].width)
 
 
 @opcode("lea")
