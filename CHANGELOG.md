@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
    
-## [Unreleased]
+## [1.4.1] - 2019-04-10
 ### Fixed
 - Added more framework tests.
 - Fixed tuple error when attempting to use the `--add-filelist` option in `kordesii test`.
@@ -111,7 +111,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.1...HEAD
+[1.4.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.0...1.4.1
 [1.4.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.3.0...1.4.0
 [1.3.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.2.0...1.3.0
 [1.2.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.1.0...1.2.0

@@ -21,7 +21,7 @@ def read(fname):
 
 setup(
     name='kordesii',
-    version='1.4.0',
+    version='1.4.1',
     author='DC3',
     description='A framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting.',
     url='https://github.com/Defense-Cyber-Crime-Center/kordesii',
