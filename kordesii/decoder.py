@@ -67,6 +67,9 @@ class Decoder(object):
         if self._description is not None:
             return self._description
         docstring = self.docstring
+        if not docstring:
+            self._description = ''
+            return self._description
         match = re.search('Description:(.*?)$', docstring, re.MULTILINE)
         if match:
             self._description = match.group(1).strip()
@@ -80,6 +83,9 @@ class Decoder(object):
         if self._author is not None:
             return self._author
         docstring = self.docstring
+        if not docstring:
+            self._author = ''
+            return self._author
         match = re.search('Author:(.*?)$', docstring, re.MULTILINE)
         if match:
             self._author = match.group(1).strip()

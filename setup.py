@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'kordesii = kordesii.cli:main',
+            'kordesii-tool = kordesii.tools.kordesii_tool:main',
             'kordesii-client = kordesii.tools.kordesii_client:main',
             'kordesii-server = kordesii.tools.kordesii_server:main',
             'kordesii-test = kordesii.tools.kordesii_test:main'

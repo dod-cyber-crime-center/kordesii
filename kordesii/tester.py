@@ -3,6 +3,7 @@ Test case support for DC3-Kordesii. Decoder output is stored in a json file per 
 decoder is re-run and compared to previous results.
 """
 from __future__ import print_function
+from future.builtins import str
 
 from io import open
 
@@ -172,7 +173,7 @@ class Tester(object):
         with open(input_file_path, 'rb') as f:
             data = f.read()
         self.reporter.run_decoder(decoder_name, data=data, log=True)
-        self.reporter.metadata[INPUT_FILE_PATH] = input_file_path
+        self.reporter.metadata[INPUT_FILE_PATH] = os.path.abspath(input_file_path)
         return self.reporter.metadata
 
     def get_results_filepath(self, decoder_name):
@@ -197,7 +198,7 @@ class Tester(object):
         Parse the the JSON results file and return the parsed data.
         """
 
-        with open(results_file_path) as results_file:
+        with open(results_file_path, 'r', encoding='utf8') as results_file:
             data = json.load(results_file)
 
         # The results file data is expected to be a list of metadata dictionaries

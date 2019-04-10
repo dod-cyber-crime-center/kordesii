@@ -267,8 +267,6 @@ def run_ida(reporter,
 
     atexit.register(process.kill)
 
-    atexit.register(process.kill)
-
     # Wrap the call in a thread so we can time it out.
     thread = threading.Thread(target=communicate, args=(process,))
     thread.start()

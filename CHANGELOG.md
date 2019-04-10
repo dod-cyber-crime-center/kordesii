@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+   
+## [Unreleased]
+### Fixed
+- Added more framework tests.
+- Fixed tuple error when attempting to use the `--add-filelist` option in `kordesii test`.
+- Fixed issue with external decoder sources not being detected correctly.
+
 
 ## [1.4.0] - 2019-03-20
 ### Added

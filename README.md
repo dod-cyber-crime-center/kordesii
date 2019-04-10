@@ -31,14 +31,11 @@ DC3-Kordesii requires the following:
     - (Used to improve accuracy of getting function arguments in `function_tracing`)
 
 ## Install
-<!-- Uncomment if we ever get published in PyPi
 ```console
 > pip install kordesii
 ```
 
 Alternatively you can clone this repo and install locally.
--->
-
 ```console
 > git clone https://github.com/Defense-Cyber-Crime-Center/kordesii.git
 > pip install ./kordesii

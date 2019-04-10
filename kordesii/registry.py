@@ -157,8 +157,8 @@ def iter_decoders(name=None, source=None):
                     if filename.endswith('.py') and not filename.startswith('_'):
                         script_path = os.path.join(root, filename)
                         rel_path, _ = os.path.splitext(os.path.relpath(script_path, source.path))
-                        name = rel_path.replace(os.path.sep, '.')
-                        yield Decoder(script_path, name=name, source=source)
+                        _name = rel_path.replace(os.path.sep, '.')
+                        yield Decoder(script_path, name=_name, source=source)
 
 
 def get_decoder_descriptions(name=None, source=None):

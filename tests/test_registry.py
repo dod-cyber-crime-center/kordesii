@@ -10,7 +10,7 @@ def test_register_decoder_directory(monkeypatch, Sample_decoder):
     # Monkey patch decoders registration so previous test runs don't muck with this.
     monkeypatch.setattr('kordesii.registry._sources', {})
 
-    decoder_dir = os.path.dirname(Sample_decoder)
+    decoder_dir = Sample_decoder.dirname
 
     # Test registration
     assert not list(kordesii.iter_decoders('Sample'))
@@ -33,7 +33,7 @@ def test_register_decoder_directory2(monkeypatch, Sample_decoder):
     # Monkey patch decoders registration so previous test runs don't muck with this.
     monkeypatch.setattr('kordesii.registry._sources', {})
 
-    decoder_dir = os.path.dirname(Sample_decoder)
+    decoder_dir = Sample_decoder.dirname
 
     # Test registration
     assert not list(kordesii.iter_decoders('Sample'))
@@ -57,7 +57,7 @@ def test_register_decoder_directory2(monkeypatch, Sample_decoder):
 def test_iter_decoders(monkeypatch, Sample_decoder):
     monkeypatch.setattr('kordesii.registry._sources', {})
 
-    source = os.path.abspath(os.path.dirname(Sample_decoder))
+    source = os.path.abspath(Sample_decoder.dirname)
     kordesii.register_decoder_directory(source)
 
     decoders = list(kordesii.iter_decoders('Sample'))

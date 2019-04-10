@@ -83,7 +83,7 @@ def list_(json_):
 # Disassembler specific options:
 @click.option('-e', '--enable-ida-log', is_flag=True,
               help='Include the log contents produced by IDA in the results.')
-@click.option('-t', '--timeout', type=int, default=10, show_default=True,
+@click.option('-t', '--timeout', type=int, default=0, show_default=True,
               help='Timeout for running IDA. A timeout of 0 disables the timeout.')
 def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log, timeout):
     """
@@ -357,9 +357,13 @@ def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
             # Don't allow adding a file to ALL test cases.
             raise click.BadParameter('DECODER must be provided when adding or deleting a file from a test case.')
 
+        # Cast tuple to list so we can manipulate.
+        add = list(add)
         for filelist in add_filelist:
             with open(filelist, 'r') as f:
-                add.extend(f.readlines())
+                for file_path in f.readlines():
+                    add.append(file_path.rstrip('\n'))
+
         for file_path in add:
             click.echo('Adding new test cases. May take a while...')
             if malware_repo:
@@ -369,7 +373,6 @@ def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
         for file_path in delete:
             if malware_repo:
                 file_path = _get_malware_repo_path(file_path, malware_repo)
-                # TODO: Also remove from malware repo?
             tester.remove_test(file_path)
 
     # Update

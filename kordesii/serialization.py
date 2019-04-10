@@ -114,7 +114,7 @@ class Serializer(object):
     Serialization object. To be used within decoders to save arbitrary
     data that can later be used in an MWCP parser or elsewhere.
 
-    Serialized data is saved as YAML to `other_data.yml` in the decoder output directory.
+    Serialized data is saved to the provided file path in yaml.
 
     A Serializer instance acts somewhat similarly to a dictionary, with the caveat that
     all keys are **write once**.
@@ -129,26 +129,25 @@ class Serializer(object):
     and EncodedStackString.
     """
 
-    def __init__(self, name='other_data'):
+    def __init__(self, file_path):
         self._data = {}
-
-        # Normally the output directory hasn't been created yet when the Serializer is
-        # first initialized.
-        if not os.path.isdir(DECODER_OUTPUT_DIR):
-            os.makedirs(DECODER_OUTPUT_DIR)
-
-        self._filepath = os.path.join(DECODER_OUTPUT_DIR, name + '.yml')
-        self._name = name
-
         self._file = None
+
+        # Normally the directory hasn't been created yet when the Serializer is
+        # first initialized.
+        directory = os.path.dirname(file_path)
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+
+        self._filepath = file_path
+        self._name, _ = os.path.splitext(os.path.basename(file_path))
 
     def __del__(self):
         """
         Close the file when the Serializer object is deleted or garbage collected
         (including termination of the decoder).
         """
-        if self._file is not None and not self._file.closed:
-            self._file.close()
+        self.close()
 
     def __getitem__(self, item):
         return self._data[item]
@@ -166,7 +165,13 @@ class Serializer(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # NOTE: We can't close because this class gets used as a global variable.
         return False
+
+    def close(self):
+        """Closes the Serializer object."""
+        if self._file is not None and not self._file.closed:
+            self._file.close()
 
     def keys(self):
         """List of all keys serialized."""
@@ -179,6 +184,10 @@ class Serializer(object):
     def items(self):
         """Tuple of (key, value) all pairs serialized."""
         return self._data.items()
+
+    def as_dict(self):
+        """Return current serialized data as a dictionary."""
+        return self._data.copy()
 
     def get(self, key, default=None):
         """Retrieve a previously saved key. Accepts a default."""
@@ -205,9 +214,13 @@ class Serializer(object):
 
         log.debug("Set key {} in serializer".format(key))
 
-    def _save(self, key, value):
+    def _open(self):
+        """Opens the underlining file."""
         if self._file is None:
             self._file = open(self._filepath, 'w', encoding='utf8', newline='\n')
+
+    def _save(self, key, value):
+        self._open()
         yaml.dump({key: value}, self._file)
 
 
@@ -222,7 +235,9 @@ def get_serializer(name='other_data'):
     """
     global _serializers
     if name not in _serializers:
-        _serializers[name] = Serializer(name)
+        # Stored serializer in DECODER_OUTPUT_FILES
+        file_path = os.path.join(DECODER_OUTPUT_DIR, name + '.yml')
+        _serializers[name] = Serializer(file_path)
     return _serializers[name]
 
 

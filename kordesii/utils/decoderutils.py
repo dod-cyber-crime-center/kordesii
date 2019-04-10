@@ -1218,7 +1218,7 @@ def string_decoder_main(yara_rule, Tracer, decode, patch=True, func_name='string
     # Do the decoding.
     try:
         if inline:
-            matches = generic_run_yara(yara_rule)
+            matches = yara.match_strings(yara_rule)
             ENCODED_STRINGS = find_encoded_strings_inline(matches, Tracer)
         else:
             decode_functions = yara_find_decode_functions(yara_rule, func_name)
