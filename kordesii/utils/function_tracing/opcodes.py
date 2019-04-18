@@ -677,7 +677,7 @@ def JG_JNLE(cpu_context, ip, mnem, opvalues):
     if cpu_context.registers.zf == 0 and cpu_context.registers.sf == cpu_context.registers.of:
         # opnd0 > opnd1 on this branch.  Set alternate branch value opnd0 <= opnd1
         cpu_context.jcccontext.condition_target_ea = opvalues[0].value
-        cpu_context.jcccontext.alt_branch_data = operand1.vlaue - 1
+        cpu_context.jcccontext.alt_branch_data = operand1.value - 1
     else:
         # opnd0 <= opnd1on this branch.  Set alternate branch value opnd0 > opnd1
         cpu_context.jcccontext.condition_target_ea = code_refs[0]
