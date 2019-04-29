@@ -677,7 +677,7 @@ def JG_JNLE(cpu_context, ip, mnem, opvalues):
     if cpu_context.registers.zf == 0 and cpu_context.registers.sf == cpu_context.registers.of:
         # opnd0 > opnd1 on this branch.  Set alternate branch value opnd0 <= opnd1
         cpu_context.jcccontext.condition_target_ea = opvalues[0].value
-        cpu_context.jcccontext.alt_branch_data = operand1.vlaue - 1
+        cpu_context.jcccontext.alt_branch_data = operand1.value - 1
     else:
         # opnd0 <= opnd1on this branch.  Set alternate branch value opnd0 > opnd1
         cpu_context.jcccontext.condition_target_ea = code_refs[0]
@@ -847,29 +847,23 @@ def JS(cpu_context, ip, mnem, opvalues):
     """ Jump Sign (SF=1) """
     pass
 
-@opcode
-def MOVAPD(cpu_context, ip, mnem, opvalues):
+
+@opcode("movapd")
+@opcode("movaps")
+@opcode("movupd")
+@opcode("movups")
+def MOVAPS(cpu_context, ip, mnem, opvalues):
     """
-    Move Aligned Packed Double-Precision Floating-Point Values
+    Handle the MOVAPD, MOVAPS, MOVUPD, and MOVUPS instructions in the same manner, a move on a single-precision floating
+    point value
+
+    MOVAPS: Move Aligned Packed Single-Precision Floating-Point Values
     """
     opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
     opvalue2 = opvalues[1].value
     logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
     cpu_context.set_operand_value(
         ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=opvalues[1].width)
-
-
-@opcode
-def MOVAPS(cpu_context, ip, mnem, opvalues):
-    """
-    Move Aligned Packed Single-Precision Floating-Point Values
-    """
-    opvalues = [opvalue for opvalue in opvalues if opvalue.value is not None]
-    opvalue2 = opvalues[1].value
-    # We need to use the size of the source when accessing XMM registers.
-    width = opvalues[1].width
-    logger.debug("{} 0x{:X} :: Copy {} into {}".format(mnem, ip, opvalue2, idc.print_operand(ip, 0)))
-    cpu_context.set_operand_value(ip, opvalue2, idc.print_operand(ip, 0), idc.get_operand_type(ip, 0), width=width)
 
 
 @opcode("lea")
