@@ -1,7 +1,7 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.5.0] - 2019-06-20
 ### Added
 - *function_tracing:*
     - Created a global `TracerCache` that can be accessible using the `get_tracer()` function.
@@ -162,7 +162,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.1...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.5.0...HEAD
+[1.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.1...1.5.0
 [1.4.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.0...1.4.1
 [1.4.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.3.0...1.4.0
 [1.3.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.2.0...1.3.0
