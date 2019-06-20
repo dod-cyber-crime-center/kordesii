@@ -36,9 +36,12 @@ root:
   level: INFO
   handlers: [console, error_file]
 
-# Uncomment this if you don't want to see function_tracing in your debug logs.
-## Silence loud libraries.
+## Uncomment this if you don't want to see function_tracing or IDA in your debug logs.
 #loggers:
 #  kordesii.utils.function_tracing:
+#    propagate: False
+#    handlers: [null_handler]
+#
+#  ida:
 #    propagate: False
 #    handlers: [null_handler]

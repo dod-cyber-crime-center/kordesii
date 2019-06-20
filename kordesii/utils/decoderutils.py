@@ -15,6 +15,8 @@ import idaapi
 import idautils
 import idc
 
+import six
+
 import kordesii
 from kordesii.utils import function_tracing
 from kordesii.utils import yara
@@ -25,7 +27,8 @@ from kordesii.serialization import serializable_class
 logger = logging.getLogger(__name__)
 
 
-INVALID = -1
+# WARNING: INVALID and UNUSED are deprecated. Please use None directly.
+INVALID = None
 UNUSED = None
 
 # Codecs used to detect encoding of strings.
@@ -67,7 +70,7 @@ class SuperFunc_t(object):
         create_if_not_exists - If true, uses IN_Dev_Repo's function creator to create a function containing <ea>
     """
 
-    def __init__(self, ea, identifier=UNUSED, create_if_not_exists=True):
+    def __init__(self, ea, identifier=None, create_if_not_exists=True):
         super(SuperFunc_t, self).__init__()
         self.origin_ea = ea
         self.identifier = identifier
@@ -122,6 +125,18 @@ class SuperFunc_t(object):
     def __repr__(self):
         return '<SuperFunc_t : {}() : {:#08x} - {:#08x}>'.format(self.name, self.start_ea, self.end_ea)
 
+    def __contains__(self, ea):
+        """Tests if ea is within function."""
+        # NOTE: We can't just test if it's between start_ea and end_ea because the function might have
+        # fragmented function chunks.
+        try:
+            func = idaapi.get_func(ea)
+            if not func:
+                return False
+        except AttributeError:
+            return False
+        return func.start_ea == self.start_ea
+
     def heads(self, start=None, reverse=False):
         """
         Iterates all the heads for the given function.
@@ -135,13 +150,13 @@ class SuperFunc_t(object):
         if not start:
             start = self.end_ea if reverse else self.start_ea
 
-        for ea in self._flowchart.bfs_iter_heads(start, reverse=reverse):
+        for ea in self._flowchart.heads(start, reverse=reverse):
             yield ea
 
     def rename(self, new_name):
         """
         Attempts to apply new_name to the object at <ea>. If more than one object starts at <ea>, the
-        largest object will be renamed. If that name already exists, let IDA resolve the collission
+        largest object will be renamed. If that name already exists, let IDA resolve the collision
         and then return that name. If new_name is "", reset the name to IDA's default.
 
         :param str new_name: The desired new name for the function.
@@ -167,54 +182,62 @@ class SuperFunc_t(object):
 class EncodedString(object):
     """
     Description:
-        Object to hold data about an encoded string. Effectively extends StringItem, but
-        avoids all the icky IDA innards.
-
-        If a field is not used, it is recommended to set it to UNUSED in your constructor.
-
-        It is recommended to inherit this class rather than alter it in most cases.
+        Object to hold data about an encoded/encrypted string.
 
     Fields:
         string_location - The EA at which the encoded_data starts.
-        string_reference - The EA from which the string is referenced. Defaults to INVALID.
+        string_reference - The EA from which the string is referenced. Defaults to None.
         size - The size of the encoded_data. When set in the constructor, causes encoded_data to be
-               populated. Defaults to INVALID.
+               populated. Defaults to None.
         offset - The offset from string_location at which the actual encoded_data starts. Often unused.
-                 Defaults to INVALID.
+                 Defaults to None.
         key - The key used for decoding. Generally, this os only set when the key differs by string.
-        encoded_data - The raw data from the file that we intend to decode. Is populated by get_bytes
-                      if size != INVALID. Defaults to INVALID.
-        decoded_data - The string's value after it has been decoded. Defaults to INVALID.
+        encoded_data - The raw data from the file that we intend to decode.
+            Automatically populated from string_location if not manually provided.
+        decoded_data - The string's value after it has been decoded/decrypted.
         code_page - Code page used to decode string when unicode() is called.
 
     Input:
-        string_location - Required. wait until you know this to build the object if at all possible.
+        string_location - The location of the encrypted data.
+            Usually required, but can be None if you are providing an encoded_data.
         string_reference - The location the string is referenced from. Often helpful
-        size - The size of the string. Required to use self.get_bytes.
+        size - Known size of the encoded data. Used to retrieve data if encoded_data is not provided.
         offset - Used when there is an offset based accessing scheme.
         key - Used when there is a key that can vary by string.
+        encoded_data - encoded/encrypted data, if not provided data will be retrieved from IDA.
+        code_page - known encoding page used to decode data to unicode (after data is decrypted)
+            (code page is dynamically determined if not provided)
+        dest - Location of decrypted data (if different from string_location)
+
+    Raises:
+        RuntimeError - If encoded data cannot be extracted.
     """
 
     _MAX_COMMENT_LENGTH = 130
     _MAX_NAME_LENGTH = 30
 
-    # TODO: Is this "INVALID", "UNUSED" stuff necessary? Can we just have them as None?
-    def __init__(self, string_location,
-                 string_reference=INVALID, size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
-        super(EncodedString, self).__init__()
+    # TODO: Since we must have either a string_location or encoded_data should we change
+    #   the first parameter to be something like "encoded_data_or_location" and then
+    #   check which it is by type?
+    def __init__(
+            self, string_location,
+            string_reference=None, size=None, offset=None, key=None, encoded_data=None,
+            code_page=None, dest=None):
         self.string_location = string_location
         self.string_reference = string_reference
-        self.size = size
         self.offset = offset
         self.key = key
-        self.encoded_data = INVALID
-        self.decoded_data = INVALID
+        self.decoded_data = None
         self.code_page = None
+        self.dest = dest
         self._xrefs_to = None
-        if encoded_data:
-            self.encoded_data = encoded_data
-        elif size not in (INVALID, UNUSED):
-            self.encoded_data = self.get_bytes()
+
+        # Pull encoded_data from IDA if not provided.
+        if encoded_data is None:
+            if string_location is None:
+                raise ValueError('encoded_data must be provided if string_location is None')
+            encoded_data = self._get_bytes(string_location, size=size, code_page=code_page)
+        self.encoded_data = encoded_data
 
     @property
     def decoded_string(self):
@@ -228,8 +251,20 @@ class EncodedString(object):
             'decoded_string attribute is deprecated, please use decoded_data', DeprecationWarning)
         self.decoded_data = value
 
+    @property
+    def size(self):
+        warnings.warn(
+            'size attribute is deprecated, please use len() on encoded_data', DeprecationWarning)
+        return len(self.encoded_data)
+
+    @size.setter
+    def size(self, value):
+        warnings.warn(
+            'Setting the size attribute is deprecated, please directly set encoded_data instead.', DeprecationWarning)
+
     @classmethod
-    def factory(cls, string_location, string_reference, size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
+    def factory(cls, string_location, string_reference, size=None, offset=None, key=None,
+                encoded_data=None, code_page=None, dest=None):
         """
         Factory function to generate an EncodedString or EncodedStackString based on type.
 
@@ -241,10 +276,15 @@ class EncodedString(object):
         :param size: The size of the string. Required to use self.get_bytes.
         :param offset: Used when there is an offset based accessing scheme.
         :param key: Used when there is a key that can vary by string.
+        :param encoded_data: encoded/encrypted data, if not provided data will be retrieved from IDA.
+        :param code_page: known encoding page used to decode data to unicode (after data is decrypted)
+            (code page is dynamically determined if not provided)
+        :param dest: Location of decrypted data (if different from string_location)
         """
         if idc.is_loaded(string_location):
             return EncodedString(
-                string_location, string_reference, size=size, offset=offset, key=key, encoded_data=encoded_data)
+                string_location, string_reference, size=size, offset=offset, key=key,
+                encoded_data=encoded_data, code_page=code_page, dest=dest)
 
         # otherwise assume string_location is a pointer within the stack
         # (using function_tracing's CPU emulator) and create an EncodedStackString object.
@@ -256,10 +296,15 @@ class EncodedString(object):
                 + idc.get_func_attr(string_reference, idc.FUNCATTR_FRSIZE)
                 - function_tracing.STACK_BASE
         )
+        if stack_offset < 0:
+            logger.warning(
+                'Ignoring negative stack offset {:#x} pulled from 0x{:X}'.format(
+                    stack_offset, string_location))
+            stack_offset = None
 
         return EncodedStackString(
-            stack, stack_offset, string_reference=string_reference,
-            size=size, offset=offset, key=key, encoded_data=encoded_data)
+            encoded_data, frame_id=stack, stack_offset=stack_offset, string_reference=string_reference,
+            size=size, offset=offset, key=key, code_page=code_page, dest=dest)
 
     def _compare_key(self):
         # Sort by where it was found then where it is referenced
@@ -282,28 +327,41 @@ class EncodedString(object):
         """
         # We have to return repr as a unicode because of the decoded string.
         text = u''
-        if self.string_location not in (INVALID, UNUSED):
-            text += u'EA:  0x%X\n' % self.string_location
-        if self.string_reference not in (INVALID, UNUSED):
-            text += u'Ref: 0x%X\n' % self.string_reference
-        if self.offset not in (INVALID, UNUSED):
-            text += u'Offset: 0x%X\n' % self.offset
-        if self.decoded_data not in (INVALID, UNUSED):
+        if self.string_location is not None:
+            text += u'EA:  0x{:08X}\n'.format(self.string_location)
+        if self.string_reference is not None:
+            text += u'Ref: 0x{:08X}\n'.format(self.string_reference)
+        if self.dest is not None:
+            text += u'Dest: 0x{:08X}\n'.format(self.dest)
+        if self.offset is not None:
+            text += u'Offset: 0x{:08X}\n'.format(self.offset)
+        if self.encoded_data:
+            text += u'Raw Enc: {!r}\n'.format(self.encoded_data)
+        if self.decoded_data:
+            text += u'Raw Dec: {!r}\n'.format(self.decoded_data)
             dec_string = unicode(self)
             if self.code_page:
                 text += u'Detected Code Page: {}\n'.format(self.code_page)
-            text += u'Raw Dec: {!r}\n'.format(self.decoded_data)
             text += u'Dec: {}'.format(dec_string)
         return text
 
+    def __bytes__(self):
+        return self.decoded_data
+
     def __str__(self):
-        return unicode(self).encode('unicode-escape')
+        if six.PY2:
+            return unicode(self)
+        else:
+            return bytes(self)
 
     def __unicode__(self):
-        return self.decode_unknown_charset()
+        return self._decode_unknown_charset()
 
     def __repr__(self):
-        return '<{!r} at 0x{:08x}>'.format(self.encoded_data, self.string_location)
+        encoded_data = self.encoded_data or b''
+        if len(encoded_data) > 30:
+            encoded_data = encoded_data[:30] + b' ...'
+        return '<{!r} at 0x{:08x}>'.format(encoded_data, self.string_location or -1)
 
     @property
     def xrefs_to(self):
@@ -332,14 +390,19 @@ class EncodedString(object):
         comment = '"{}"'.format(name[:self._MAX_COMMENT_LENGTH])
         if len(name) > self._MAX_COMMENT_LENGTH:
             comment += ' (truncated)'
-        if self.string_location not in (INVALID, UNUSED):
+        if self.string_location is not None:
             idc.set_cmt(self.string_location, comment, 1)
-        if self.string_reference not in (INVALID, UNUSED):
+        if self.string_reference is not None:
             idc.set_cmt(self.string_reference, comment, 1)
+        if self.dest is not None:
+            idc.set_cmt(self.dest, comment, 1)
 
         # Set variable name
-        if self.string_location not in (INVALID, UNUSED):
-            ida_name.force_name(self.string_location, name[:self._MAX_NAME_LENGTH])
+        name = name[:self._MAX_NAME_LENGTH]
+        if self.string_location is not None:
+            ida_name.force_name(self.string_location, name)
+        if self.dest is not None:
+            ida_name.force_name(self.dest, '_dest_' + name)
 
     def patch(self, fill_char=None, define=True):
         """
@@ -350,11 +413,9 @@ class EncodedString(object):
             is shorter than its encoded data. (defaults to leaving the original data)
         :param bool define: Whether to define the string after patching.
         """
-        if self.decoded_data in (INVALID, UNUSED):
-            return self
-        if self.string_location in (INVALID, UNUSED, idc.BADADDR):
-            return self
-        decoded_data = self.as_bytes
+        if not self.decoded_data or self.string_location is None:
+            return
+        decoded_data = self.decoded_data
         if fill_char:
             decoded_data += fill_char * (len(self.encoded_data) - len(decoded_data))
         try:
@@ -372,53 +433,107 @@ class EncodedString(object):
         Defines the string in the IDB.
         """
         try:
-            idc.del_items(self.start_ea, idc.DELIT_SIMPLE, self.byte_length)
-            idaapi.create_strlit(self.start_ea, self.byte_length, self.string_type)
+            idc.del_items(self.start_ea, idc.DELIT_SIMPLE, len(self.decoded_data))
+            idaapi.create_strlit(self.start_ea, len(self.decoded_data), self.string_type)
         except Exception as e:
             logger.warning('Unable to define string at 0x{:0X}: {}'.format(self.start_ea, e))
 
+    def publish(self, rename=True, patch=True):
+        """
+        - Saves encoded string to external kordesii Reporter
+        - Prints a report about the string to the console
+        - renames and patches the IDB with decoded data
+
+        :param rename: Whether to rename the string in the IDB.
+        :param patch: Whether to patch the string with the decoded variant in the IDB.
+        """
+        if not self.decoded_data:
+            logger.warning('Unable to publish string {!r}. Missing decoded_data.'.format(self))
+            return
+
+        # FIXME: Even though we strip nulls in __unicode__(), there still seems to be some strings
+        # with null characters seeping through.
+        kordesii.append_string(self._decode_unknown_charset().rstrip(u'\x00'))
+
+        print('\n')
+        display = self.report()
+        print(display)
+
+        if rename:
+            self.rename()
+        if patch:
+            self.patch()
+
     @property
     def start_ea(self):
-        if self.string_location in (UNUSED, INVALID, idc.BADADDR):
-            return INVALID
+        if self.string_location in (None, idc.BADADDR):
+            return -1
         else:
-            return self.string_location + (self.offset if self.offset not in [INVALID, UNUSED] else 0)
+            return self.string_location + (self.offset or 0)
 
     @property
     def end_ea(self):
         start_ea = self.start_ea
-        length = self.byte_length
-        if start_ea == INVALID or length == INVALID:
-            return INVALID
+        if start_ea is None:
+            return -1
         else:
-            return start_ea + length
+            return start_ea + len(self.decoded_data)
 
     # TODO: This property probably can be replace by __str__()
     @property
     def as_bytes(self):
-        # patch_bytes wants an ascii string (str) of the bytes (or their char form)
-        # therefore for wide chars, this conversion is necessary.
-        # This also allows us to calculate the on-disk size.
-        if not self.decoded_data:
-            return INVALID
-        else:
-            return ''.join(itertools.imap(str, self.decoded_data))
+        warnings.warn(
+            'as_bytes attribute is deprecated. Use decoded_data attribute instead.', DeprecationWarning)
+        return self.decoded_data
 
     # TODO: This attribute is not necessary.
     @property
     def byte_length(self):
-        if not self.decoded_data:
-            return INVALID
-        else:
-            return len(self.as_bytes)
+        warnings.warn(
+            'byte_length attribute is deprecated. Use len() on decoded_data instead.', DeprecationWarning)
+        return len(self.decoded_data)
 
     @property
     def string_type(self):
         if not self.decoded_data:
-            return INVALID
+            return None
         else:
             return idc.STRTYPE_C_16 if isinstance(self.decoded_data, unicode) else idc.STRTYPE_C
 
+    def _get_bytes(self, location, size=None, code_page=None):
+        """
+        Extracts bytes from given location.
+
+        :param location: Location to pull bytes
+        :param size: Number of bytes to pull (determines size by looking for terminator if not provided)
+        :param code_page: Known code_page used to determine terminator.
+        :return: bytes or None
+        """
+        # Determine size by looking for terminator.
+        # (Use provided encoding to determine terminator width.)
+        if size is None:
+            width = 1
+            if code_page:
+                if '16' in code_page:
+                    width = 2
+                elif '32' in code_page:
+                    width = 4
+            end_location = idc.find_binary(location, idc.SEARCH_DOWN, "00 " * width)
+            if end_location == idc.BADADDR:
+                logger.warning('Failed to extract bytes from 0x{:08X}'.format(location))
+                return None
+
+            size = end_location - location
+            while size % width:  # ensure unicode strings are a valid length
+                size += 1
+
+        # Pull size amount of bytes from IDA.
+        data = idc.get_bytes(location, size)
+        if data is None:
+            logger.warning('Failed to extract {} bytes from 0x{:08X}'.format(size, location))
+        return data
+
+    # TODO: Automatically do this when the user requests the encoded_data and it hasn't been set.
     def calc_size(self, width=1):
         """
         Description:
@@ -426,20 +541,11 @@ class EncodedString(object):
 
         Output:
             Returns size if it is found, idc.BADADDR otherwise.
-            Updates encoded_data if self.size was INVALID.
+            Updates encoded_data if self.size was None.
         """
-        end_location = idc.find_binary(self.string_location, idc.SEARCH_DOWN, "00 " * width)
-        if end_location == idc.BADADDR:
-            return idc.BADADDR
-
-        self.size = end_location - self.string_location
-        while self.size % width:  # ensure unicode strings are a valid length
-            self.size += 1
-
-        if self.encoded_data == INVALID:
-            self.encoded_data = self.get_bytes()
-
-        return self.size
+        warnings.warn('calc_size() is deprecated. Please use len() on encoded_data if retrieving the size '
+                      'is needed.', DeprecationWarning)
+        return len(self.encoded_data)
 
     # TODO: Perhaps this should be part of a property for the "encoded_data" attribute?
     def get_bytes(self):
@@ -456,10 +562,9 @@ class EncodedString(object):
         Throws:
             ValueError - Size was not valid.
         """
-        if self.size == INVALID:
-            raise ValueError("Size was never calculated!")
-        bytes = idc.get_bytes(self.string_location, self.size) if self.size else ''
-        return bytes if bytes is not None else INVALID
+        warnings.warn(
+            'get_bytes() is deprecated. Please use encoded_data attribute instead.', DeprecationWarning)
+        return self.encoded_data
 
     def _num_raw_bytes(self, string):
         """
@@ -471,11 +576,11 @@ class EncodedString(object):
             count += char.startswith(b'\\x') + char.startswith(b'\\u') * 2
         return count
 
-    def decode_unknown_charset(self):
+    def _decode_unknown_charset(self):
         """
         Returns a decoded string using the best guess codec.
         """
-        if self.decoded_data in (INVALID, UNUSED):
+        if not self.decoded_data:
             return u''
 
         # First see if the decoder already gave us unicode.
@@ -534,9 +639,11 @@ class EncodedStackString(EncodedString):
     """
 
     def __init__(
-            self, frame_id=None, stack_offset=None, memory_ptr=None, string_reference=INVALID,
-            size=INVALID, offset=INVALID, key=INVALID, encoded_data=None):
-        super(EncodedStackString, self).__init__(INVALID, string_reference, size, offset, key, encoded_data)
+            self, encoded_data, frame_id=None, stack_offset=None, memory_ptr=None, string_reference=None,
+            size=None, offset=None, key=None, code_page=None, dest=None):
+        super(EncodedStackString, self).__init__(
+            None, string_reference=string_reference, size=size, offset=offset, key=key,
+            encoded_data=encoded_data, code_page=code_page, dest=dest)
         # Frame ID and Stack Offset are optional because it's not always easy to calculate this.
         self.frame_id = frame_id
         self.stack_offset = stack_offset
@@ -619,20 +726,6 @@ class EncodedStackString(EncodedString):
         """Does nothing, patching is not a thing for stack strings."""
         return self
 
-    def get_bytes(self):
-        """
-        Get self.size bytes at self.string_location.
-
-        :returns: self.size bytes at self.string_location
-
-        :raises ValueError: Size was not valid.
-        """
-        # It's impossible to get bytes directly for stack strings.
-        return INVALID
-
-    def calc_size(self, width=1):
-        raise ValueError('Size calculation cannot be done for stack strings.')
-
 
 class StringTracer(object):
     """
@@ -650,7 +743,7 @@ class StringTracer(object):
         string_reference - The EA from which the encoded string is referenced. Defaults to
                            idc.BADADDR.
         encoded_strings - Storage for the encoded string(s) found by search. Defaults to [].
-        size - The size of the string. Defaults to INVALID.
+        size - The size of the string. Defaults to None.
 
     Input:
         initial_offset - Required. We have to start somewhere.
@@ -661,20 +754,21 @@ class StringTracer(object):
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, initial_offset, identifier=UNUSED):
+    def __init__(self, initial_offset=None, identifier=None):
         super(StringTracer, self).__init__()
         self.initial_offset = initial_offset
         self.identifier = identifier
-        if self.initial_offset != UNUSED:
+        if self.initial_offset is not None:
             if not idaapi.get_func(initial_offset):
                 raise AttributeError("No function at 0x%X" % initial_offset)
             self.func_ea = idaapi.get_func(initial_offset).start_ea
         else:
-            self.func_ea = INVALID
+            self.func_ea = None
+        # TODO: remove use of idc.BADADDR
         self.string_location = idc.BADADDR
         self.string_reference = idc.BADADDR
         self.encoded_strings = []
-        self.size = INVALID
+        self.size = None
 
     @abc.abstractmethod
     def search(self):
@@ -716,9 +810,10 @@ def is_valid_ea(ea):
     Output:
         True if the EA is valid, False if it is not
     """
-    return ea not in [INVALID, UNUSED, idc.BADADDR] and idc.get_inf_attr(idc.INF_MIN_EA) <= ea <= idc.get_inf_attr(idc.INF_MAX_EA)
+    return ea not in (None, idc.BADADDR) and idc.get_inf_attr(idc.INF_MIN_EA) <= ea <= idc.get_inf_attr(idc.INF_MAX_EA)
 
 
+# TODO: Integrate this into EncodedString class
 def split_decoded_string(decoded_string, identify=False):
     """
     Description:
@@ -819,64 +914,6 @@ def split_decoded_string(decoded_string, identify=False):
     return results
 
 
-def find_unrefd_encoded_strings(encoded_string, delimiter=None):
-    """
-    Description:
-        Given a known EncodedString, find unreferenced encoded strings before the next ref.
-        By default, the delimiter is the null terminator.
-        The original EncodedString is not modified.
-
-    Input:
-        encoded_string - The EncodedString to start from
-        delimiter - The character(s) to split on (default is null terminator)
-
-    Output:
-        A list of new EncodedStrings (not including the original)
-    """
-    if delimiter is None:
-        delimiter = '\x00\x00' if isinstance(encoded_string.decoded_string, unicode) else '\x00'
-
-    results = []
-    index = encoded_string.string_location + encoded_string.size
-
-    while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)):
-        # Consume bytes while we continue to find the delimiter
-        if idc.get_bytes(index, len(delimiter)) == delimiter:
-            if len(delimiter) > 1:
-                # if the delimiter is multiple bytes, we could have stepped over a ref
-                # in the middle of the delimiter
-                if any(bool(list(idautils.XrefsTo(index + i, idaapi.XREF_ALL))) for i in xrange(len(delimiter))):
-                    break
-                else:
-                    index += len(delimiter)
-            else:
-                index += len(delimiter)
-        else:
-            # For cases where the delimiter has repeated values (like unicode null),
-            # step until the delimiter is right aligned
-            while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.get_bytes(index + 1, len(delimiter)) == delimiter:
-                index += 1
-            # Technically we need to check this again to be super safe
-            if list(idautils.XrefsTo(index, idaapi.XREF_ALL)):
-                break
-            start = index
-
-            # Consume non-delimiter bytes until we encounter another delimiter or a ref
-            index += 1
-            while not list(idautils.XrefsTo(index, idaapi.XREF_ALL)) and \
-                    idc.get_bytes(index, len(delimiter)) != delimiter:
-                index += 1
-
-            new_string = copy.copy(encoded_string)
-            new_string.offset = start - encoded_string.string_location
-            new_string.size = index - start
-            new_string.get_bytes()
-            results.append(new_string)
-
-    return results
-
-
 def find_encoded_strings_inline(matches, Tracer, **kwargs):
     """
     For each yara match, attempt to find encoded strings.
@@ -958,11 +995,11 @@ def decode_strings(encoded_strings, decode):
     # NOTE: Setting errors to info because it is common and will spam our console.
     decoded_strings = []
     for encoded_string in encoded_strings:
-        if encoded_string.encoded_data == INVALID:
-            logger.info('Unable to find string at: 0x%X' % encoded_string.string_location)
+        if not encoded_string.encoded_data:
+            logger.info('Unable to find string {!r}'.format(encoded_string))
             continue
-        encoded_string.decoded_string = decode(encoded_string)
-        if encoded_string.decoded_string:  # Allow decoders to abort/fail quietly
+        encoded_string.decoded_data = decode(encoded_string)
+        if encoded_string.decoded_data:  # Allow decoders to abort/fail quietly
             decoded_strings.append(encoded_string)
         else:
             logger.info('Failed to decode string: {!r}'.format(encoded_string))
@@ -987,7 +1024,7 @@ def generic_run_yara(rule_text, callback_func=None):
     return yara.match_strings(rule_text)
 
 
-def yara_find_decode_functions(rule_text, func_name=None, callback_func=None):
+def yara_find_decode_functions(rule_text, func_name=None):
     """
     Description:
         Use yara to find the string decode functions, rename them, and return the SuperFunc_ts.
@@ -997,7 +1034,6 @@ def yara_find_decode_functions(rule_text, func_name=None, callback_func=None):
         rule-text - A string containing a YARA rule
         func_name - The name to be applied to the found function(s). No name will be applied
                     if func_name = None.
-        callback_func - A pointer to the callback function for YARA's matching to use
 
     Output:
         A list of SuperFunc_t objects.
@@ -1014,6 +1050,7 @@ def yara_find_decode_functions(rule_text, func_name=None, callback_func=None):
     return make_superfunc_t_from_matches(matches, func_name)
 
 
+# TODO: Deprecate this.
 def make_superfunc_t_from_matches(matches, func_name=None):
     """
     Description:
@@ -1063,7 +1100,10 @@ def re_find_functions(regex, flags=0, section=None, func_name=None):
 
     funcs = set()
     for match in _regex.finditer(section):
-        func = SuperFunc_t(match.start())
+        try:
+            func = SuperFunc_t(match.start())
+        except AttributeError:
+            continue
 
         if func_name is not None:
             func.rename(func_name)
@@ -1087,24 +1127,17 @@ def output_strings(decoded_strings, dedup=True, rename=True, patch=False):
 
     :return: list of decoded string
     """
+    warnings.warn(
+        'output_strings() is deprecated. Please use .publish() directly on the EncodedString objects.',
+        DeprecationWarning)
+
+    # TODO: Determine if deduping and sorting is necessary.
     if dedup:
         decoded_strings = set(decoded_strings)
 
     string_list = []
-    for decoded_string in sorted(decoded_strings):
-        string_list.append(str(decoded_string))
-        # FIXME: Even though we strip nulls in __unicode__(), there still seems to be some strings
-        # with null characters seeping through.
-        kordesii.append_string(unicode(decoded_string).rstrip(u'\x00'))
-
-        print '\n'
-        display = decoded_string.report()
-        print display
-
-        if rename:
-            decoded_string.rename()
-        if patch:
-            decoded_string.patch()
+    for string in sorted(decoded_strings):
+        string.publish(rename=rename, patch=patch)
 
     return string_list
 

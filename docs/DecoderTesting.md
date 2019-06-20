@@ -1,12 +1,12 @@
 # Testing Decoders
 
 The DC3-Kordesii framework produces JSON results for given samples
-run against specified config decoders. Since the JSON output is already easily parseable,
+run against specified config decoders. Since the JSON output is already easily parsable,
 the output of a decoder itself can be used to represent both expected results and act as a test case.
 By using JSON output that is known to be valid as a test case, the creation of test cases
 becomes simplified and streamlined.
 
-The `kordesii test` command line utility has been created for users to genereate and run test cases.
+The `kordesii test` command line utility has been created for users to generate and run test cases.
 
 - [Executing Existing Test Cases](#executing-existing-test-cases)
 - [Creating or Adding Test Cases](#creating-or-adding-test-cases)
@@ -20,6 +20,7 @@ The `kordesii test` command line utility has been created for users to genereate
 
 
 ### Guides
+- [CPU Emulation](CPUEmulation.md)
 - [Decoder Development](DecoderDevelopment.md)
 - [Decoder Installation](DecoderInstallation.md)
 - [Decoder Testing](DecoderTesting.md)

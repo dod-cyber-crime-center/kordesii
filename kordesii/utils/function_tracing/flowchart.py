@@ -1,30 +1,24 @@
 ﻿"""
-Module: flowchart.py
-
-Created: 3 May 18
-
-Description:
-    This module uses the idaapi.FlowChart object and extends it as well as idaapi.BasicBlock in order to add 
-    functionality including Breadth-First and Depth-First chart traversal, locating a specific block within the
-    chart based on an EA, generating a list of all possible paths to a specified EA, etc.
+This module uses the idaapi.FlowChart object and extends it as well as idaapi.BasicBlock in order to add
+functionality including Breadth-First and Depth-First chart traversal, locating a specific block within the
+chart based on an EA, generating a list of all possible paths to a specified EA, etc.
 """
 
-# Python import
+import functools
+import logging
+import warnings
 from operator import attrgetter
 from copy import copy, deepcopy
 import collections
 
-# IDA Python imports
 import idaapi
 import idautils
 import idc
 
-# Import CPU tracing capabilities
 from .cpu_context import ProcessorContext
-from . import cpu_emulator as processor
 
-# Start up the processor
-processor.setup()
+
+logger = logging.getLogger(__name__)
 
 
 class PathBlock(object):
@@ -35,17 +29,30 @@ class PathBlock(object):
     def __init__(self, bb, prev):
         self.bb = bb
         self.prev = prev
+        # TODO: Add caching for multiple init_contexts?
         self._context = None
         self._context_ea = None  # ea that the context has been filled to (but not including)
+        self._init_context = None  # the context used at the starting path
 
     def __contains__(self, ea):
         return ea in self.bb
 
-    def cpu_context(self, ea=None):
+    def __repr__(self):
+        return 'PathBlock({!r})'.format(self.bb)
+
+    def path(self):
+        if self.prev:
+            return self.prev.path() + [self]
+        else:
+            return [self]
+
+    def cpu_context(self, ea=None, init_context=None):
         """
-        Returns the cpu context filled to (and including) the specified ea.
+        Returns the cpu context filled to (but not including) the specified ea.
 
         :param int ea: address of interest (defaults to the last ea of the block)
+        :param init_context: Initial context to use for the start of the path.
+            (defaults to an new empty context)
 
         :return cpu_context.ProcessorContext: cpu context
         """
@@ -55,35 +62,49 @@ class PathBlock(object):
 
         # Determine address to stop computing.
         if ea is None:
-            end = self.bb.end_ea
+            end = self.bb.end_ea  # end_ea of a BasicBlock is the first address after the last instruction.
         else:
-            end = idc.next_head(ea)
+            end = ea
+
+        # Determine if we need to force the creation of a new context if we have a different init_context.
+        new_init_context = self._init_context != init_context
+        self._init_context = init_context
 
         assert end is not None
         # Fill context up to requested endpoint.
-        if self._context_ea != end:
-            # Create context if not created or current context goes past requested ea.
-            if not self._context or self._context_ea > end:
+        if self._context_ea != end or new_init_context:
+            # Create context if:
+            #   - not created
+            #   - current context goes past requested ea
+            #   - given init_context is different from the previously given init_context.
+            if not self._context or self._context_ea > end or new_init_context:
                 # Need to check if there is a prev, if not, then we need to create a default context here...
                 if self.prev:
-                    self._context = self.prev.cpu_context()
+                    self._context = self.prev.cpu_context(init_context=init_context)
                     # Modify the context for the current branch if required
                     self._context.prep_for_branch(self.bb.start_ea)
+                elif init_context:
+                    self._context = deepcopy(init_context)
                 else:
-                    self._context = ProcessorContext()
+                    self._context = ProcessorContext.from_arch()
 
                 self._context_ea = self.bb.start_ea
 
-            # Fill context up to requested ea.
-            for ip in idautils.Heads(self._context_ea, end):
-                processor.execute(self._context, ip)
+            if self._context_ea != end:
+                # Fill context up to requested ea.
+                logger.debug('Emulating instructions 0x{:08X} -> 0x{:08X}'.format(self._context_ea, end))
+                for ip in idautils.Heads(self._context_ea, end):
+                    self._context.execute(ip)
 
             self._context_ea = end
 
+        # Set the next instruction pointer to be the end instruction that we did NOT execute.
+        self._context.ip = end
+
         return deepcopy(self._context)
-         
-        
-def get_flowchart(ea):
+
+
+def _get_flowchart(ea):
     """
     Helper function to obtain an idaapi.FlowChart object for a given ea.
 
@@ -96,7 +117,7 @@ def get_flowchart(ea):
     return flowchart_
 
 
-def get_codeblock(ea):
+def _get_codeblock(ea):
     """
     Helper function to obtain a idaapi.BasicBlock object containing a given ea.
 
@@ -104,37 +125,30 @@ def get_codeblock(ea):
 
     :return idaapi.BasicBlock: idaapi.BasicBlock object
     """
-    flowchart_ = get_flowchart(ea)
+    flowchart_ = _get_flowchart(ea)
     for code_block in flowchart_:
         if code_block.start_ea <= ea < code_block.end_ea:
             return code_block
 
 
+@functools.total_ordering
 class CustomBasicBlock(idaapi.BasicBlock):
     """
     An idaapi.BasicBlock object which has been extended with additional functionality beyond the base class.
 
     Additional functionality:
-        - Iterate all the child BasicBlocks by calling next
-        - Iterate all the parent BasicBlocks using prev
         - Ability to use BasicBlocks as hashable objects (ie: as dictionary keys)
         - Check if two BasicBlocks are equal (based on their start_ea)
         - Check if an EA is contained in a BasicBlock (ie: if ea in <CustomBasicBlock>:)
+        - Check length of block
+        - Iterator addresses in block.
     """
-    def __init__(self, id_ea, bb=None, fc=None):
+    def __init__(self, id_or_ea, bb=None, fc=None):
         if bb is None and fc is None:
-            temp_codeblock = get_codeblock(id_ea)
+            temp_codeblock = _get_codeblock(id_or_ea)
             self.__dict__.update(temp_codeblock.__dict__)
         else:
-            super(CustomBasicBlock, self).__init__(id=id_ea, bb=bb, fc=fc)
-
-    @property
-    def next(self):
-        return self.succs()
-
-    @property
-    def prev(self):
-        return self.preds()
+            super(CustomBasicBlock, self).__init__(id=id_or_ea, bb=bb, fc=fc)
 
     def __hash__(self):
         return self.start_ea
@@ -145,28 +159,60 @@ class CustomBasicBlock(idaapi.BasicBlock):
     def __eq__(self, other):
         return self.start_ea == other.start_ea
 
+    def __lt__(self, other):
+        return self.start_ea < other.start_ea
+
     def __contains__(self, ea):
         return self.start_ea <= ea < self.end_ea
+
+    def __len__(self):
+        """Length of block is the number of instructions contained within."""
+        return len(list(self.heads()))
+
+    def heads(self, start=None, reverse=False):
+        """
+        Iterates all the heads within the given block.
+
+        :param start: Start address (defaults to start_ea or end_ea)
+        :param reverse: Direction to iterate
+
+        :yields: Instruction addresses.
+
+        :raises ValueError: If given start address it not in block.
+        """
+        if start and start not in self:
+            raise ValueError(
+                'Start address 0x{:08X} is not in block: {!r}'.format(start, self))
+
+        if reverse:
+            for head in reversed(list(idautils.Heads(self.start_ea, start or self.end_ea))):
+                yield head
+        else:
+            for head in idautils.Heads(start or self.start_ea, self.end_ea):
+                yield head
 
 
 class FlowChart(idaapi.FlowChart):
     """
     Object containing the function graph generated by IDA.  Implements the traversal of the function.
     """
-    def __init__(self, f, bounds=None, flags=idaapi.FC_PREDS, node_type=idaapi.BasicBlock):
+    def __init__(self, f, bounds=None, flags=idaapi.FC_PREDS):
         self.f = idaapi.get_func(f)
-        self.node_type = node_type
         super(FlowChart, self).__init__(f=self.f, bounds=bounds, flags=flags)
         self._path_cache = collections.defaultdict(list)
         self._gen_cache = {}
 
-    def _dfs(self, start_ea=None):
+    def _traverse(self, start_ea=None, dfs=False):
         """
-        Blind depth-first traversal of the graph.  For each block, obtain the children (or blocks which are reachable
+        Blind traversal of the graph.
+        For each block, obtain the children (or blocks which are reachable
         from the current block), sort the children by their start_ea in ascending order, and "push" the list on to the
         front of the non_visisted blocks list.
 
-        :yield idaapi.BasicBlock: idaapi.BasicBlock object
+        :param int start_ea: EA within a block from which to start traversing
+        :param bool dfs: If true, traversal will be depth-first. If false, traversal will be breadth-first.
+
+        :yield CustomBasicBlock: function block object
         """
         # Set our flag to True if start_ea is none so we yield all blocks, else wait till we find the requested block
         block_found = start_ea is None
@@ -174,215 +220,156 @@ class FlowChart(idaapi.FlowChart):
         visited = set()
         while non_visited:
             cur_block = non_visited.pop(0)
-            if cur_block.start_ea in visited:
+            if hash(cur_block) in visited:
                 continue
 
-            visited.add(cur_block.start_ea)
-            non_visited[0:0] = sorted(cur_block.succs(), key=attrgetter("start_ea"))
+            visited.add(hash(cur_block))
+            succs = sorted(cur_block.succs())
+            if dfs:
+                # [0:0] allows us to extend to the front
+                non_visited[0:0] = succs
+            else:
+                non_visited.extend(succs)
+
             if not block_found:
-                block_found = cur_block.start_ea <= start_ea < cur_block.end_ea
+                block_found = start_ea in cur_block
 
             if block_found:
                 yield cur_block
 
-    def _dfs_reverse(self, start_ea=None):
+    def _traverse_reverse(self, start_ea=None, dfs=False):
         """
-        Perform a reverse traversal of the graph in depth-first manner where given a start node, traverse 1 complete
+        Perform a reverse traversal of the graph in depth-first/breadth-first manner where given a start node, traverse 1 complete
         path to the root node before following additional paths.
 
         :param int start_ea: EA within a block from which to start traversing
+        :param bool dfs: If true, traversal will be depth-first. If false, traversal will be breadth-first.
 
-        :yield: block object
+        :yield: function block object
         """
         if start_ea:
             non_visited = [self.find_block(start_ea)]
         else:
-            non_visited = list(sorted(self, key=attrgetter("start_ea"), reverse=True))[-1:]
+            non_visited = list(sorted(self, key=attrgetter("start_ea")))[-1:]
 
+        visited = set()
         while non_visited:
             cur_block = non_visited.pop(0)
-            # Prevent loops by making sure the start_ea for all preds is less than the current block's
-            non_visited[0:0] = [pred for pred in sorted(cur_block.preds(), 
-                                                        key=attrgetter("start_ea"), 
-                                                        reverse=True) if pred.start_ea < cur_block.start_ea]
+            if hash(cur_block) in visited:
+                continue
+
+            visited.add(hash(cur_block))
+
+            preds = sorted(cur_block.preds(), reverse=True)
+            # For now, only consider predicates that are before the current block.
+            # This helps to prevent cyclic loops.
+            preds = filter(lambda pred: pred < cur_block, preds)
+            if dfs:
+                non_visited[0:0] = preds
+            else:
+                non_visited.extend(preds)
+
             yield cur_block
+
+    def blocks(self, start=None, reverse=False, dfs=False):
+        """
+        Iterates over CustomBasicBlocks.
+
+        :param int start: optional address to start iterating from.
+        :param bool reverse: iterate in reverse
+        :param bool dfs: If true, traversal will be depth-first. If false, traversal will be breadth-first.
+        """
+        if reverse:
+            for cur_block in self._traverse_reverse(start, dfs=dfs):
+                yield cur_block
+
+        else:
+            for cur_block in self._traverse(start, dfs=dfs):
+                yield cur_block
+
+    def heads(self, start=None, reverse=False, dfs=False):
+        """
+        Iterate over instructions in function blocks.
+
+        :param int start: optional address to start iterating from.
+        :param bool reverse: iterate in reverse
+        :param bool dfs: If true, traversal of blocks will be depth-first.
+            If false, traversal will be breadth-first.
+        """
+        _first_block = True
+        for cur_block in self.blocks(start, reverse=reverse, dfs=dfs):
+            if start and _first_block:
+                heads = cur_block.heads(start, reverse=reverse)
+            else:
+                heads = cur_block.heads(reverse=reverse)
+
+            _first_block = False
+
+            for head in heads:
+                yield head
 
     def dfs_iter_blocks(self, start_ea=None, reverse=False):
         """
         Iterate over idaapi.BasicBlocks in depth-first manner.
 
-        >>> ea = 0x1001234  # some EA within a function
-        >>> fc = FlowChart(ea)
-        >>> for block in fc.dfs_iter_blocks():
-        >>>     print ">>> Block: 0x{:x} - 0x{:x}".format(block.start_ea, block.end_ea)
-
         :param int start_ea: optional address to start iterating from.
 
         :param bool reverse: iterate in reverse
         """
-        if reverse:
-            for cur_block in self._dfs_reverse(start_ea):
-                yield cur_block
-
-        else:
-            for cur_block in self._dfs(start_ea):
-                yield cur_block
+        warnings.warn(
+            'dfs_iter_blocks() is deprecated. Please use blocks(dfs=True) instead.', DeprecationWarning)
+        for block in self.blocks(start=start_ea, reverse=reverse, dfs=True):
+            yield block
 
     def dfs_iter_heads(self, start_ea=None, reverse=False):
         """
         Iterate over instructions in idaapi.BasicBlocks in depth-first manner.
 
-        >>> ea = 0x1001234  # some EA within a function
-        >>> fc = FlowChart(ea)
-        >>> for head_ea in fc.dfs_iter_heads():
-        >>>     print ">>> 0x{:x}: {}".format(head_ea, idc.generate_disasm_line(head_ea, 0))
-
         :param int start_ea: option address to start iterating from.
 
         :param bool reverse: iterate in reverse
         """
-        _first_block = True
-        for cur_block in self.dfs_iter_blocks(start_ea, reverse):
-            if reverse:
-                if start_ea and _first_block:
-                    ea = start_ea
-                else:
-                    ea = cur_block.end_ea
-
-                heads = reversed(list(idautils.Heads(cur_block.start_ea, ea)))
-
-            else:
-                if start_ea and _first_block:
-                    ea = start_ea
-                else:
-                    ea = cur_block.start_ea
-
-                heads = idautils.Heads(ea, cur_block.end_ea)
-
-            _first_block = False
-
-            for head in heads:
-                yield head
-
-    def _bfs(self, start_ea=None):
-        """
-        Blind breadth-first traversal of graph.  For each block, obtain the children (or blocks which are reacable
-        from the current block), sorth the children by their start_ea in ascending order, and append the list to the
-        end of the non_visited blocks list.
-
-        :yield idaapi.BasicBlock: idaapi.BasicBlock
-        """
-        # If no start_ea is provided, then display all blocks, so set our flag as True, otherwise wait till we find
-        # the required block befor yielding
-        block_found = start_ea is None
-        non_visited = [self[0]]
-        visited = set()
-        while non_visited:
-            cur_block = non_visited.pop(0)
-            if cur_block.start_ea in visited:
-                continue
-
-            visited.add(cur_block.start_ea)
-            non_visited.extend(sorted(cur_block.succs(), key=attrgetter("start_ea")))
-            if not block_found:
-                block_found = cur_block.start_ea <= start_ea < cur_block.end_ea
-
-            if block_found:
-                yield cur_block
-
-    def _bfs_reverse(self, start_ea=None):
-        """
-        Perform a reverse traversal of the graph in breadth-first manner.
-
-        :param int start_ea: EA within a block from which to start traversing
-
-        :yield idaapi.BasicBlocks: idaapi.BasicBlocks
-        """
-        if start_ea:
-            non_visited = [self.find_block(start_ea)]
-        else:
-            non_visited = list(sorted(self, key=attrgetter("start_ea"), reverse=True))[-1:]
-
-        while non_visited:
-            cur_block = non_visited.pop(0)
-            # Prevent loops by making sure the start_ea for all preds is less than the current block's
-            non_visited.extend([pred for pred in sorted(cur_block.preds(),
-                                                        key=attrgetter("start_ea"),
-                                                        reverse=True) if pred.start_ea < cur_block.start_ea])
-            yield cur_block
+        warnings.warn(
+            'dfs_iter_heads() is deprecated. Please use heads(dfs=True) instead.', DeprecationWarning)
+        for head in self.heads(start=start_ea, reverse=reverse, dfs=True):
+            yield head
 
     def bfs_iter_blocks(self, start_ea=None, reverse=False):
         """
-        Iterate over idaapi.BasicBlocks in breadth-first manner.
-
-        >>> ea = 0x1001234  # some EA within a function
-        >>> fc = FlowChart(ea)
-        >>> for block in fc.bfs_iter_blocks():
-        >>>     print ">>> Block: 0x{:x} - 0x{:x}".format(block.start_ea, block.end_ea)
+        Iterate over CustomBasicBlocks in breadth-first manner.
 
         :param int start_ea: optional address to start iterating from
 
         :param bool reverse: iterate in reverse
         """
-        if reverse:
-            for cur_block in self._bfs_reverse(start_ea):
-                yield cur_block
-
-        else:
-            for cur_block in self._bfs(start_ea):
-                yield cur_block
+        warnings.warn(
+            'bfs_iter_blocks() is deprecated. Please use blocks() instead.', DeprecationWarning)
+        for block in self.blocks(start=start_ea, reverse=reverse):
+            yield block
 
     def bfs_iter_heads(self, start_ea=None, reverse=False):
         """
         Iterate over instructions in idaapi.BasicBlocks in breadth-first manner.
 
-        >>> ea = 0x1001234  # some EA within a function
-        >>> fc = FlowChart(ea)
-        >>> for head_ea in fc.bfs_iter_heads():
-        >>>     print ">>> 0x{:x}: {}".format(head_ea, idc.generate_disasm_line(head_ea, 0))
-
         :param int start_ea: optional address to start iterating from.
 
         :param bool reverse: iterate in reverse
         """
-        _first_block = True
-        for cur_block in self.bfs_iter_blocks(start_ea, reverse):
-            if reverse:
-                if start_ea and _first_block:
-                    ea = start_ea
-                else:
-                    ea = cur_block.end_ea
-
-                heads = reversed(list(idautils.Heads(cur_block.start_ea, ea)))
-
-            else:
-                if start_ea and _first_block:
-                    ea = start_ea
-                else:
-                    ea = cur_block.start_ea
-
-                heads = idautils.Heads(ea, cur_block.end_ea)
-
-            _first_block = False
-
-            for head in heads:
-                yield head
+        warnings.warn(
+            'bfs_iter_heads() is deprecated. Please use heads() instead.', DeprecationWarning)
+        for head in self.heads(start=start_ea, reverse=reverse):
+            yield head
 
     def find_block(self, ea):
         """
         Locate a BasicBlock which contains the specified ea
 
-        >>> ea = 0x1001234  # some EA within a function
-        >>> fc = FlowChart(ea)
-        >>> block = fc.find_block(ea)
-        >>> print ">>> Block: 0x{:x} - 0x{:x}".format(block.start_ea, block.end_ea)
-
         :param int ea: ea of interest
 
-        :return: BasicBlock object
+        :return: CustomBasicBlock object or None if not found.
         """
         for block in self:
-            if block.start_ea <= ea < block.end_ea:
+            if ea in block:
                 return block
 
     def _paths_to_ea(self, ea, cur_block, visited=None, cur_path=None):
@@ -390,18 +377,15 @@ class FlowChart(idaapi.FlowChart):
         Recursive DFS traversal of graph which yields a path to EA.
 
         :param int ea: ea of interesting
-
-        :param idaapi.BasicBlock cur_block: current block in graph
-
+        :param CustomBasicBlock cur_block: current block in graph
         :param set visited: set of blocks already visited
-
         :param list cur_path: a list of blocks on the current path
 
         :yield list: current path
         """
         cur_path = cur_path or []
 
-        # Initialize our visted set of blocks
+        # Initialize our visited set of blocks
         if visited is None:
             visited = set()
 
@@ -409,7 +393,7 @@ class FlowChart(idaapi.FlowChart):
         visited.add(cur_block.start_ea)
         cur_path.append(cur_block)
         # We've found our block, so yield the current path
-        if cur_block.start_ea <= ea < cur_block.end_ea:
+        if ea in cur_block:
             yield copy(cur_path)
 
         # Continue traversing
@@ -426,7 +410,7 @@ class FlowChart(idaapi.FlowChart):
 
     def paths_to_ea(self, ea):
         """
-        Yield a list which contains all the blocks on a path from the function entry point to the block 
+        Yield a list which contains all the blocks on a path from the function entry point to the block
         containing the specified ea.  Raises ValueError if specified EA is not within the current function.
 
         :param int ea: ea of interest
@@ -440,11 +424,12 @@ class FlowChart(idaapi.FlowChart):
         for path in self._paths_to_ea(ea, self[0]):
             yield path
 
+    # TODO: I feel like this work can combined with the work done in _traverse_reverse().
     def _build_path(self, cur_block, visited=None):
         """
         Yields a Path object based on an EA for a given block.
 
-        :param idaapi.BasicBlock block: A BasicBlock object
+        :param CustomBasicBlock block: A BasicBlock object
 
         :yield: path object
         """
@@ -458,10 +443,10 @@ class FlowChart(idaapi.FlowChart):
         # Check to make sure this path isn't already cached, and build it if it isn't
         path_cache = self._path_cache.get(cb_start_ea, [])
         # path_cache has a default item type of list, so we need to check the length, not for None
-        if not len(path_cache):
+        if not path_cache:
             # Our terminating condition is actually when we have no more parent blocks to traverse
             cb_parents = list(cur_block.preds())
-            if not len(cb_parents):
+            if not cb_parents:
                 p_block = PathBlock(cur_block, None)
                 yield p_block
             else:
@@ -494,7 +479,7 @@ class FlowChart(idaapi.FlowChart):
         For usage example, see function_tracer.trace in function_tracer.py
 
         WARNING:
-        DO NOT WRAP THIS GENERATOR IN list()!!!  This generator will itereate all possible paths to the node containing
+        DO NOT WRAP THIS GENERATOR IN list()!!!  This generator will iterate all possible paths to the node containing
         the specified EA.  On functions containing large numbers of jumps, the number of paths grows exponentially and
         you WILL hit memory exhaustion limits, extremely slow run times, etc.  Use extremely conservative constraints
         when iterating.  Nodes containing up to at least 32,768 paths are computed in a reasonably sane amount of time,
@@ -506,11 +491,17 @@ class FlowChart(idaapi.FlowChart):
         """
         # Obtain the block containing the EA of interest
         block = self.find_block(ea)
+
+        # If block not found, then there are no paths to it.
+        if not block:
+            logger.debug('Unable to find block with ea: 0x{:08X}'.format(ea))
+            return
+
         # Obtain paths that have currently been built
         cached_paths = self._path_cache[block.start_ea]
         # Yield any paths already constructed
-        for path in cached_paths:
-            yield path
+        for path_block in cached_paths:
+            yield path_block
 
         # If we are still traversing paths at this point, pull the generator (if it exists), or create one
         path_generator = self._gen_cache.get(block.start_ea)
@@ -519,12 +510,13 @@ class FlowChart(idaapi.FlowChart):
             self._gen_cache[block.start_ea] = path_generator
 
         # Iterate the paths created by the generator
-        for path in path_generator:
-            self._path_cache[path.bb.start_ea].append(path)
-            yield path
+        for path_block in path_generator:
+            self._path_cache[path_block.bb.start_ea].append(path_block)
+            yield path_block
 
     def _getitem(self, index):
         """
-        Override the idaapi.FlowChart._getitem function to return the appropriate object type.
+        Override the idaapi.FlowChart._getitem function to return our CustomBasicBlock
+        type instead.
         """
-        return self.node_type(index, self._q[index], self)
+        return CustomBasicBlock(index, self._q[index], self)

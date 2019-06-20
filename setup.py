@@ -53,7 +53,7 @@ setup(
         'click',
         'numpy',
         'pyelftools',
-        'pefile',
+        'pefile>=2019.4.18',
         'PyCrypto',
         'requests',
         'pyyaml',

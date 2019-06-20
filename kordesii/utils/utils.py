@@ -287,6 +287,7 @@ class IDA_MatchObject(object):
         return self._match.end() + self._start
 
 
+# TODO: Move this into it's own module just like yara.
 class IDA_re(object):
     """
     Class to perform regex operations within IDA.

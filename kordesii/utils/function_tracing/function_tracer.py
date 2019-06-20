@@ -5,26 +5,15 @@ This will essentially emulate, on a very primitive level, a x86(_64) cpu during 
 registers, etc.
 """
 
-# Python imports
-from operator import attrgetter
-from copy import copy, deepcopy
-import parser
 import logging
-import collections
-import struct
 
-# IDAPython imports
 import idaapi
 import idautils
 import idc
 
-# kordesii imports
-from kordesii import logutil
-
-# Import FlowChart functionality and CPU implementation
 from .constants import *
-from .flowchart import FlowChart, CustomBasicBlock
-from .utils import struct_unpack, struct_pack, get_bits, get_stack_offset, calc_displacement, get_function_data, get_mask, REG_MAP
+from .flowchart import FlowChart
+from . import functions
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +26,7 @@ class FunctionTracer(object):
 
     To use, the caller will supply the function address (or any address within the function), the address where the
     value of interest is set, the operand containing the value of interest, and optionally a list of arguments passed
-    to the function.  The list of arguments will be used to set argument values for a more complete assesment of the
+    to the function.  The list of arguments will be used to set argument values for a more complete assessment of the
     function.
 
     The FunctionTracer object will utilize the IDAPython FlowChart object, with custom BasicBlocks.  The FlowChart
@@ -52,26 +41,18 @@ class FunctionTracer(object):
         """
         :param func_ea: any address in the function of interest
         """
-        self.func_obj = idaapi.get_func(func_ea)
+        # FIXME: Importing here to prevent cyclic imports.
+        from kordesii.utils import decoderutils
+        self.func_obj = decoderutils.SuperFunc_t(func_ea)
         self.func_ea = self.func_obj.start_ea
         # Create the graph object of the function
-        self.flowchart = FlowChart(self.func_ea, node_type=CustomBasicBlock)
-        # The following dictionary contains an entry for every idaapi.BasicBlock.start_ea contained in the function.
-        # Each dictionary entry contains a list of BlockStateNode objects for every path in which the BasicBlock
-        # appears.  When a block is requested, this list will be used to walk the associated path backwards looking
-        # for states which have not been obtained and will begin executing the instructions on the path from that
-        # node forward.
-        self._path_cache = collections.defaultdict(list)
-        self._gen_cache = {}
-
-        # TODO: How can we actually provide function parameters with the way this framework has been implemented?
-        #       There would need to be a way to send the args to the FlowChart, which would then somehow inform
-        #       the first context created of what data needs to be initialized differing from the default.
+        self.flowchart = FlowChart(self.func_ea)
+        self._hooks = {}
 
     def __repr__(self):
         return "<FunctionTracer for function at 0x{:X}>".format(self.func_ea)
 
-    def iter_context_at(self, ea):
+    def iter_context_at(self, ea, depth=0, exhaustive=True):
         """
         Iterate over cpu context for instructions up to, but not including, a given ea.
 
@@ -81,92 +62,133 @@ class FunctionTracer(object):
         >>>     print cpu_context
 
         :param int ea: ea of interest
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
+        :param bool exhaustive: If true, all paths for each depth is processed
+            if false, only the first path for each depth is processed.
+            (defaults to exhaustive)
 
         :yield: cpu_context or None (if ea is the function's first address)
         """
+        if depth < 0:
+            raise ValueError('Depth must be a positive integer.')
+
+        if ea not in self.func_obj:
+            raise ValueError('Address 0x{:08X} not within function at 0x{:08X}'.format(
+                ea, self.func_obj.start_ea))
+
         # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.
-        if ea == idc.get_func_attr(ea, idc.FUNCATTR_START):
+        if ea == self.func_obj.start_ea:
             # Return None since a context can't be built if there is no code to "execute"
             return
 
-        # Get all the CodeRefs to ea and trace to each of those.
-        code_refs = idautils.CodeRefsTo(ea, True)
-        for code_ref in code_refs:
-            for pb in self.flowchart.get_paths(code_ref):
-                yield pb.cpu_context(code_ref)
+        for path_block in self.flowchart.get_paths(ea):
+            with functions.hooks(self._hooks):
+                if not depth:
+                    yield path_block.cpu_context(ea)
+                    continue
 
-    def context_at(self, ea):
+                # Pull contexts from caller functions first.
+                yielded = False
+                for call_ea in self.func_obj.xrefs_to:
+                    if call_ea in self.func_obj:
+                        logger.debug('Ignoring recursive function call at 0x{:08X}'.format(call_ea))
+                        continue
+                    tracer = get_tracer(call_ea, None)
+                    if tracer:
+                        for context in tracer.iter_context_at(call_ea, depth=depth - 1, exhaustive=exhaustive):
+                            # increase the sp to account for the return address that gets pushed
+                            # onto the stack so that we are aligned correctly.
+                            context.sp -= context.byteness
+
+                            # yield a context containing the caller executed first.
+                            yield path_block.cpu_context(ea, init_context=context)
+                            yielded = True
+                # If we didn't yield, then we hit a function that has no callers or valid contexts.
+                if not yielded:
+                    yield path_block.cpu_context(ea)
+
+            # break and don't process other paths if not exhaustive.
+            if not exhaustive:
+                break
+
+    def context_at(self, ea, depth=0):
         """
         Obtain a cpu context for instructions up to, but not including, a given ea.
 
-        >>> ea = 0x1001b9ad
-        >>> ft = FunctionTracer(ea)
-        >>> cpu_context = ft.context_at(ea):
-        >>> print cpu_context
-
         :param int ea: ea of interest
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
 
         :return: cpu_context or None
         """
-        for ctx in self.iter_context_at(ea):
+        for ctx in self.iter_context_at(ea, depth=depth):
             return ctx
 
-    def trace_iter(self, ea, opnd, data_type, data_size, include_inst=False):
+    def iter_operand_value(self, ea, index, depth=0, exhaustive=True):
         """
         Trace the function to the specified ea and yield all possible values for the operand.
+        This is a helper wrapper for extracting the context and then retrieving either
+        the memory address or raw value from the operand.
+
+        NOTE: We are using "get_operand_value" to help show this is the equivalent to
+        idc.get_operand_value() but pulls from emulated data.
+
 
         >>> ft = FunctionTracer(0x1001b9a0)
-        >>> for val in ft.trace_iter(0x1001b9ad, 0):
+        >>> for ctx, val in ft.iter_operand_value(0x1001b9ad, 0):
         >>>     print "Val for opnd0 at 0x1001b9ad = 0x{:x}".format(val)
 
         :param int ea: address to trace to
-        :param int opnd: the operand of interest (0 - first operand, 1 - second operand, ...)
-        :param str data_type: type of data to be extracted, can be one of: STRING, WIDE_STRING, BYTE_STRING, BYTE, WORD,
-                          DWORD, QWORD
-        :param int data_size: size of data, in bytes, to be extracted.  For STRING and WIDE_STRING, the size need not
-                    be supplied IFF the string is NULL terminated and the data requested is the entire string up to the
-                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD,
-                    and QWORD, the size value is ignored in all cases.
+        :param int index: the operand of interest (0 - first operand, 1 - second operand, ...)
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
+        :param bool exhaustive: If true, all paths for each depth is processed
+            if false, only the first path for each depth is processed.
+            (defaults to exhaustive)
 
-        :yield: each possible value for operand per path
+        :yield tuple: (context at ea, operand value)
         """
         values = set()
 
         # Iterate all the nodes to obtain the CPU context
-        _ea = idc.next_head(ea) if include_inst else ea
-        for cpu_context in self.iter_context_at(_ea):
-            value = cpu_context.get_operand_value(opnd, data_size, ip=ea, data_type=data_type)
+        for cpu_context in self.iter_context_at(ea, depth=depth, exhaustive=exhaustive):
+            operand = cpu_context.operands[index]
+            # Pass memory address if there is one, otherwise pass the value.
+            value = operand.addr or operand.value
+            # value = cpu_context.get_operand_value(index, data_size, data_type=data_type, ip=ea)
             # Prevent returning multiple values which are the same....
             if value in values:
                 logger.debug("trace :: value 0x{:X} already returned.".format(value))
                 continue
 
             values.add(value)
-            yield value
+            yield cpu_context, value
 
-    def trace(self, ea, opnd, data_type=BYTE_STRING, data_size=8, include_inst=False):
+    def get_operand_value(self, ea, index, depth=0):
         """
         Trace the function to the specified ea and return the value for the specified operand.
+        This is a helper wrapper for extracting the context and then retrieving either
+        the memory address or raw value from the operand.
+
+        NOTE: We are using "get_operand_value" to help show this is the equivalent to
+        idc.get_operand_value() but pulls from emulated data.
 
         >>> ft = FunctionTracer(0x1001b9a0)
-        >>> val = ft.trace(0x1001b9ad, 0)
+        >>> val = ft.get_operand_value(0x1001b9ad, 0)
         >>> print "Val for opnd0 at 0x1001b9ad = 0x{:x}".format(val)
 
         :param int ea: address to trace to
-
         :param int opnd: the operand of interest (0 - first operand, 1 - second operand, ...)
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
 
-        :param int data_size: size of data, in bytes, to be extracted.  For STRING and WIDE_STRING, the size need not
-                    be supplied IFF the string is NULL terminated and the data requested is the entire string up to the
-                    null terminator.  For BYTE_STRING, a size IS required in all instances.  For BYTE, WORD, DWORD,
-                    and QWORD, the size value is ignored in all cases.
-
-        :return: value for operand on first traversed path
+        :returns tuple: (context at ea, operand value)
         """
-        val = self.trace_iter(ea, opnd, data_type, data_size, include_inst).next()
-        return val
+        for cpu_context, value in self.iter_operand_value(ea, index, depth=depth):
+            return cpu_context, value
 
-    def iter_function_args(self, ea):
+    def iter_function_args(self, ea, depth=0, exhaustive=True):
         """
         Given the EA of a function call, attempt to determine the number of arguments passed to the function and
         return those values to the caller.  Additionally, give back the context as well since it may be useful.
@@ -176,19 +198,21 @@ class FunctionTracer(object):
         >>> for context, args in ft.iter_function_args(call_addr):
         >>>     print "Args for call at 0x{:X}: {}".format(call_addr, ", ".join(args))
 
-        :param int ea: address containg the function call of interest
+        :param int ea: address containing the function call of interest
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
+        :param bool exhaustive: If true, all paths for each depth is processed
+            if false, only the first path for each depth is processed.
+            (defaults to exhaustive)
 
         :yield tuple: (context at ea, list of function parameters passed to called function in order)
         """
         # Iterate all the paths leading up to ea
-        for cpu_context in self.iter_context_at(ea):
-            if idc.get_operand_type(ea, 0) == idc.o_reg:
-                func_ea = cpu_context.get_operand_value(0, ip=ea, data_type=DWORD)
-            else:
-                func_ea = idc.get_operand_value(ea, 0)
+        for cpu_context in self.iter_context_at(ea, depth=depth, exhaustive=exhaustive):
+            func_ea = cpu_context.operands[0].value
             yield cpu_context, cpu_context.get_function_args(func_ea)
 
-    def get_function_args(self, ea):
+    def get_function_args(self, ea, depth=0):
         """
         Simply calls iter_function_args with the provided ea and returns the first set of arguments.
 
@@ -197,12 +221,33 @@ class FunctionTracer(object):
         >>> context, args = ft.get_function_args(call_addr):
         >>> print "Args for call at 0x{:X}: {}".format(call_addr, ", ".join(args))
 
-        :param int ea: address containg the function call of interest
+        :param int ea: address containing the function call of interest
+        :param int depth: Number of calls up the stack to pull context from.
+            (defaults to 0, meaning a empty context will be generate at the top of the current function.)
 
         :return tuple: (context at ea, list of function parameters passed to called function in order)
         """
-        for cpu_context, args in self.iter_function_args(ea):
+        for cpu_context, args in self.iter_function_args(ea, depth=depth):
             return cpu_context, args
+
+    def hook(self, name_or_start_ea, func):
+        """
+        Hooks the given name with a custom user defined function.
+        Useful for emulating the effects of a function or reporting data.
+
+        :param name_or_start_ea: Name or starting address of the function to hook (e.g. 'base64')
+        :param func: Function to run while emulating a call to that function.
+            Function must accept 3 arguments: cpu_context, func_name, and func_args and
+            may return a value to be set to the rax register (or equivalent)
+        :return:
+        """
+        self._hooks[name_or_start_ea] = func
+
+    def clear_hooks(self):
+        """
+        Clears all previously set hooks.
+        """
+        self._hooks = {}
 
 
 class TracerCache(object):
@@ -212,8 +257,10 @@ class TracerCache(object):
     """
     def __init__(self):
         self._tracers = {}
+        self._hooks = {}
 
     def get(self, ea, default='NOTSET'):
+        # type: (int, object) -> FunctionTracer
         """
         Get either an existing tracer for a provided EA, or create a new one.
 
@@ -233,5 +280,39 @@ class TracerCache(object):
             return self._tracers[func.start_ea]
         except KeyError:
             tracer = FunctionTracer(ea)
+            for name_or_start_ea, func_hook in self._hooks.items():
+                tracer.hook(name_or_start_ea, func_hook)
             self._tracers[func.start_ea] = tracer
             return tracer
+
+    def hook(self, name_or_start_ea, func):
+        """
+        Hooks the given name with a custom user defined function.
+        Useful for emulating the effects of a function or reporting data.
+        All tracers produced will contain this hook when used here.
+
+        :param name_or_start_ea: Name or starting address of the function to hook (e.g. 'base64')
+        :param func: Function to run while emulating a call to that function.
+            Function must accept 3 arguments: cpu_context, func_name, and func_args and
+            may return a value to be set to the rax register (or equivalent)
+        :return:
+        """
+        # Hook already created tracers.
+        for tracer in self._tracers.values():
+            tracer.hook(name_or_start_ea, func)
+
+        # Save hook for future tracers.
+        self._hooks[name_or_start_ea] = func
+
+    def clear_hooks(self):
+        """Clears all previously set hooks."""
+        self._hooks = {}
+        for tracer in self._tracers.values():
+            tracer.clear_hooks()
+
+
+# Create a global TracerCache that can be used throughout.
+_tracer_cache = TracerCache()
+get_tracer = _tracer_cache.get
+hook_tracers = _tracer_cache.hook
+clear_hooks = _tracer_cache.clear_hooks

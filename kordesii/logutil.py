@@ -112,15 +112,14 @@ class LogRecordStreamHandler(socketserver.StreamRequestHandler):
 
 class LogRecordSocketReceiver(socketserver.ThreadingTCPServer):
     """
-    Simple TCP socket-based logging receiver suitable for testing.
+    Simple TCP socket-based logging receiver.
     """
 
     allow_reuse_address = 1
 
-    def __init__(self, host='localhost',
-                 port=logging.handlers.DEFAULT_TCP_LOGGING_PORT,
-                 handler=LogRecordStreamHandler):
-        socketserver.ThreadingTCPServer.__init__(self, (host, port), handler)
+    def __init__(self):
+        # Since this is all local, we are using port 0 to let the system pick a random open port for us.
+        socketserver.ThreadingTCPServer.__init__(self, ('localhost', 0), LogRecordStreamHandler)
         self.abort = 0
         self.timeout = 1
         self.logname = None
@@ -137,19 +136,22 @@ class LogRecordSocketReceiver(socketserver.ThreadingTCPServer):
 
 
 _started_listener = False
+# Port being used to listen to logs.
+listen_port = None
 
 
 def start_listener():
     """Start the listener thread for socket-based logging."""
     global _started_listener
-    if mp.current_process().name != 'MainProcess' or _started_listener:
+    global listen_port
+
+    if _started_listener:
         return
 
-    def _listener():
-        tcp_server = LogRecordSocketReceiver()
-        tcp_server.serve_until_stopped()
+    tcp_server = LogRecordSocketReceiver()
+    _, listen_port = tcp_server.server_address
 
-    listener_thread = threading.Thread(target=_listener)
+    listener_thread = threading.Thread(target=tcp_server.serve_until_stopped)
     listener_thread.daemon = True
     listener_thread.start()
     # Make sure we only start this once.
@@ -164,16 +166,18 @@ def setup_logging(default_level=logging.INFO):
     Sets up logging using default log config file or log config file set by 'KORDESII_LOG_CFG'
 
     :param default_level: Default log level to set to if config file fails.
-    :param queue: Queue used to pass logs to.
     """
     if kordesii.in_ida:
         if kordesii.called_from_framework:
             # If we are in IDA and part of a framework call, setup up socket handler that will
             # get received by the framework.
-            # TODO: Somehow pass the set logging level over here so we don't send over everything.
-            logging.root.setLevel(logging.DEBUG)
-            socket_handler = logging.handlers.SocketHandler(
-                'localhost', logging.handlers.DEFAULT_TCP_LOGGING_PORT)
+            # (log level and port will passed in as the 1st and 2nd command line argument)
+            import idc
+            log_level = int(idc.ARGV[1])
+            log_port = int(idc.ARGV[2])
+
+            logging.root.setLevel(log_level)
+            socket_handler = logging.handlers.SocketHandler('localhost', log_port)
             logging.root.addHandler(socket_handler)
         else:
             # If running decoder from IDA interface, send simple logs to output window only.
@@ -183,6 +187,10 @@ def setup_logging(default_level=logging.INFO):
                 logging.root.addHandler(stream_handler)
                 stream_handler.addFilter(LevelCharFilter())
                 stream_handler.setFormatter(logging.Formatter("[%(level_char)s] %(message)s"))
+
+                # Use INFO level if log level wasn't set by user.
+                if logging.root.getEffectiveLevel() == logging.NOTSET:
+                    logging.root.setLevel(logging.INFO)
 
             # Make sure we only setup once to avoid duplicate log messages.
             _setup_logging = True

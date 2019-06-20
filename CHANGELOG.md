@@ -1,5 +1,56 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+
+## [Unreleased]
+### Added
+- *function_tracing:*
+    - Created a global `TracerCache` that can be accessible using the `get_tracer()` function.
+        - (This removes the need for initiating your own tracer cache.)
+    - Added `operands` attribute to `ProcessorContext` object. 
+        - This attribute is a list of `Operand` objects for the current instruction (the instruction **to be** executed) 
+     that can be used to query the characteristics of the operand as well
+     as extract a value or referenced memory address.
+    - Support for emulating some builtin C/C++ and Windows library functions
+    - Support for hooking custom functions with the `hook()` function accessible from `FunctionTracer`, `TracerCache`, or through `hook_tracers()`.
+        - (See [README](../README.md) for an example on how to hook a function.)
+    - Support for emulating `rep*` instructions.
+    - Support for `movdqa`, `movdqu`, and `movd` opcodes.
+    - Ability to emulate the caller functions using the `depth` parameter.
+    - Ability to access the history of a given pointer within a context using `get_pointer_history()`
+    - Ability to access the original location of a pointer within a context using `get_original_location()`
+- Added `publish()` function to `EncodedString` and `EncodedStackString` object.
+- Documentation for [CPU Emulation](docs/CPUEmulation.md)
+
+### Changed
+- *function_tracing:*
+    - Renamed `trace` and `trace_iter` in `FunctionTracer` to `get_operand_value` and `iter_operand_value` to improve clarity and consistency.
+    - The `get_operand_value` and `iter_operand_value` no longer accepts a data type and now 
+ returns a tuple containing the context and value (just like `get_function_args`).
+        - This function returns either a contained value for operands like registers and immediates or a memory address
+   for memory references (e.g. `[rsi+8]`). It is then up to the user to use the `read_data` function in the 
+   context to read out the data they need.
+   - `read_data()` function in `ProcessorContext` will now default to a C string if size isn't provided.
+- Calling `calc_size()` from the `EncodedString` object is no longer necessary. Encoded data will automatically be extracted during initialization.
+   
+### Deprecated
+- `decoderutils.INVALID` and `decoderutils.UNUSED` enums are deprecated in exchange for using `None` directly.
+- `decoderutils.output_strings()` is deprecated in exchange for calling `.publish()` on the `EncodedString` object.
+- `as_bytes`, `byte_length`, `calc_size()`, `get_bytes()`, and `size` are deprecated in the `EncodedString` object. Please access the `encoded_data` and `decoded_data` attributes directly instead.
+- *function_tracing:*
+    - `bfs_iter_heads()`, `bfs_iter_blocks()`, `dfs_iter_heads()`, and `dfs_iter_blocks()` in `FlowChart` are all deprecated in 
+    favor of using the `heads()` and `blocks()` functions with the optional `dfs` parameter.
+   
+### Fixed
+- Fixed issue with logs not being displayed if the log port was still bound to a previous process.
+- *function_tracing:*
+    - Fixed bug with `shr` opcode
+    - Fixed issue with missing trailing null byte when extracting a little endian wide byte with `read_data()` (#7)
+    - Refactored memory controller to eliminate unexpected mapping errors.
+     
+
+### Removed
+- Removed `find_unrefd_encoded_strings()` function in `decoderutils`
+   
    
 ## [1.4.1] - 2019-04-10
 ### Fixed

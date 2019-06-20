@@ -33,6 +33,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Special logger for IDA output stream.
+# (using separate name to allow for filtering as desired.)
+ida_logger = logging.getLogger('ida')
+
+
 __all__ = ['decoder_entry', 'called_from_framework', 'in_ida', 'find_ida',
            'run_ida', 'is_64_bit', 'append_string', 'write_unique_file']
 
@@ -65,11 +70,6 @@ def decoder_entry(main_func):
         if in_ida:
             # Setup logging.
             logutil.setup_logging()
-            if called_from_framework:
-                log_level = int(idc.ARGV[1])
-                logging.root.setLevel(log_level)
-            elif logging.root.getEffectiveLevel() == logging.NOTSET:
-                logging.root.setLevel(logging.INFO)
 
             # Run main()
             idc.auto_wait()
@@ -163,7 +163,7 @@ def is_64_bit(input_file):
         try:
             with open(input_file, 'rb') as f:
                 elf = elffile.ELFFile(f)
-                result = elf.get_machine_arch() == "x64"
+                result = elf.get_machine_arch() in ["AArch64", "x64"]
         except ELFError:
             result = False
     elif first_bytes[0:4] == "\xCE\xFA\xED\xFE":
@@ -250,10 +250,15 @@ def run_ida(reporter,
 
     # Start the logging listener (if not already started)
     logutil.start_listener()
+    assert logutil.listen_port
 
     # Setup the process to run the IDA decoder script
-    log_level = logging.root.getEffectiveLevel()
-    command = [ida_path, '-P', '-OMANA:MANA', '-S"\"{}\" {} exit"'.format(script_path, log_level)]
+    command = [ida_path, '-P', '-OMANA:MANA',
+               '-S"\"{script_path}\" {log_level} {log_port} exit"'.format(
+                   script_path=script_path,
+                   log_level=logging.root.getEffectiveLevel(),
+                   log_port=logutil.listen_port,
+               )]
     if autonomous:
         command.append('-A')
     if log:
@@ -291,14 +296,21 @@ def run_ida(reporter,
         with io.open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
             reporter.ida_log = f.read()
 
+            # Also throw logs to debug.
+            f.seek(0)
+            for line in f.readlines():
+                ida_logger.debug(line.rstrip('\r\n'))
+
     # Ingest any strings output by the script
     if os.path.isfile(strings_file_path):
         with open(strings_file_path, "r") as f:
-            for line in f:
-                try:
-                    reporter.add_string(line.rstrip("\r\n").decode("unicode-escape"))
-                except Exception as e:
-                    logger.error("Bad string {!r}: {}".format(line, e))
+            # NOTE: We can't sort and dedup because other parsers may depend on their order.
+            strings = [entry.rstrip("\r\n") for entry in f.readlines()]
+        for string in strings:
+            try:
+                reporter.add_string(string.decode("unicode-escape"))
+            except Exception as e:
+                logger.error("Bad string {!r}: {}".format(string, e))
 
     # Ingest any files output by the script
     if os.path.exists(output_dir_path):
@@ -350,6 +362,7 @@ def _remove_idbs(input_file):
             # of the others do either.
 
 
+# TODO: Use the serializer instead of this IDA_STRINGS_FILE
 def append_string(string):
     """
     Append decoded string to file for access outside of IDA.
@@ -379,7 +392,7 @@ def write_unique_file(filename, data):
     :raises ValueError: If run outside of IDA.
     """
     if not in_ida:
-        raise ValueError("This funciton can only run within IDA.")
+        raise ValueError("This function can only run within IDA.")
 
     if not os.path.exists(DECODER_OUTPUT_DIR):
         os.makedirs(DECODER_OUTPUT_DIR)

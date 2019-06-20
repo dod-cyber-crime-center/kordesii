@@ -17,6 +17,7 @@ from timeit import default_timer
 
 import kordesii.reporter
 from kordesii import registry
+from kordesii import logutil
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +57,14 @@ def multiproc_test_wrapper(args):
         return
 
 
-def multiproc_initializer(level, decoder_sources, default_source):
-    """Multiproc initializer used to pass along log level and registry information."""
+def multiproc_initializer(log_level, log_port, decoder_sources, default_source):
+    """Multiproc initializer used to pass along log level/port and registry information."""
     registry._sources = decoder_sources
     registry._default_source = default_source
-    logging.root.setLevel(level)
+    logging.root.setLevel(log_level)
+    if log_port:
+        logutil._started_listener = True
+        logutil.listen_port = log_port
 
 
 class Tester(object):
@@ -109,7 +113,7 @@ class Tester(object):
             log_level = logging.root.getEffectiveLevel()
             pool = mp.Pool(
                 processes=self._nprocs, initializer=multiproc_initializer,
-                initargs=(log_level, registry._sources, registry._default_source))
+                initargs=(log_level, logutil.listen_port, registry._sources, registry._default_source))
             test_iter = pool.imap_unordered(
                 multiproc_test_wrapper, [(test_case,) for test_case in self.test_cases])
             pool.close()

@@ -5,6 +5,7 @@
 
 
 ### Guides
+- [CPU Emulation](CPUEmulation.md)
 - [Decoder Development](DecoderDevelopment.md)
 - [Decoder Installation](DecoderInstallation.md)
 - [Decoder Testing](DecoderTesting.md)
