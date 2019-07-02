@@ -29,9 +29,10 @@ class Memory(object):
     # Slack space between heap allocations.
     HEAP_SLACK = 0x3000
 
-    # maximum amount of memory allowed to read
-    # (if we are reading more than ~ 268 MB we have bigger problems.)
+    # maximum amount of memory allowed to read/write
+    # (if we are reading/writing more than ~ 268 MB we have bigger problems.)
     MAX_MEM_READ = 0x10000000
+    MAX_MEM_WRITE = 0x10000000
 
     def __init__(self):
         self._pages = collections.defaultdict(lambda: bytearray(self.PAGE_SIZE))
@@ -198,6 +199,13 @@ class Memory(object):
         """
         if address < 0:
             raise ValueError('Address must be a positive integer. Got 0x{:08X}'.format(address))
+        size = len(data)
+        if size > self.MAX_MEM_WRITE:
+            logger.error(
+                '[mem_read] :: Attempted to write {} bytes to 0x{:08X}. '
+                'Ignoring request and using first {} bytes instead.'.format(
+                    size, address, self.MAX_MEM_WRITE))
+            data = data[:self.MAX_MEM_WRITE]
 
         logger.debug('[mem_write] :: Writing {} bytes to 0x{:08X}'.format(len(data), address))
 
