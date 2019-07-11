@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+## [Unreleased]
+
+### Changed
+- Alternative IDA installation directory can now be provided with the `IDA_DIR` environment variable.
 
 ## [1.5.0] - 2019-06-20
 ### Added
