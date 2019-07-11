@@ -241,6 +241,9 @@ class FunctionTracer(object):
             may return a value to be set to the rax register (or equivalent)
         :return:
         """
+        if isinstance(name_or_start_ea, str):
+            name_or_start_ea = name_or_start_ea.lower()
+
         self._hooks[name_or_start_ea] = func
 
     def clear_hooks(self):
@@ -297,6 +300,9 @@ class TracerCache(object):
             may return a value to be set to the rax register (or equivalent)
         :return:
         """
+        if isinstance(name_or_start_ea, str):
+            name_or_start_ea = name_or_start_ea.lower()
+
         # Hook already created tracers.
         for tracer in self._tracers.values():
             tracer.hook(name_or_start_ea, func)
