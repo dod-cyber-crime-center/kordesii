@@ -269,7 +269,7 @@ class Memory(object):
         _end = self.PAGE_SIZE + len(value) - 1
         if end and end_page_index == page_index + 1:
             _end = min(_end, self.PAGE_SIZE + end_page_offset)
-        if _end == self.PAGE_SIZE + end_page_offset and _end <= _start:
+        if end_page_offset is not None and _end == self.PAGE_SIZE + end_page_offset and _end <= _start:
             return -1
 
         next_page = self._pages.get(page_index + 1, bytearray(self.PAGE_SIZE))
