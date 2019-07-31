@@ -53,18 +53,6 @@ def _alloca(cpu_context, func_name, func_args):
         return cpu_context.sp - size
 
 
-@builtin_func
-def __alloca_probe(cpu_context, func_name, func_args):
-    """
-    Allocates stack space.
-
-    NOTE: Our memory controller will automatically allocate pages as it writes.
-    Therefore, there is nothing we need to do.
-    """
-    # Return the retn address (which is the ip of the instruction we were called from)
-    return cpu_context.ip
-
-
 @builtin_func('malloc')
 @builtin_func('calloc')
 def malloc(cpu_context, func_name, func_args):
