@@ -130,7 +130,10 @@ class Operand(object):
         # If it doesn't, we know that it shouldn't be a function pointer.
         # (plus it saves on time)
         # TODO: Determine if we could have false negatives.
-        if idc.is_loaded(offset) and not idc.guess_type(offset):
+        try:
+            if idc.is_loaded(offset) and not idc.guess_type(offset):
+                return False
+        except TypeError:
             return False
         try:
             utils.get_function_data(offset)

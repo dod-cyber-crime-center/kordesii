@@ -25,7 +25,6 @@ DC3-Kordesii is authored by the Department of Defense Cyber Crime Center (DC3).
 
 ## Dependencies
 DC3-Kordesii requires the following:
-- Windows
 - python 2.7 (32 bit)
 - IDA Pro 7.* (tested with 7.0)
 - *(optional)* Hex Ray's Decompiler for x86/x64 architectures
@@ -48,6 +47,12 @@ For a development mode use the `-e` flag to install in editable mode:
 > git clone https://github.com/Defense-Cyber-Crime-Center/kordesii.git
 > pip install -e ./kordesii
 ```
+
+### Setup IDA location
+
+By default kordesii assumes you are on Windows and have installed IDA under the default location `C:/Program Files/IDA Pro *`.
+If you have installed IDA at a different location or running on another operating system, please set the `IDA_DIR` environment
+to point to where IDA has been installed.
 
 ## Usage
 

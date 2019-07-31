@@ -20,6 +20,10 @@ def get(func_name_or_start_ea):
 
     :return: FunctionTracer object or None
     """
+    # Convert the string to lowercase so it can match the dictionary of built-in functions
+    if isinstance(func_name_or_start_ea, str):
+        func_name_or_start_ea = func_name_or_start_ea.lower()
+
     # First check user defined hooks.
     if USER_DEFINED and func_name_or_start_ea in USER_DEFINED:
         return USER_DEFINED[func_name_or_start_ea]

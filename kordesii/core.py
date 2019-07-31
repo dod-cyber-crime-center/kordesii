@@ -109,14 +109,18 @@ def find_ida(is_64_bit=False):
     Raises:
         IOError: If no installation of IDA could be found.
     """
-    # Find installed IDA paths.
-    ida_dirs = glob.glob(r'C:\Program Files*\IDA *')
+    # Use user defined location if available.
+    if 'IDA_DIR' in os.environ:
+        ida_dirs = [os.environ['IDA_DIR']]
+    else:
+        # Find installed IDA paths.
+        ida_dirs = glob.glob(r'C:\Program Files*\IDA *')
 
-    # Sort by highest version.
-    get_version = lambda path: path.rpartition(' ')[2]
-    ida_dirs.sort(key=get_version, reverse=True)
+        # Sort by highest version.
+        get_version = lambda path: path.rpartition(' ')[2]
+        ida_dirs.sort(key=get_version, reverse=True)
 
-    ida_exe_re = re.compile('idaq?64\.exe' if is_64_bit else 'idaq?\.exe')
+    ida_exe_re = re.compile('idaq?64(\.exe)?$' if is_64_bit else 'idaq?(\.exe)?$')
 
     # Find highest version with a ida.exe or idaq.exe in the directory.
     for ida_dir in ida_dirs:
@@ -268,7 +272,7 @@ def run_ida(reporter,
     command = ' '.join(command)  # Doesn't work unless we convert to string!
 
     logger.debug('Running command: {}'.format(command))
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'nt')
 
     atexit.register(process.kill)
 
