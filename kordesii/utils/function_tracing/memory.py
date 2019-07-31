@@ -257,7 +257,7 @@ class Memory(object):
         if end and end_page_index == page_index:
             # Since we end in this page, don't attempt to read overlap.
             offset = page.find(value, page_offset, end_page_offset)
-            return offset
+            return page_index << 12 | offset
 
         offset = page.find(value, page_offset)
         if offset != -1:
@@ -269,8 +269,8 @@ class Memory(object):
         _end = self.PAGE_SIZE + len(value) - 1
         if end and end_page_index == page_index + 1:
             _end = min(_end, self.PAGE_SIZE + end_page_offset)
-        if _end <= _start:
-            return -1
+            if _end == self.PAGE_SIZE + end_page_offset and _end <= _start:
+                return -1
 
         next_page = self._pages.get(page_index + 1, bytearray(self.PAGE_SIZE))
         offset = (page + next_page).find(value, _start, _end)

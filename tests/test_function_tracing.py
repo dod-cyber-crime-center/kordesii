@@ -244,6 +244,12 @@ def test_memory():
     assert m.find_in_segment(b'Idmmn!Vnsme', '.text') == -1
     assert m.find(b'\x5F\x5E\xC3', start=0x004035BD) == 0x004035E0
 
+    # test bugfix when searching single length characters
+    assert m.find(b'h', start=0x0011050) == 0x00121FFB
+    assert m.find(b'h', start=0x0011050, end=0x00121FFB) == -1
+    assert m.find(b'h', start=0x0011050, end=0x00121FFB + 1) == 0x00121FFB
+    assert m.find(b'o', start=0x0011050) == 0x00121FFB + 4
+
     # tests allocations
     first_alloc_ea = m.alloc(10)
     assert first_alloc_ea == m.HEAP_BASE
