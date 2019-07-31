@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Alternative IDA installation directory can now be provided with the `IDA_DIR` environment variable.
 
+### Fixed
+- *function_tracing:*
+    - Fixed case sensitivity for function hook lookups.
+    - Fixed incorrect results that can occur when searching `Memory` for a single character.
+    - Removed `__alloca_probe` function hook since it was producing an incorrect return value and is no longer required.
+
+
 ## [1.5.0] - 2019-06-20
 ### Added
 - *function_tracing:*

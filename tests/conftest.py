@@ -80,7 +80,8 @@ def run_in_ida(request, tmpdir, strings_exe):
     command = ' '.join(command)  # doesn't work unless we convert to a string!
     print('Running IDA with command: {}'.format(command))
 
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'nt')
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'win32')
 
     stdout, stderr = process.communicate()
     print(stdout)

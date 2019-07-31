@@ -257,7 +257,8 @@ def run_ida(reporter,
     assert logutil.listen_port
 
     # Setup the process to run the IDA decoder script
-    command = [ida_path, '-P', '-OMANA:MANA',
+    command = [ida_path,
+               '-P',
                '-S"\"{script_path}\" {log_level} {log_port} exit"'.format(
                    script_path=script_path,
                    log_level=logging.root.getEffectiveLevel(),
@@ -272,7 +273,8 @@ def run_ida(reporter,
     command = ' '.join(command)  # Doesn't work unless we convert to string!
 
     logger.debug('Running command: {}'.format(command))
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'nt')
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'win32')
 
     atexit.register(process.kill)
 
