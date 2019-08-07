@@ -19,6 +19,8 @@ WARNING:
     should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
 
+from __future__ import division
+
 import logging
 import re
 
@@ -59,7 +61,7 @@ def _add(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(utils.sign_bit(~(opvalue1 ^ opvalue2) & (opvalue2 ^ result), width) == 0)
+    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -240,7 +242,7 @@ def CMP(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
+    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -382,7 +384,7 @@ def DIVSD(cpu_context, ip, mnem, operands):
         logger.debug("{} 0x{:X} :: DIV / 0".format(mnem, ip))
         return
 
-    result = opvalue1 / opvalue2
+    result = opvalue1 // opvalue2
     logger.debug("{} 0x{:X} :: {} / {} = {}".format(mnem, ip, opvalue1, opvalue2, result))
     result = utils.float_to_int(result)
     operands[0].value = result
@@ -1154,7 +1156,7 @@ def RCR(cpu_context, ip, mnem, operands):
 
     while tempcount:
         tempcf = get_lsb(opvalue2)
-        opvalue1 = (opvalue1 / 2) + (cpu_context.registers.cf * 2 ** width)
+        opvalue1 = (opvalue1 >> 1) + (cpu_context.registers.cf * 2 ** width)
         cpu_context.registers.cf = tempcf
         tempcount -= 1
 
@@ -1261,7 +1263,7 @@ def ROR(cpu_context, ip, mnem, operands):
     if tempcount > 0:
         while tempcount:
             tempcf = get_lsb(opvalue2)
-            opvalue1 = (opvalue1 / 2) + (tempcf * 2 ** width)
+            opvalue1 = (opvalue1 >> 1) + (tempcf * 2 ** width)
             tempcount -= 1
 
         cpu_context.registers.cf = get_msb(opvalue1, width)
@@ -1324,7 +1326,7 @@ def SAR(cpu_context, ip, mnem, operands):
         msb = get_msb(opvalue1, cpu_context.byteness)
         while tempcount:
             cpu_context.registers.cf = get_lsb(result)
-            result = result / 2
+            result = result >> 1
             tempcount -= 1
 
         bit_count = width * 8
@@ -1350,12 +1352,13 @@ def SBB(cpu_context, ip, mnem, operands):
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
+    mask = utils.get_mask(width)
     result = opvalue1 - (opvalue2 + cpu_context.registers.cf)
 
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
+    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["af", "zf", "sf", "of", "pf"], operands)
     logger.debug("SBB 0x{:X} :: {} - {} = {}".format(
@@ -1602,7 +1605,7 @@ def SHR(cpu_context, ip, mnem, operands):
     tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
     while tempcount:
         cpu_context.registers.cf = get_lsb(result)
-        result /= 2
+        result >>= 1
         tempcount -= 1
 
     cpu_context.registers.cf = (opvalue1 >> (opvalue2 - 1)) & 0x01
@@ -1660,7 +1663,7 @@ def SUB(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
+    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -1681,7 +1684,7 @@ def TEST(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(utils.sign_bit((opvalue1 ^ opvalue2) & (opvalue1 ^ result), width) == 0)
+    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 

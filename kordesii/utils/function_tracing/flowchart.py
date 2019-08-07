@@ -1,4 +1,4 @@
-﻿"""
+"""
 This module uses the idaapi.FlowChart object and extends it as well as idaapi.BasicBlock in order to add
 functionality including Breadth-First and Depth-First chart traversal, locating a specific block within the
 chart based on an EA, generating a list of all possible paths to a specified EA, etc.

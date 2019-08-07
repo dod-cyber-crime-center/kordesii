@@ -19,8 +19,10 @@ from .exceptions import FunctionTracingError
 logger = logging.getLogger(__name__)
 
 
-REG_MAP = {0: "RAX", 1: "RCX", 2: "RDX", 3: "RBX", 4: "RSP", 5: "RBP", 6: "RSI", 7: "RDI",
-           8: "R8", 9: "R9", 10: "R10", 11: "R11", 12: "R12", 13: "R13", 14: "R14", 15: "R15"}
+REG_MAP = {0: 'rax', 1: 'rcx', 2: 'rdx',  3: 'rbx',  4: 'rsp',  5: 'rbp',  6: 'rsi',  7: 'rdi',
+           8: 'r8',  9: 'r9',  10: 'r10', 11: 'r11', 12: 'r12', 13: 'r13', 14: 'r14', 15: 'r15',
+           16: 'al', 17: 'cl', 18: 'dl',  19: 'bl',
+           20: 'ah', 21: 'ch', 22: 'dh',  23: 'bh',  24: 'spl', 25: 'bpl', 26: 'sil', 27: 'dil'}
 
 
 def signed(n, bit_width):
@@ -357,8 +359,10 @@ def convert_reg(reg_name, width):
     return ida_idp.get_reg_name(reg_idx, width)
 
 
-def reg2str(register, width):
+def reg2str(register, width=None):
     """Convert given register index to the register name with the provided width (eg: reg2str(0, 8) -> rax)"""
+    if not width:
+        width = 8 if idc.__EA64__ else 4
     return ida_idp.get_reg_name(register, width)
 
 
@@ -476,9 +480,7 @@ def sib_index(insn, op):
 
 def sib_scale(op):
     """Calculate the scale for the index register (default to 1 if the value is 0)"""
-    sib = op.specflag2
-    scale = (sib >> 6) & 3
-    return scale if scale else 1
+    return 1 << ((op.specflag2 >> 6) & 3)
 
 
 def x86_base_reg(insn, op):

@@ -1,6 +1,7 @@
 
 import abc
 import copy
+import collections
 import hashlib
 import functools
 import itertools
@@ -92,6 +93,7 @@ class SuperFunc_t(object):
                          if idaapi.get_func_name(ref.frm) != self.name]
         self.xref_count = len(self.xrefs_to)
         self._flowchart = None
+        self._api_calls = None
 
     @classmethod
     def from_name(cls, func_name, ignore_underscore=False):
@@ -175,6 +177,26 @@ class SuperFunc_t(object):
             return self.name
         else:
             logger.warning('Failed to rename at 0x%X' % self.start_ea)
+
+    @property
+    def api_calls(self):
+        """
+        Returns counter containing API calls and the number of times they were called.
+        """
+        if self._api_calls:
+            return self._api_calls
+
+        api_calls = collections.Counter()
+        for ea in self.heads():
+            if idc.print_insn_mnem(ea) == 'call':
+                for xref in idautils.XrefsFrom(ea, idaapi.XREF_FAR):
+                    if xref.to:
+                        func_name = ida_name.get_name(xref.to)
+                        if func_name:
+                            api_calls.update([func_name])
+
+        self._api_calls = api_calls
+        return self._api_calls
 
 
 @serializable_class

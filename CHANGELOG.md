@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+
 ## [Unreleased]
+
+### Added
+- *function_tracing:*
+    - Added `base_addr` attribute to `Operand` object. This attribute is the referenced memory address of an operand minus any indexing.
+        (e.g. The `ebp+var_8` from `[ebp+ecx*2+var_8]`)
+- Added `api_calls` attribute to `SuperFunc_t`. This attribute is a `collections.Counter` dictionary
+containing the names of API function calls found in the function and the number of times they appear.
 
 ### Changed
 - Alternative IDA installation directory can now be provided with the `IDA_DIR` environment variable.
@@ -10,6 +18,8 @@ All notable changes to this project will be documented in this file.
     - Fixed case sensitivity for function hook lookups.
     - Fixed incorrect results that can occur when searching `Memory` for a single character.
     - Removed `__alloca_probe` function hook since it was producing an incorrect return value and is no longer required.
+    - Fixed incorrect overflow flag calculation in some opcodes.
+    - Fixed incorrect "sib" scale in operand displacement calculation.
 
 
 ## [1.5.0] - 2019-06-20

@@ -8,6 +8,7 @@ WARNING:
     should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
 
+from copy import deepcopy
 import collections
 import numpy
 import logging
@@ -17,6 +18,7 @@ import idautils
 import idc
 import ida_frame
 import ida_struct
+import ida_ua
 
 from kordesii.utils.function_tracing.exceptions import FunctionTracingError
 from kordesii.utils.function_tracing import utils
@@ -64,6 +66,7 @@ class Operand(object):
         self.text = idc.print_operand(ip, idx)
         self._cpu_context = cpu_context
         self._width = None
+        self.__insn = None
 
     def __repr__(self):
         string = '<Operand 0x{:0x}:{} : {} = {!r}'.format(self.ip, self.idx, self.text, self.value)
@@ -72,20 +75,41 @@ class Operand(object):
         string += ' : width = {}>'.format(self.width)
         return string
 
+    def __deepcopy__(self, memo):
+        # When we deep copy, clear out the __insn attribute so we don't
+        # run into any serialization issues with Swig objects.
+        deepcopy_method = self.__deepcopy__
+        self.__deepcopy__ = None
+        self.__insn = None
+        copy = deepcopy(self)
+        self.__deepcopy__ = deepcopy_method
+        return copy
+
+    @property
+    def _insn(self):
+        if self.__insn:
+            return self.__insn
+        insn = ida_ua.insn_t()
+        ida_ua.decode_insn(insn, self.ip)
+        if not insn:
+            raise FunctionTracingError('Failed to decode instruction at 0x:{:X}'.format(self.ip))
+        self.__insn = insn
+        return self.__insn
+
+    @property
+    def _op(self):
+        return self._insn.ops[self.idx]
+
     @property
     def width(self):
         """
-        Based on the dtyp value, return the size of the operand in bytes
+        Based on the dtyp value, the size of the operand in bytes
 
         :return: size of data type
         """
         if self._width is not None:
             return self._width
-        insn = idautils.DecodeInstruction(self.ip)
-        if not insn:
-            raise FunctionTracingError('Failed to decode instruction at 0x:{:X}'.format(self.ip))
-        dtype = insn.ops[self.idx].dtype
-        self._width = self.TYPE_DICT[dtype]
+        self._width = self.TYPE_DICT[self._op.dtype]
         return self._width
 
     @property
@@ -98,27 +122,27 @@ class Operand(object):
 
     @property
     def is_register(self):
-        """Returns true if the operand is a single register."""
+        """True if the operand is a single register."""
         return self.type == idc.o_reg
 
     @property
     def has_register(self):
-        """Returns true if the operand contains a register."""
+        """True if the operand contains a register."""
         return self.type in (idc.o_reg, idc.o_displ, idc.o_phrase)
 
     @property
     def is_immediate(self):
-        """Returns true if the operand is an immediate value."""
+        """True if the operand is an immediate value."""
         return self.type in (idc.o_imm, idc.o_near, idc.o_far)
 
     @property
     def is_memory_reference(self):
-        """Returns true if the operand is a memory reference."""
+        """True if the operand is a memory reference."""
         return self.type in (idc.o_mem, idc.o_phrase, idc.o_displ)
 
     @property
     def has_phrase(self):
-        """Returns true if the operand contains a phrase."""
+        """True if the operand contains a phrase."""
         return self.type in (idc.o_phrase, idc.o_displ)
 
     def _is_func_ptr(self, offset):
@@ -147,8 +171,41 @@ class Operand(object):
 
     @property
     def is_func_ptr(self):
-        """Returns true if the operand is a pointer to a function."""
+        """True if the operand is a pointer to a function."""
         return self._is_func_ptr(self.addr or self.value)
+
+    @property
+    def offset(self):
+        """The offset value if the operand is a displacement."""
+        if not self.has_phrase:
+            return None
+        return utils.signed(self._op.addr, utils.get_bits())
+
+    @property
+    def scale(self):
+        """The scaling factor of the index if operand is a displacement."""
+        if not self.has_phrase:
+            return None
+        return utils.sib_scale(self._op)
+
+    @property
+    def base(self):
+        """The value of the base register if operand is a displacement."""
+        if not self.has_phrase:
+            return None
+        base_reg = utils.reg2str(utils.x86_base_reg(self._insn, self._op))
+        return self._cpu_context.registers[base_reg]
+
+    @property
+    def index(self):
+        """The value of the index register if operand is a displacement."""
+        if not self.has_phrase:
+            return None
+        index_reg = utils.x86_index_reg(self._insn, self._op)
+        if index_reg == -1:
+            return 0
+        index_reg = utils.reg2str(index_reg)
+        return self._cpu_context.registers[index_reg]
 
     def _calc_displacement(self):
         """
@@ -159,23 +216,15 @@ class Operand(object):
 
         :return int: calculated value
         """
-        size = 8 if idc.__EA64__ else 4
-        insn = idaapi.insn_t()
-        idaapi.decode_insn(insn, self.ip)
-        op = insn.ops[self.idx]
-        offset = utils.signed(op.addr, utils.get_bits())
-        scale = utils.sib_scale(op)
-        base_reg = utils.x86_base_reg(insn, op)
-        indx_reg = utils.x86_index_reg(insn, op)
-        base_val = self._cpu_context.registers[utils.reg2str(base_reg, size)]
-        indx_val = self._cpu_context.registers[utils.reg2str(indx_reg, size)] if indx_reg != -1 else 0
-        result = base_val + indx_val * scale + offset
-        logger.debug("calc_displacement :: Displacement {} -> {}".format(self.text, result))
+        result = self.base + self.index * self.scale + self.offset
+        logger.debug(
+            "calc_displacement :: Displacement {} -> {} + {}*{} + {} = {}".format(
+                self.text, self.base, self.index, self.scale, self.offset, result))
 
         # Before returning, record the frame_id and stack_offset for this address.
         # (This can become useful information for retrieving the original location of a variable)
         frame_id = idc.get_frame_id(self.ip)
-        stack_var = ida_frame.get_stkvar(insn, op, offset)
+        stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
         if stack_var:
             _, stack_offset = stack_var
             self._cpu_context.stack_variables[result] = (frame_id, stack_offset)
@@ -195,6 +244,25 @@ class Operand(object):
             addr = self._calc_displacement()
         elif self.type == idc.o_mem:
             addr = idc.get_operand_value(self.ip, self.idx)
+        return addr
+
+    @property
+    def base_addr(self):
+        """
+        Retrieves the referenced memory address of the operand minus any indexing that
+        has occurred.
+
+        This is useful for pulling out the un-offseted address within a loop.
+        e.g. "movzx   edx, [ebp+ecx*2+var_8]"
+        where ecx is the loop index starting at a non-zero value.
+
+        :return int: Memory address or None if operand is not a memory reference.
+        """
+        addr = self.addr
+        if addr is None:
+            return None
+        if self.has_phrase:
+            addr -= self.index * self.scale
         return addr
 
     @property
@@ -777,14 +845,14 @@ class ProcessorContext(object):
                 # funcdata[i].argloc.scattered()
                 raise NotImplementedError("Argument {} location of type ALOC_DIST".format(i))
             elif loc_type == 3:  # ALOC_REG1, single register
-                arg = self.reg_read(utils.REG_MAP.get(funcdata[i].argloc.reg1()))
+                arg = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg1()])
                 width = funcdata[i].type.get_size()
                 args.append(arg & utils.get_mask(width))
             elif loc_type == 4:  # ALOC_REG2, register pair (eg: edx:eax [reg2:reg1])
                 # TODO: CURRENTLY UNTESTED
                 logger.info("Argument {} of untested type ALOC_REG2.  Verify results and report issues".format(i))
-                reg1_val = self.reg_read(utils.REG_MAP.get(funcdata[i].argloc.reg1()))
-                reg2_val = self.reg_read(utils.REG_MAP.get(funcdata[i].argloc.reg2()))
+                reg1_val = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg1()])
+                reg2_val = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg2()])
                 # TODO: Probably need to determine how to check the width of these register values in order to shift
                 #       the data accordingly.  Will likely need examples for testing/verification of functionality.
                 args.append(reg2_val << 32 | reg1_val)
@@ -794,7 +862,7 @@ class ProcessorContext(object):
                 # Obtain the register-relative argument location
                 rrel = funcdata[i].argloc.get_rrel()
                 # Extract the pointer value in the register
-                ptr_val = self.reg_read(utils.REG_MAP.get(rrel.reg))
+                ptr_val = self.reg_read(utils.REG_MAP[rrel.reg])
                 # Get the offset
                 offset = rrel.off
                 args.append(ptr_val + offset)

@@ -91,6 +91,8 @@ def find_strings():
 	        while (*s)
 		        *s++ ^= key;
         }
+
+    :returns: list of EncodedString objects.
     """
     for encrypt_func in decoderutils.re_find_functions(re.compile(r'\x8b\x45\x08\x0f\xbe\x08')):
         logger.info('Found XOR encrypt function at: 0x{:0x}'.format(encrypt_func.start_ea))

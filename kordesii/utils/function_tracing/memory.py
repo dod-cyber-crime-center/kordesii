@@ -199,6 +199,7 @@ class Memory(object):
         """
         if address < 0:
             raise ValueError('Address must be a positive integer. Got 0x{:08X}'.format(address))
+
         size = len(data)
         if size > self.MAX_MEM_WRITE:
             logger.error(
