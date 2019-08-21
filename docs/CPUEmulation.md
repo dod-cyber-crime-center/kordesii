@@ -194,11 +194,7 @@ def func_hook(context, func_name, func_args):
 function_tracing.hook_tracers('Base64Decode', func_hook)  # function start_ea can also be used instead of a name
 ```
 
-
-## Getting Original Pointer Locations
-
-As emulation occurs, stack variables and memory pointers are recorded in the cpu context which
-can then be extracted by the user.
+## Pointer History
 
 You can retrieve the history of a pointer across multiple memory copy routines using the `get_pointer_history()`
 function on the `ProcessorContext` object. This function returns a list of all previous
@@ -211,33 +207,34 @@ for ip, ea in reversed(history):
     addr = ea
 ```
 
-You can retrieve the original loaded location of a pointer using the `get_original_location()` function.
-This function returns a tuple containing:
-- The instruction address where the original location was first copied
-    or None if given address is already loaded or the original location could not be found.
-- Either a loaded address, a tuple containing (frame_id, stack_offset) for a stack variable,
-    or None if the original location could not be found.
-    
-This can be used to help extract the original location for the creation of a `EncodedString` or `EncodedStackString` object.
 
-```python        
-ip, location = context.get_original_location(addr)
-if location is None:
-    logger.warning('Failed to find original location for 0x{:x}'.format(addr))
+## Variables
 
-elif isinstance(location, tuple):  # stack variable
-    frame_id, stack_offset = location
-    string = decoderutils.EncodedStackString(
-        enc_data,
-        frame_id=frame_id,
-        stack_offset=stack_offset,
-        string_reference=addr,
-    )
-else:  # loaded address
-    string = decoderutils.EncodedString(
-        location,
-        string_reference=addr,
-        size=size,
-        encoded_data=enc_data
-    )
+As emulation occurs, stack and global variables are recorded in the cpu context which
+can then be extracted by the user.
+
+You can view variables that have been encountered during emulation using the `variables` attribute on the context.
+
+```python
+# show all encountered variables
+print(context.variables.names)
+print(context.variables.addrs)
+
+# iterate all the variables encountered during emulation
+for var in context.variables:
+    print('name = {}'.format(var.name))    # name of variable
+    print('address = {}'.format(var.addr))     # address of variable as found in context memory.
+    print('location = {}'.format('stack' if var.is_stack else 'global'))  # stack vs global variable
+    print('size = {}'.format(var.size))    # size of data variable is pointing to.
+    print('data = {}'.format(var.data))    # dereferenced raw data
+    print('value = {}'.format(var.value))  # dereferenced variable unpacked based on data type
+    print('references = {}'.format(sorted(var.references)))   # instruction addresses that reference this variable
+
+# variables can also be queried just like a dictionary by either name or address
+if 'arg_0' in context.variables:
+    print(context.variables['arg_0'])
+
+var = context.variables.get(context.sp + 8, None)
+if var:
+    print(var)
 ```

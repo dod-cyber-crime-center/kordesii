@@ -198,6 +198,23 @@ class SuperFunc_t(object):
         self._api_calls = api_calls
         return self._api_calls
 
+    @property
+    def is_library(self):
+        """
+        Is the function a library?
+        """
+        return bool(self.function_obj.flags & idc.FUNC_LIB)
+
+
+def iter_functions():
+    """Iterates all the functions in the sample."""
+    cache = set()
+    for func_ea in idautils.Functions():
+        func = SuperFunc_t(func_ea)
+        if func.name not in cache:
+            cache.add(func.name)
+            yield func
+
 
 @serializable_class
 @functools.total_ordering
@@ -383,7 +400,7 @@ class EncodedString(object):
         encoded_data = self.encoded_data or b''
         if len(encoded_data) > 30:
             encoded_data = encoded_data[:30] + b' ...'
-        return '<{!r} at 0x{:08x}>'.format(encoded_data, self.string_location or -1)
+        return '<{!r} at 0x{:08x}>'.format(encoded_data, self.string_location or self.string_reference)
 
     @property
     def xrefs_to(self):

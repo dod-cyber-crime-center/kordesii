@@ -141,16 +141,16 @@ def test_cpu_context():
     assert operands[1].text == 'eax'
     assert operands[1].value == context.registers.eax == 1
 
-    # Test get_original_location()
+    # Test variables
     # context = tracer.context_at(0x00401017)
     # data_ptr = context.registers.edx
     data_ptr = operands[0].addr
-    assert context.get_variable_name(data_ptr) == '$ F401000.arg_0'
-    ip, orig_location = context.get_original_location(data_ptr)
-    assert ip is None  # ip is None, because arg_0 never gets copied explicictly.
-    assert isinstance(orig_location, tuple)
-    frame_id, stack_offset = orig_location
-    assert idc.get_member_name(frame_id, stack_offset) == 'arg_0'
+    assert sorted(context.variables.names) == ['arg_0', 'arg_4', 'loc_401029']
+    assert data_ptr in context.variables
+    var = context.variables[data_ptr]
+    assert var.name == 'arg_0'
+    assert not var.history
+    assert var.size == 4
 
     # Now execute this instruction and see if arg_0 has be set with the 1 from eax.
     context.execute(context.ip)
@@ -201,6 +201,8 @@ def test_cpu_context():
     assert len(args) == 2
     assert context.read_data(args[0]) == "Idmmn!Vnsme "
     assert args[1] == 1
+
+    assert sorted(context.variables.names) == ['aIdmmnVnsme', 'sub_401000']
 
 
 @pytest.mark.in_ida

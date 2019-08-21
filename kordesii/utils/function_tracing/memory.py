@@ -34,11 +34,24 @@ class Memory(object):
     MAX_MEM_READ = 0x10000000
     MAX_MEM_WRITE = 0x10000000
 
-    def __init__(self):
+    def __init__(self, map_segments=True):
+        """Initializes Memory object.
+
+        :param bool map_segments: Whether to write segment data on initialization.
+        """
         self._pages = collections.defaultdict(lambda: bytearray(self.PAGE_SIZE))
         # A map of base addresses to size for heap allocations.
         self._heap_allocations = {}
-        self._map_segments()
+        if map_segments:
+            self._map_segments()
+
+    def __deepcopy__(self, memo):
+        copy = Memory(map_segments=False)
+        memo[id(self)] = copy
+        copy._pages = collections.defaultdict(
+            lambda: bytearray(self.PAGE_SIZE), {index: page[:] for index, page in self._pages.items()})
+        copy._heap_allocations = self._heap_allocations.copy()
+        return copy
 
     def _map_segments(self):
         """Maps segments into memory."""

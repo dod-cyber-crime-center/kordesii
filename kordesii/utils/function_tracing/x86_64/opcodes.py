@@ -189,7 +189,10 @@ def CALL(cpu_context, ip, mnem, operands):
             # If we can't get a valid function, then pull the stack adjustment using idc.get_sp_delta()
             # on the next instruction.
             sp_adjust = idc.get_sp_delta(idc.next_head(ip))
-            cpu_context.registers.rsp += sp_adjust
+            # If sp_adjust is None, that means the next instruction is not in a function.
+            # There is no way to determine the stack adjustment.
+            if sp_adjust is not None:
+                cpu_context.registers.rsp += sp_adjust
 
         else:
             # Find a "retn" and see if we need to adjust rsp.

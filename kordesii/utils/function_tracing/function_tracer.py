@@ -78,9 +78,6 @@ class FunctionTracer(object):
                 ea, self.func_obj.start_ea))
 
         # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.
-        if ea == self.func_obj.start_ea:
-            # Return None since a context can't be built if there is no code to "execute"
-            return
 
         for path_block in self.flowchart.get_paths(ea):
             with functions.hooks(self._hooks):

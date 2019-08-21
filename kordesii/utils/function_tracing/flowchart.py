@@ -21,11 +21,13 @@ from .cpu_context import ProcessorContext
 logger = logging.getLogger(__name__)
 
 
-class PathBlock(object):
+class PathNode(object):
     """
     Represents a linked-list of objects constituting a path from a specific node to the function entry point node.  This
     object can also track cpu context up to a certain EA.
     """
+    _cache = {}
+
     def __init__(self, bb, prev):
         self.bb = bb
         self.prev = prev
@@ -34,13 +36,24 @@ class PathBlock(object):
         self._context_ea = None  # ea that the context has been filled to (but not including)
         self._init_context = None  # the context used at the starting path
 
+    @classmethod
+    def from_cache(cls, bb, prev):
+        """Constructor that caches and reuses existing instances."""
+        try:
+            return cls._cache[(bb, prev)]
+        except KeyError:
+            path_node = cls(bb, prev)
+            cls._cache[(bb, prev)] = path_node
+            return path_node
+
     def __contains__(self, ea):
         return ea in self.bb
 
     def __repr__(self):
-        return 'PathBlock({!r})'.format(self.bb)
+        return 'PathNode({!r})'.format(self.bb)
 
     def path(self):
+        """Returns a list of PathNode objects represented by the linked list."""
         if self.prev:
             return self.prev.path() + [self]
         else:
@@ -142,6 +155,7 @@ class CustomBasicBlock(idaapi.BasicBlock):
         - Check if an EA is contained in a BasicBlock (ie: if ea in <CustomBasicBlock>:)
         - Check length of block
         - Iterator addresses in block.
+        - Iterator of paths leading to this block.
     """
     def __init__(self, id_or_ea, bb=None, fc=None):
         if bb is None and fc is None:
@@ -191,6 +205,33 @@ class CustomBasicBlock(idaapi.BasicBlock):
             for head in idautils.Heads(start or self.start_ea, self.end_ea):
                 yield head
 
+    def paths(self, _visited=None):
+        """
+        Iterates the paths that lead to this block.
+
+        :param _visited: Internally used.
+        :yields: PathNode objects that represent the last entry of the path linked list.
+        """
+        if _visited is None:
+            _visited = set()
+
+        # Otherwise generate path nodes and cache results for next time.
+        _visited.add(self.start_ea)
+
+        parents = list(self.preds())
+        if not parents:
+            yield PathNode.from_cache(self, prev=None)
+        else:
+            for parent in parents:
+                if parent.start_ea in _visited:
+                    continue
+
+                # Create path nodes for each path of parent.
+                for parent_path in parent.paths(_visited=_visited):
+                    yield PathNode.from_cache(self, prev=parent_path)
+
+        _visited.remove(self.start_ea)
+
 
 class FlowChart(idaapi.FlowChart):
     """
@@ -199,8 +240,6 @@ class FlowChart(idaapi.FlowChart):
     def __init__(self, f, bounds=None, flags=idaapi.FC_PREDS):
         self.f = idaapi.get_func(f)
         super(FlowChart, self).__init__(f=self.f, bounds=bounds, flags=flags)
-        self._path_cache = collections.defaultdict(list)
-        self._gen_cache = {}
 
     def _traverse(self, start_ea=None, dfs=False):
         """
@@ -367,6 +406,7 @@ class FlowChart(idaapi.FlowChart):
         :param int ea: ea of interest
 
         :return: CustomBasicBlock object or None if not found.
+        :rtype: CustomBasicBlock
         """
         for block in self:
             if ea in block:
@@ -424,54 +464,6 @@ class FlowChart(idaapi.FlowChart):
         for path in self._paths_to_ea(ea, self[0]):
             yield path
 
-    # TODO: I feel like this work can combined with the work done in _traverse_reverse().
-    def _build_path(self, cur_block, visited=None):
-        """
-        Yields a Path object based on an EA for a given block.
-
-        :param CustomBasicBlock block: A BasicBlock object
-
-        :yield: path object
-        """
-        if visited is None:
-            visited = set()
-
-        cb_start_ea = cur_block.start_ea
-        # Add our current block to visited blocks
-        visited.add(cb_start_ea)
-
-        # Check to make sure this path isn't already cached, and build it if it isn't
-        path_cache = self._path_cache.get(cb_start_ea, [])
-        # path_cache has a default item type of list, so we need to check the length, not for None
-        if not path_cache:
-            # Our terminating condition is actually when we have no more parent blocks to traverse
-            cb_parents = list(cur_block.preds())
-            if not cb_parents:
-                p_block = PathBlock(cur_block, None)
-                yield p_block
-            else:
-                # Continue creating blocks and updating the parents
-                for block in cb_parents:
-                    blk_start_ea = block.start_ea
-                    # Should we consider a block with an EA AFTER our current block as a parent?  This indicates
-                    # a loop and may/may not put us in a very strange situation where we are building for paths
-                    # that are completely irrelevant for the path we are asking for....
-                    if blk_start_ea in visited or blk_start_ea > cb_start_ea:
-                        continue
-
-                    # Get all the paths to the current parent block
-                    for _p_block in self._build_path(block, visited):
-                        p_block = PathBlock(cur_block, _p_block)
-                        yield p_block
-
-        # We have a cache hit so yield all the blocks in it
-        else:
-            for blk in path_cache:
-                yield blk
-
-        # Remove the current block for the visited set
-        visited.remove(cb_start_ea)
-
     def get_paths(self, ea):
         """
         Given an EA, iterate over the paths to the EA.
@@ -497,22 +489,8 @@ class FlowChart(idaapi.FlowChart):
             logger.debug('Unable to find block with ea: 0x{:08X}'.format(ea))
             return
 
-        # Obtain paths that have currently been built
-        cached_paths = self._path_cache[block.start_ea]
-        # Yield any paths already constructed
-        for path_block in cached_paths:
-            yield path_block
-
-        # If we are still traversing paths at this point, pull the generator (if it exists), or create one
-        path_generator = self._gen_cache.get(block.start_ea)
-        if not path_generator:
-            path_generator = self._build_path(block)
-            self._gen_cache[block.start_ea] = path_generator
-
-        # Iterate the paths created by the generator
-        for path_block in path_generator:
-            self._path_cache[path_block.bb.start_ea].append(path_block)
-            yield path_block
+        for path_node in block.paths():
+            yield path_node
 
     def _getitem(self, index):
         """

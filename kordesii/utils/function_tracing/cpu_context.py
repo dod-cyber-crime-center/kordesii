@@ -10,354 +10,22 @@ WARNING:
 
 from copy import deepcopy
 import collections
-import numpy
 import logging
+import warnings
 
 import idaapi
-import idautils
 import idc
-import ida_frame
 import ida_struct
 import ida_ua
 
-from kordesii.utils.function_tracing.exceptions import FunctionTracingError
 from kordesii.utils.function_tracing import utils
 from kordesii.utils.function_tracing.constants import *
 from kordesii.utils.function_tracing.memory import Memory
+from kordesii.utils.function_tracing.variables import VariableMap
+from kordesii.utils.function_tracing.operands import Operand, OperandLite
 
 
 logger = logging.getLogger(__name__)
-
-
-class Operand(object):
-    """Stores information for a given operand for a specific CPU context state."""
-
-    TYPE_DICT = {
-        0: 1,  # dt_byte -> 8 bit
-        1: 2,  # dt_word -> 16 bit
-        2: 4,  # dt_dword -> 32 bit
-        3: 4,  # dt_float -> 4 bytes
-        4: 8,  # dt_double -> 8 bytes
-        5: 0,  # dt_tbyte -> variable
-        6: 0,  # packed real format for mc68040
-        7: 8,  # dt_qword -> 64 bit
-        8: 16,  # dt_byte16 -> 128 bit
-        9: 0,  # dt_code -> ptr to code (not used?)
-        10: 0,  # dt_void -> none
-        11: 6,  # dt_fword -> 48 bit
-        12: 0,  # dt_bitfild -> bit field (mc680x0)
-        13: 4,  # dt_string -> pointer to asciiz string
-        14: 4,  # dt_unicode -> pointer to unicode string
-        # 15: 3, # dt_3byte -> no longer used
-        16: 0,  # dt_ldbl -> long double (which may be different from tbyte)
-        17: 32,  # dt_byte32 -> 256 bit
-        18: 64  # dt_byte64 -> 512 bit
-    }
-
-    def __init__(self, cpu_context, ip, idx):
-        """
-        :param cpu_context: CPU context to pull operand value
-        :param ip: instruction pointer
-        :param idx: operand number (0 = first operand, 1 = second operand, ...)
-        """
-        self.ip = ip
-        self.idx = idx
-        self.type = idc.get_operand_type(ip, idx)
-        self.text = idc.print_operand(ip, idx)
-        self._cpu_context = cpu_context
-        self._width = None
-        self.__insn = None
-
-    def __repr__(self):
-        string = '<Operand 0x{:0x}:{} : {} = {!r}'.format(self.ip, self.idx, self.text, self.value)
-        if self.addr is not None:
-            string += ' : &{} = 0x{:0x}'.format(self.text, self.addr)
-        string += ' : width = {}>'.format(self.width)
-        return string
-
-    def __deepcopy__(self, memo):
-        # When we deep copy, clear out the __insn attribute so we don't
-        # run into any serialization issues with Swig objects.
-        deepcopy_method = self.__deepcopy__
-        self.__deepcopy__ = None
-        self.__insn = None
-        copy = deepcopy(self)
-        self.__deepcopy__ = deepcopy_method
-        return copy
-
-    @property
-    def _insn(self):
-        if self.__insn:
-            return self.__insn
-        insn = ida_ua.insn_t()
-        ida_ua.decode_insn(insn, self.ip)
-        if not insn:
-            raise FunctionTracingError('Failed to decode instruction at 0x:{:X}'.format(self.ip))
-        self.__insn = insn
-        return self.__insn
-
-    @property
-    def _op(self):
-        return self._insn.ops[self.idx]
-
-    @property
-    def width(self):
-        """
-        Based on the dtyp value, the size of the operand in bytes
-
-        :return: size of data type
-        """
-        if self._width is not None:
-            return self._width
-        self._width = self.TYPE_DICT[self._op.dtype]
-        return self._width
-
-    @property
-    def is_fake(self):
-        """
-        Returns true if the operand is not a real operand.
-        (Ie. fake operands IDA likes to put in for some reason.)
-        """
-        return self.text == "" or self.type == idc.o_void
-
-    @property
-    def is_register(self):
-        """True if the operand is a single register."""
-        return self.type == idc.o_reg
-
-    @property
-    def has_register(self):
-        """True if the operand contains a register."""
-        return self.type in (idc.o_reg, idc.o_displ, idc.o_phrase)
-
-    @property
-    def is_immediate(self):
-        """True if the operand is an immediate value."""
-        return self.type in (idc.o_imm, idc.o_near, idc.o_far)
-
-    @property
-    def is_memory_reference(self):
-        """True if the operand is a memory reference."""
-        return self.type in (idc.o_mem, idc.o_phrase, idc.o_displ)
-
-    @property
-    def has_phrase(self):
-        """True if the operand contains a phrase."""
-        return self.type in (idc.o_phrase, idc.o_displ)
-
-    def _is_func_ptr(self, offset):
-        """Returns true if the given offset is a function pointer."""
-        # Sometimes we will get a really strange issue where the IDA disassember has set a type for an
-        # address that should not have been set during our course of emulation.
-        # Therefore, before attempting to use get_function_data() to test if it's a function pointer,
-        # first see if guess_type() will return None while is_loaded() is true.
-        # If it doesn't, we know that it shouldn't be a function pointer.
-        # (plus it saves on time)
-        # TODO: Determine if we could have false negatives.
-        try:
-            if idc.is_loaded(offset) and not idc.guess_type(offset):
-                return False
-        except TypeError:
-            return False
-        try:
-            utils.get_function_data(offset)
-            return True
-        except RuntimeError:
-            return False
-        except Exception as e:
-            # If we get any other type of exception raise a more friendly error message.
-            raise FunctionTracingError(
-                'Failed to retrieve function data from {!r}: {}'.format(offset, e), ip=self.ip)
-
-    @property
-    def is_func_ptr(self):
-        """True if the operand is a pointer to a function."""
-        return self._is_func_ptr(self.addr or self.value)
-
-    @property
-    def offset(self):
-        """The offset value if the operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        return utils.signed(self._op.addr, utils.get_bits())
-
-    @property
-    def scale(self):
-        """The scaling factor of the index if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        return utils.sib_scale(self._op)
-
-    @property
-    def base(self):
-        """The value of the base register if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        base_reg = utils.reg2str(utils.x86_base_reg(self._insn, self._op))
-        return self._cpu_context.registers[base_reg]
-
-    @property
-    def index(self):
-        """The value of the index register if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        index_reg = utils.x86_index_reg(self._insn, self._op)
-        if index_reg == -1:
-            return 0
-        index_reg = utils.reg2str(index_reg)
-        return self._cpu_context.registers[index_reg]
-
-    def _calc_displacement(self):
-        """
-        Calculate the displacement offset of the operand's text.
-
-        e.g:
-            word ptr [rdi+rbx]
-
-        :return int: calculated value
-        """
-        result = self.base + self.index * self.scale + self.offset
-        logger.debug(
-            "calc_displacement :: Displacement {} -> {} + {}*{} + {} = {}".format(
-                self.text, self.base, self.index, self.scale, self.offset, result))
-
-        # Before returning, record the frame_id and stack_offset for this address.
-        # (This can become useful information for retrieving the original location of a variable)
-        frame_id = idc.get_frame_id(self.ip)
-        stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
-        if stack_var:
-            _, stack_offset = stack_var
-            self._cpu_context.stack_variables[result] = (frame_id, stack_offset)
-
-        return result
-
-    @property
-    def addr(self):
-        """
-        Retrieves the referenced memory address of the operand.
-
-        :return int: Memory address or None if operand is not a memory reference.
-        """
-        addr = None
-        if self.has_phrase:
-            # These need to be handled in the same way even if they don't contain the same types of data...
-            addr = self._calc_displacement()
-        elif self.type == idc.o_mem:
-            addr = idc.get_operand_value(self.ip, self.idx)
-        return addr
-
-    @property
-    def base_addr(self):
-        """
-        Retrieves the referenced memory address of the operand minus any indexing that
-        has occurred.
-
-        This is useful for pulling out the un-offseted address within a loop.
-        e.g. "movzx   edx, [ebp+ecx*2+var_8]"
-        where ecx is the loop index starting at a non-zero value.
-
-        :return int: Memory address or None if operand is not a memory reference.
-        """
-        addr = self.addr
-        if addr is None:
-            return None
-        if self.has_phrase:
-            addr -= self.index * self.scale
-        return addr
-
-    @property
-    def value(self):
-        """
-        Retrieve the value of the operand as it is currently in the cpu_context.
-        NOTE: We can't cache this value because the value may change based on the cpu context.
-
-        :return int: An integer of the operand value.
-        """
-        if self.is_fake:
-            return None
-
-        if self.is_immediate:
-            return idc.get_operand_value(self.ip, self.idx)
-
-        if self.is_register:
-            return self._cpu_context.registers[self.text]
-
-        # TODO: Determine if this is still necessary.
-        # FS, GS (at least) registers are identified as memory addresses.  We need to identify them as registers
-        # and handle them as such
-        if self.type == idc.o_mem:
-            if "fs" in self.text:
-                return self._cpu_context.registers.fs
-            elif "gs" in self.text:
-                return self._cpu_context.registers.gs
-
-        # If a memory reference, return read in memory.
-        if self.is_memory_reference:
-            # If a function pointer, we want to return the address.
-            # This is because a function may be seen as a memory reference, but we don't
-            # want to dereference it in case it in a non-call instruction.
-            # (e.g.  "mov  esi, ds:LoadLibraryA")
-            # NOTE: Must use internal function to avoid recursive loop.
-            if self._is_func_ptr(self.addr):
-                return self.addr
-
-            # Return empty
-            if not self.width:
-                logger.debug('Width is zero for {}, returning empty string.'.format(self.text))
-                return b''
-
-            # Otherwise, dereference the address.
-            value = self._cpu_context.mem_read(self.addr, self.width)
-            return utils.struct_unpack(value)
-
-        raise FunctionTracingError('Invalid operand type: {}'.format(self.type), ip=self.ip)
-
-    @value.setter
-    def value(self, value):
-        """
-        Set the operand to the specified value within the cpu_context.
-        """
-        # If we are writing to an immediate, I believe they want to write to the memory at the immediate.
-        # TODO: Should we fail instead?
-        if self.is_immediate:
-            offset = self.value
-            if idaapi.is_loaded(offset):
-                self._cpu_context.mem_write(offset, value)
-            return
-
-        if self.is_register:
-            # Convert the value from string to integer...
-            if isinstance(value, str):
-                value = utils.struct_unpack(value)
-
-            # On 64-bit, the destination register must be set to 0 first (per documentation)
-            # TODO: Check if this happens regardless of the source size
-            if idc.__EA64__ and self.width == 4:  # Only do this for 32-bit setting
-                reg64 = utils.convert_reg(self.text, 8)
-                self._cpu_context.registers[reg64] = 0
-
-            self._cpu_context.registers[self.text] = value
-            return
-
-        # TODO: Determine if this is still necessary.
-        # FS, GS (at least) registers are identified as memory addresses.  We need to identify them as registers
-        # and handle them as such
-        if self.type == idc.o_mem:
-            if "fs" in self.text:
-                self._cpu_context.registers.fs = value
-                return
-            elif "gs" in self.text:
-                self._cpu_context.registers.gs = value
-                return
-
-        if self.is_memory_reference:
-            # For data written to the frame or memory, this data MUST be a byte string.
-            if numpy.issubdtype(type(value), numpy.integer):
-                value = utils.struct_pack(value, width=self.width)
-            self._cpu_context.mem_write(self.addr, value)
-            return
-
-        raise FunctionTracingError('Invalid operand type: {}'.format(self.type), ip=self.ip)
 
 
 class JccContext(object):
@@ -381,15 +49,24 @@ class JccContext(object):
         self.flag_opnds = {}  # Dictionary containing the operands at a particular instruction which set
         # specific flags.  Dictionary is keyed on flag registery names.
 
+    def __deepcopy__(self, memo):
+        copy = JccContext()
+        copy.condition_target_ea = self.condition_target_ea
+        copy.alt_branch_data_dst = self.alt_branch_data_dst
+        copy.alt_branch_data = self.alt_branch_data
+        copy.flag_opnds = {flag: list(operands) for flag, operands in self.flag_opnds.items()}
+        return copy
+
     def update_flag_opnds(self, flags, opnds):
         """
         Set the operands which last changed the specified flags.
 
         :param flags: list of flags which were modified utilizing the supplied opnds
-        :param opnds: list of operands (instance of cpu_emulator.Operand) at the instruction which modified the flags
+        :param opnds: list of operands (instance of Operand) at the instruction which modified the flags
         """
         for flag in flags:
-            self.flag_opnds[flag] = opnds
+            # Converting Operand classes to OperandLite classes to help speed up deepcopies.
+            self.flag_opnds[flag] = [OperandLite(opnd.ip, opnd.idx, opnd.text, opnd.value) for opnd in opnds]
 
     def get_flag_opnds(self, flags):
         """
@@ -401,17 +78,13 @@ class JccContext(object):
         :return: list of operands which were utilized in the instruction that modified the requested flags
         """
         # TODO: Is there a better way to do this?
-        opvalues = []
+        operands = []
         for flag in flags:
-            _opvalues = self.flag_opnds.get(flag, None)
-            if not _opvalues:
-                continue
+            for operand in self.flag_opnds.get(flag, []):
+                if operand not in operands:
+                    operands.append(operand)
 
-            for _opvalue in _opvalues:
-                if _opvalue not in opvalues:
-                    opvalues.append(_opvalue)
-
-        return opvalues
+        return operands
 
     def is_alt_branch(self, ip):
         """
@@ -447,8 +120,7 @@ class ProcessorContext(object):
         self.bitness = utils.get_bits()
         self.byteness = self.bitness / 8
         self.stack_registers = stack_registers or []
-        self.stack_variables = {}  # maps memory addresses -> (frame_id, stack_offset)
-        self.stack = []
+        self.variables = VariableMap(self)
         self._sp = stack_pointer
         self._ip = instruction_pointer
 
@@ -472,6 +144,29 @@ class ProcessorContext(object):
                 return subclass()  # Subclasses shouldn't have any initialization parameters.
         raise NotImplementedError('Architecture not supported: {}'.format(arch_name))
 
+    def __deepcopy__(self, memo):
+        """Implementing our own deepcopy to improve speed."""
+        # Create class, but avoid calling __init__()
+        # so we don't trigger the unnecessary initialization of Memory and JccContext
+        klass = self.__class__
+        copy = klass.__new__(klass)
+        memo[id(self)] = copy
+
+        copy.registers = deepcopy(self.registers, memo)
+        copy.jcccontext = deepcopy(self.jcccontext, memo)
+        copy.memory = deepcopy(self.memory, memo)
+        copy.variables = deepcopy(self.variables, memo)
+        copy.func_calls = dict(self.func_calls)
+        copy.executed_instructions = list(self.executed_instructions)
+        copy.memory_copies = self.memory_copies.copy()
+        copy.bitness = self.bitness
+        copy.byteness = self.byteness
+        copy.stack_registers = self.stack_registers
+        copy._sp = self._sp
+        copy._ip = self._ip
+
+        return copy
+
     @property
     def ip(self):
         """Alias for retrieving instruction pointer."""
@@ -491,6 +186,14 @@ class ProcessorContext(object):
     def sp(self, value):
         """Alias for setting stack pointer."""
         self.registers[self._sp] = value
+
+    @property
+    def prev_instruction(self):
+        """That last instruction that was executed or None if no instructions have been executed."""
+        if self.executed_instructions:
+            return self.executed_instructions[-1]
+        else:
+            return None
 
     def execute(self, ip=None):
         """
@@ -564,9 +267,9 @@ class ProcessorContext(object):
         """
         if self.jcccontext.is_alt_branch(bb_start_ea):
             logger.debug("Modifying context for branch at 0x{:X}".format(bb_start_ea))
+            # Set the destination operand relative to the current context
+            # to a valid value that makes this branch true.
             dst_opnd = self.jcccontext.alt_branch_data_dst
-            # TODO: There is probably a more elegant way of doing this. Jcccontext should not store the full operand objects.
-            # Grab the operands relative to this current context and set the value.
             dst_opnd = self.get_operands(ip=dst_opnd.ip)[dst_opnd.idx]
             dst_opnd.value = self.jcccontext.alt_branch_data
 
@@ -584,21 +287,19 @@ class ProcessorContext(object):
             ip = self.ip
 
         operands = []
-        cmd = idaapi.insn_t()
-        inslen = idaapi.decode_insn(cmd, ip)
-        for i in range(inslen):
-            try:
-                operand = Operand(self, ip, i)
-                # IDA will sometimes create hidden or "fake" operands.
-                # These are there to represent things like an implicit EAX register.
-                # To help avoid confusion to the opcode developer, these fake operands will not be included.
-                if not operand.is_fake:
-                    operands.append(operand)
-            except (IndexError, RuntimeError):
-                # IDA will identify more operands than there actually are causing an issue.
-                # Just break out of the loop if this happens.
-                # IDA 7 throws RuntimeError instead of IndexError
-                break
+        cmd = ida_ua.insn_t()
+        # NOTE: We can't trust the instruction length returned by decode_ins.
+        ida_ua.decode_insn(cmd, ip)
+        for idx, op in enumerate(cmd.ops):
+            operand = Operand(self, ip, idx)
+            # IDA will sometimes create hidden or "fake" operands.
+            # These are there to represent things like an implicit EAX register.
+            # To help avoid confusion to the opcode developer, these fake operands will not be included.
+            if not operand.is_hidden:
+                operands.append(operand)
+
+            if operand.is_void:
+                break  # no more operands
 
         return operands
 
@@ -693,20 +394,23 @@ class ProcessorContext(object):
             - either a loaded address, a tuple containing (frame_id, stack_offset) for a stack variable,
                 or None if the original location could not be found.
         """
+        # TODO: Consider refactoring.
+
         # Pull either the first seen loaded address or last seen stack variable.
         if idc.is_loaded(addr):
             return None, addr
         ip = None
-        if addr in self.stack_variables:
-            stack_var = self.stack_variables[addr]
-        else:
-            stack_var = None
+
+        var = self.variables.get(addr, None)
         for ip, ea in reversed(self.get_pointer_history(addr)):
             if idc.is_loaded(ea):
                 return ip, ea
-            if ea in self.stack_variables:
-                stack_var = self.stack_variables[ea]
-        return ip, stack_var
+            var = self.variables.get(ea, var)
+
+        if var and var.is_stack:
+            return ip, (var.frame_id, var.stack_offset)
+        else:
+            return ip, None
 
     # TODO: We should be recording local and global variables and their values.
     #   This will most likely require us making a "Variable" object similar
@@ -718,6 +422,9 @@ class ProcessorContext(object):
         :param ea_or_stack_tuple: ea address or tuple containing: (frame_id, stack_offset)
         :return: string of name or None
         """
+        warnings.warn(
+            'get_variable_name() is deprecated. Please use .variables attribute instead.', DeprecationWarning)
+
         if isinstance(ea_or_stack_tuple, tuple):
             frame_id, stack_offset = ea_or_stack_tuple
             member_id = idc.get_member_id(frame_id, stack_offset)

@@ -7,11 +7,15 @@ All notable changes to this project will be documented in this file.
 - *function_tracing:*
     - Added `base_addr` attribute to `Operand` object. This attribute is the referenced memory address of an operand minus any indexing.
         (e.g. The `ebp+var_8` from `[ebp+ecx*2+var_8]`)
+    - Added `variables` attribute to cpu context. This object can be used to query variables that have been
+    encountered during emulation.
 - Added `api_calls` attribute to `SuperFunc_t`. This attribute is a `collections.Counter` dictionary
 containing the names of API function calls found in the function and the number of times they appear.
+- `StackStringNG` decoder which uses `function_tracing` to extract stack strings.
 
 ### Changed
 - Alternative IDA installation directory can now be provided with the `IDA_DIR` environment variable.
+- Improved speed of CPU emulation.
 
 ### Fixed
 - *function_tracing:*
@@ -20,6 +24,10 @@ containing the names of API function calls found in the function and the number 
     - Removed `__alloca_probe` function hook since it was producing an incorrect return value and is no longer required.
     - Fixed incorrect overflow flag calculation in some opcodes.
     - Fixed incorrect "sib" scale in operand displacement calculation.
+    - Emulating paths with parent blocks at an address greater than itself is now fully supported.
+    
+### Deprecated
+- `ProcessorContext.get_variable_name()` is deprecated in favor of using the new `variables` attribute.
 
 
 ## [1.5.0] - 2019-06-20

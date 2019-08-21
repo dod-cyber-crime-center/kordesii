@@ -350,6 +350,31 @@ def get_function_name(func_ea):
     return func_name
 
 
+def is_func_ptr(offset):
+    """Returns true if the given offset is a function pointer."""
+    # Sometimes we will get a really strange issue where the IDA disassember has set a type for an
+    # address that should not have been set during our course of emulation.
+    # Therefore, before attempting to use get_function_data() to test if it's a function pointer,
+    # first see if guess_type() will return None while is_loaded() is true.
+    # If it doesn't, we know that it shouldn't be a function pointer.
+    # (plus it saves on time)
+    # TODO: Determine if we could have false negatives.
+    try:
+        if idc.is_loaded(offset) and not idc.guess_type(offset):
+            return False
+    except TypeError:
+        return False
+    try:
+        get_function_data(offset)
+        return True
+    except RuntimeError:
+        return False
+    except Exception as e:
+        # If we get any other type of exception raise a more friendly error message.
+        raise FunctionTracingError(
+            'Failed to retrieve function data from {!r}: {}'.format(offset, e))
+
+
 def convert_reg(reg_name, width):
     """Convert given register name to the register name for the provided width (eg: conver_reg(eax, 8) -> rax)"""
     reg_idx = ida_idp.str2reg(reg_name)
