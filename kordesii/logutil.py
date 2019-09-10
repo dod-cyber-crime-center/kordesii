@@ -1,23 +1,25 @@
 """
 IDA logging utility.
 """
+from __future__ import print_function
+
+import copy
 import errno
 import inspect
 import logging
 import logging.config
 import logging.handlers
-import multiprocessing as mp
 import os
 import struct
 import sys
 import threading
 import warnings
-
-import yaml
-from six.moves import socketserver, cPickle as pickle
+from collections import deque
 
 import kordesii
 import kordesii.config as kordesii_config
+import yaml
+from six.moves import socketserver, cPickle as pickle
 
 
 class LevelCharFilter(logging.Filter):
@@ -67,6 +69,56 @@ class MPRotatingFileHandler(logging.handlers.RotatingFileHandler):
         except OSError as e:
             if not (sys.platform == 'win32' and e.errno == errno.EACCES):
                 raise
+
+
+class ListHandler(logging.Handler):
+    """
+    Log to a list, with an optional maximum number of records to store.
+
+    Full records are available with the `records` property, and messages (i.e.
+    the text of the log entry) at available with the `messages` property.
+    """
+
+    def __init__(self, entries=None):
+        """
+        Behaves essentially identical to any other handler.
+
+        The only option is max_entries, to specify the max number of log
+        entries kept. By default, no limit.
+
+        :param int entries: Maximum number of records to store.
+        """
+        super(ListHandler, self).__init__()
+
+        self._deque = deque(maxlen=entries)
+
+    def __copy__(self):
+        new_handler = ListHandler()
+        # Actually copy the deque, otherwise we'll get double entries
+        new_handler._deque = copy.copy(self._deque)
+        return new_handler
+
+    def emit(self, record):
+        msg = self.format(record)
+        record.formatted_msg = msg
+        self._deque.append(record)
+
+    def clear(self):
+        return self._deque.clear()
+
+    @property
+    def records(self):
+        """
+        List of the last `max_entries` records logged.
+        """
+        return list(self._deque)
+
+    @property
+    def messages(self):
+        """
+        List of the last `max_entries` formatted messages logged.
+        """
+        return [record.formatted_msg for record in self._deque]
 
 
 class LogRecordStreamHandler(socketserver.StreamRequestHandler):

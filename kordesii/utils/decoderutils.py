@@ -205,6 +205,26 @@ class SuperFunc_t(object):
         """
         return bool(self.function_obj.flags & idc.FUNC_LIB)
 
+    @property
+    def calls_to(self):
+        """Iterates addresses that call this function."""
+        for ea in self.xrefs_to:
+            if idc.print_insn_mnem(ea) == 'call':
+                yield ea
+
+    @property
+    def callers(self):
+        """Iterates SuperFunc_t objects that call this function."""
+        cache = set()
+        for ea in self.calls_to:
+            try:
+                func = SuperFunc_t(ea)
+            except AttributeError:
+                continue
+            if func.name not in cache:
+                yield func
+                cache.add(func.name)
+
 
 def iter_functions():
     """Iterates all the functions in the sample."""
@@ -437,11 +457,14 @@ class EncodedString(object):
             idc.set_cmt(self.dest, comment, 1)
 
         # Set variable name
+        # To follow IDA conventions, the decoded string itself will be prefixed with 'a'
+        # If a destination was provided, don't include any prefix, because this
+        # is usually for resolved API functions.
         name = name[:self._MAX_NAME_LENGTH]
         if self.string_location is not None:
-            ida_name.force_name(self.string_location, name)
+            ida_name.force_name(self.string_location, 'a' + name)
         if self.dest is not None:
-            ida_name.force_name(self.dest, '_dest_' + name)
+            ida_name.force_name(self.dest, name)
 
     def patch(self, fill_char=None, define=True):
         """
@@ -757,6 +780,9 @@ class EncodedStackString(EncodedString):
             var_name = 'a' + var_name.capitalize()
             idc.set_member_name(self.frame_id, self.stack_offset, var_name)
 
+        if self.dest is not None:
+            ida_name.force_name(self.dest, name)
+
         # Add a comment where the string is being used.
         if self.string_reference:
             idc.set_cmt(self.string_reference, comment, 1)
@@ -764,6 +790,35 @@ class EncodedStackString(EncodedString):
     def patch(self, fill_char=None, define=True):
         """Does nothing, patching is not a thing for stack strings."""
         return self
+
+
+
+RAX_FAM = ['rax', 'eax', 'ax', 'ah', 'al']
+
+
+def find_destination(start, instruction_limit=None):
+    """
+    Finds the destination address for returned eax register.
+
+    :param int start: Starting address to start looking
+    :param int instruction_limit: Limit the number of instructions to traverse before giving up.
+        Defaults to searching until the end of the function.
+
+    :return: destination address or None if address couldn't be found or is not a loaded address.
+    """
+    count = 0
+    func = SuperFunc_t(start)
+    for ea in func.heads(start):
+        count += 1
+        if instruction_limit is not None and count > instruction_limit:
+            return None
+
+        if idc.print_insn_mnem(ea) == 'mov' and idc.print_operand(ea, 1) in RAX_FAM:
+            if idc.get_operand_type(ea, 0) == idc.o_mem:
+                return idc.get_operand_value(ea, 0)
+            else:
+                return None
+    return None
 
 
 class StringTracer(object):

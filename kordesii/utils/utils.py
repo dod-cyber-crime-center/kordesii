@@ -10,8 +10,14 @@ import itertools
 import re
 import numbers
 import logging
+import warnings
+
+from six.moves import range
 
 import idaapi
+import ida_entry
+import ida_funcs
+import ida_nalt
 import idc
 import idautils
 
@@ -36,6 +42,7 @@ class IterApis(object):
     :param api_addrs: Dictionary of API names and offsets
     """
     def __init__(self, module_name, target_api_names=None):
+        warnings.warn('IterApis is deprecated. Please use iter_imports() instead.', DeprecationWarning)
         self.module_name = module_name
         if target_api_names:
             self.target_api_names = target_api_names[:]
@@ -75,7 +82,7 @@ class IterApis(object):
         :return:
         """
         for api_name in api_names:
-            addr = obtain_function_by_name(api_name)
+            addr = get_function_addr(api_name)
             if addr != idc.BADADDR:
                 self.api_addrs[api_name] = addr
             else:
@@ -127,6 +134,164 @@ class IterApis(object):
         self._processed = True
 
 
+def iter_imports(module_name=None, api_names=None):
+    """
+    Iterate the thunk function wrappers for API imports.
+    Yields the module name, function name, and reference to function.
+
+    .. code_block:: python
+
+        for ea, name, module_name in utils.iter_imports():
+            print("{}.{} function at: 0x{:0x}".format(module_name, name, ea))
+
+        for ea, name, _ in utils.iter_imports("KERNEL32"):
+            print("KERNEL32.{} function at: {}".format(name, ea))
+
+        for ea, name, module_name in utils.iter_imports(api_names=["GetProcAddress", "GetFileSize"]):
+            print("{}.{} function at: {}".format(module_name, name, ea))
+
+        for ea, _, _ in utils.iter_imports("KERNEL32", "GetProcAddress"):
+            print("KERNEL32.GetProcAddress function at: {}".format(ea))
+
+    NOTE: The same function name can be yield more than once if it
+    appears in multiple modules or has multiple thunk wrappers.
+
+    Name is the original import name and does not necessarily reflect the function name.
+    e.g. "GetProcAddress", "GetProcAddress_0", and "GetProcAddress_1" will all be "GetProcAddress"
+
+    :param module_name: Filter imports to a specified library.
+    :param api_names: Filter imports to specific API name(s).
+        Can be a string of a single name or list of names.
+
+    :yield: (ea, api_name, module_name)
+    """
+    if isinstance(api_names, str):
+        api_names = [api_names]
+
+    for i in range(ida_nalt.get_import_module_qty()):
+        _module_name = ida_nalt.get_import_module_name(i)
+        if not _module_name:
+            continue
+        if module_name and module_name.lower() != _module_name.lower():
+            continue
+
+        entries = []
+        target_set = set(api_names) if api_names else None
+
+        def callback(ea, name, ordinal):
+            if name:
+                # Sometimes IDA includes "__imp_" to the front of the name.
+                # Strip this off to be more consistent to what you would see in the GUI.
+                if name.startswith("__imp_"):
+                    name = name[6:]
+
+                # Collect name if matches filter or if no filter set.
+                if target_set and name in target_set:
+                    entries.append((ea, name))
+                    target_set.remove(name)
+                    if not target_set:
+                        # Found all targeted function names. stop enumeration.
+                        return False
+                elif not api_names:
+                    entries.append((ea, name))
+            return True  # continue enumeration
+
+        ida_nalt.enum_import_names(i, callback)
+
+        for ea, name in entries:
+            # Yield thunk wrapper functions if they exists.
+            for xref in idautils.XrefsTo(ea):
+                func = ida_funcs.get_func(xref.frm)
+                if not func:
+                    continue
+                if func.flags & ida_funcs.FUNC_THUNK:
+                    yield xref.frm, name, _module_name
+
+            # Yield reference in data segment signature
+            # (yielding after thunks, since those are more likely to be used)
+            yield ea, name, _module_name
+
+
+def iter_exports():
+    """
+    Iterate API exports.
+
+    :yield: (ea, name)
+    """
+    for i in range(ida_entry.get_entry_qty()):
+        ordinal = ida_entry.get_entry_ordinal(i)
+        ea = ida_entry.get_entry(ordinal)
+        name = ida_entry.get_entry_name(ordinal)
+        yield ea, name
+
+
+def iter_functions(func_names=None):
+    """
+    Iterate all defined functions and yield their address and name.
+    (This includes imported functions)
+
+    :param func_names: Filter based on specific function names.
+
+    :yield: (ea, name)
+    """
+    if isinstance(func_names, str):
+        func_names = [func_names]
+
+    # Yield declared functions.
+    for ea in idautils.Functions():
+        name = idc.get_func_name(ea)
+        if not func_names or name in func_names:
+            yield ea, name
+
+    # Also yield from imported.
+    for ea, name, _ in iter_imports(api_names=func_names):
+        yield ea, name
+
+
+def get_import_addr(api_name, module_name=None):
+    """
+    Returns the first instance of a function that wraps the given API name.
+
+    .. code_block:: python
+
+        proc_func_ea = get_import_addr("GetProcAddress")
+
+    :param api_name: Name of API
+    :param module_name: Library of API
+
+    :returns: Address of function start or None if not found.
+    """
+    for ea, _, _ in iter_imports(module_name, api_name):
+        return ea
+
+
+def get_export_addr(export_name):
+    """
+    Return the location of an export by name
+
+    :param export_name: Target export
+
+    :return: Location of target export or None
+    """
+    for ea, name in iter_exports():
+        if name == export_name:
+            return ea
+
+
+def get_function_addr(func_name):
+    """
+    Obtain a function in the list of functions for the application by name.
+    Supports using API resolved names if necessary.
+
+    :param func_name: Name of function to obtain
+
+    :return: start_ea of function or None
+    """
+    for ea, _ in iter_functions(func_name):
+        return ea
+
+
+
 # TODO: Use SuperFunc_t.heads() instead.
 def lines(start=None, end=None, reverse=False, max_steps=None):
     """
@@ -138,6 +303,8 @@ def lines(start=None, end=None, reverse=False, max_steps=None):
     :param max_steps: If set, iteration will stop after the given number of steps.
     :yields: instructions addresses
     """
+    warnings.warn('This function is deprecated. Please use SuperFunc_t.heads() instead.', DeprecationWarning)
+
     max_ea = idaapi.cvar.inf.maxEA
     min_ea = idaapi.cvar.inf.minEA
 
@@ -180,15 +347,15 @@ class Segments(object):
     """
     def __init__(self):
         self.segments = {}
-    
+
     def _get_segment_bytes(self, start, end):
         """
         Obtain segment bytes, setting non-loaded bytes to NULL
-        
+
         :param int start: segment start EA
-        
+
         :param int end: segment end EA
-        
+
         :return string: bytes contained in segment
         """
         # Reconstruct the segment, account for bytes which are not loaded.
@@ -311,7 +478,7 @@ class IDA_re(object):
 
         else:
             segments = idautils.Segments()
-            
+
         for segment in segments:
             yield segment, _segments.segment_bytes(segment)
 
@@ -351,31 +518,3 @@ class IDA_re(object):
             matches.extend(self._re.findall(seg_bytes))
 
         return matches
-
-
-def obtain_function_by_name(func_name):
-    """
-    Obtain a function in the list of functions for the application by name, or idc.BADADDR.
-
-    :param func_name: Name of function to obtain
-
-    :return: start_ea of function or idc.BADADDR
-    """
-    for func in idautils.Functions():
-        if func_name == idc.get_func_name(func):
-            return func
-    return idc.BADADDR
-
-
-def obtain_export_by_name(export_name):
-    """
-    Iterate the entry points to identify the location of an export by name
-
-    :param export_name: Target export
-
-    :return: Location of target export or idc.BADADDR
-    """
-    for (i, ordinal, ea, name) in idautils.Entries():
-        if name == export_name:
-            return ea
-    return idc.BADADDR

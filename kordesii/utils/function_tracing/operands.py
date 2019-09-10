@@ -125,7 +125,8 @@ class Operand(object):
     @property
     def has_register(self):
         """True if the operand contains a register."""
-        return self.type in (idc.o_reg, idc.o_displ, idc.o_phrase)
+        return self.type in (
+            idc.o_reg, idc.o_displ, idc.o_phrase, idc.o_fpreg, idc.o_trreg, idc.o_creg, idc.o_dbreg)
 
     @property
     def is_immediate(self):
@@ -268,7 +269,7 @@ class Operand(object):
             value = self._cpu_context.registers[self.text]
             # Record reference if register is a variable address.
             if value in self._cpu_context.variables:
-                self._cpu_context.variables[value].references.add(self.ip)
+                self._cpu_context.variables[value].add_reference(self.ip)
             return value
 
         # TODO: Determine if this is still necessary.
@@ -286,7 +287,7 @@ class Operand(object):
 
             # Record referenc if address is a variable address.
             if addr in self._cpu_context.variables:
-                self._cpu_context.variables[addr].references.add(self.ip)
+                self._cpu_context.variables[addr].add_reference(self.ip)
 
             # If a function pointer, we want to return the address.
             # This is because a function may be seen as a memory reference, but we don't

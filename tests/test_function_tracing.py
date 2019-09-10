@@ -268,6 +268,81 @@ def test_memory():
 
 
 @pytest.mark.in_ida
+def test_registers():
+    """Tests registers"""
+    from kordesii.utils.function_tracing.cpu_context import ProcessorContext
+    from kordesii.utils.function_tracing.registers import Register
+
+    # Basic register tests.
+    reg = Register(8, rax=0xFFFFFFFFFFFFFFFF, eax=0xFFFFFFFF, ax=0xFFFF, al=0xFF, ah=0xFF00)
+    assert sorted(reg.names) == ['ah', 'al', 'ax', 'eax', 'rax']
+    assert reg.rax == 0
+    assert reg.ax == 0
+    assert reg['rax'] == 0
+    assert reg['ax'] == 0
+    reg.ah = 0x23
+    assert reg.ah == 0x23
+    assert reg.al == 0x00
+    assert reg.ax == 0x2300
+    assert reg.eax == 0x00002300
+    reg.eax = 0x123
+    assert reg.ah == 0x01
+    assert reg.al == 0x23
+    assert reg.rax == 0x0000000000000123
+
+    context = ProcessorContext.from_arch()
+    registers = context.registers
+
+    # Test getting all register names.
+    assert sorted(registers.names) == [
+        'ac', 'af', 'ah', 'al', 'ax', 'b', 'bh', 'bl', 'bp', 'bpl', 'bx',
+        'c0', 'c1', 'c2', 'c3', 'cf', 'ch', 'cl', 'cs', 'cx', 'd', 'df',
+        'dh', 'di', 'dil', 'dl', 'dm', 'ds', 'dx', 'eax', 'ebp', 'ebx',
+        'ecx', 'edi', 'edx', 'es', 'esi', 'esp', 'fs', 'gs', 'i', 'ic',
+        'id', 'iem', 'if', 'im', 'iopl', 'ir', 'nt', 'o', 'of', 'om', 'p',
+        'pc', 'pf', 'pm', 'r10', 'r10b', 'r10d', 'r10w', 'r11', 'r11b',
+        'r11d', 'r11w', 'r12', 'r12b', 'r12d', 'r12w', 'r13', 'r13b', 'r13d',
+        'r13w', 'r14', 'r14b', 'r14d', 'r14w', 'r15', 'r15b', 'r15d', 'r15w',
+        'r8', 'r8b', 'r8d', 'r8w', 'r9', 'r9b', 'r9d', 'r9w', 'rax', 'rbp',
+        'rbx', 'rc', 'rcx', 'rdi', 'rdx', 'rf', 'rip', 'rsi', 'rsp', 'sf',
+        'sf', 'si', 'sil', 'sp', 'spl', 'ss',
+        'st', 'st0', 'st1', 'st2', 'st3', 'st4', 'st5', 'st6', 'st7',
+        'tag0', 'tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6', 'tag7',
+        'tf', 'top', 'u', 'um', 'vif', 'vip', 'vm',
+        'xmm0', 'xmm1', 'xmm10', 'xmm11', 'xmm12', 'xmm13', 'xmm14', 'xmm15',
+        'xmm2', 'xmm3', 'xmm4', 'xmm5', 'xmm6', 'xmm7', 'xmm8', 'xmm9',
+        'z', 'zf', 'zm',
+    ]
+    # Test getting register names for FPU.
+    assert sorted(registers.fpu.names) == [
+        'b', 'c0', 'c1', 'c2', 'c3', 'd', 'dm', 'i', 'ic', 'iem', 'im', 'ir',
+        'o', 'om', 'p', 'pc', 'pm', 'rc', 'sf',
+        'st', 'st0', 'st1', 'st2', 'st3', 'st4', 'st5', 'st6', 'st7',
+        'tag0', 'tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6', 'tag7',
+        'top', 'u', 'um', 'z', 'zm'
+    ]
+
+    # Test FPU registers.
+    # TODO: Add tests for flags
+    assert registers.st0 is None
+    assert registers['st0'] is None
+    assert registers.fpu.st0 is None
+    assert registers.fpu['st0'] is None
+    registers.fpu.push(-12.3)
+    assert registers.st0 == -12.3
+    assert registers.st1 is None
+    registers.fpu.push(34)
+    assert registers.st0 == 34
+    assert registers.st1 == -12.3
+    registers.fpu.pop()
+    assert registers.st0 == -12.3
+    assert registers.st1 is None
+    registers.fpu.push(registers.fpu.INFINITY)
+    assert registers.st0 == registers.fpu.INFINITY
+    assert registers.st1 == -12.3
+
+
+@pytest.mark.in_ida
 def test_builtin_funcs():
     """Tests the emulated builtin_funcs."""
     from kordesii.utils import function_tracing
@@ -279,6 +354,7 @@ def test_builtin_funcs():
 
     # test strcat
     context = ProcessorContext.from_arch()
+    assert context.ARCH_NAME == 'metapc'
     context.memory.write(src, b'world')
     context.memory.write(dst, b'hello')
     assert builtin_funcs.strcat(context, 'strcat', [dst, src]) == dst
@@ -355,3 +431,76 @@ def test_builtin_funcs():
         context = ProcessorContext.from_arch()
         context.memory.write(src, u'hello'.encode(encoding))
         assert builtin_funcs.strlen(context, 'wcslen', [src]) == 5
+
+
+@pytest.mark.in_ida
+def test_function_signature():
+    """Tests FunctionSignature object."""
+    import idc
+    from kordesii.utils import function_tracing
+    from kordesii.utils import decoderutils
+
+    xor_func_ea = 0x00401000
+    tracer = function_tracing.get_tracer(xor_func_ea)
+
+    # Basic tests.
+    context = tracer.context_at(xor_func_ea)
+    func_sig = context.get_function_signature(func_ea=xor_func_ea)
+    assert func_sig.declaration == '_BYTE *__cdecl sub_401000(_BYTE *a1, char a2);'
+    assert func_sig.arg_types == ('_BYTE * a1', 'char a2')
+    args = func_sig.args
+    assert len(args) == 2
+    assert args[0].name == 'a1'
+    assert args[0].type == '_BYTE *'
+    assert args[0].value == 0
+    assert args[1].name == 'a2'
+    assert args[1].type == 'char'
+    assert args[1].value == 0
+
+    # Test that we can manipulate signature.
+    func_sig.arg_types += ('int new_arg', )
+    assert func_sig.declaration == '_BYTE *__cdecl sub_401000(_BYTE *a1, char a2, int new_arg);'
+    args = func_sig.args
+    assert len(args) == 3
+    assert args[2].name == 'new_arg'
+    assert args[2].type == 'int'
+    assert args[2].value == 0
+
+    # Now test using iter_function_args
+
+    # First force an incorrect number of arguments.
+    idc.SetType(xor_func_ea, ' _BYTE *__cdecl sub_401000(_BYTE *a1)')
+    func = decoderutils.SuperFunc_t(xor_func_ea)
+
+    # Then test we can force 2 arguments anyway.
+    results = []
+    for ea in func.calls_to:
+        tracer = function_tracing.get_tracer(ea)
+        for context in tracer.iter_context_at(ea):
+            # The function signature only gives 1 argument now.
+            func_sig = context.get_function_signature()
+            assert len(func_sig.args) == 1
+            # But we force 2.
+            args = context.get_function_args(num_args=2)
+            assert len(args) == 2
+            results.append(args)
+    assert results == [
+        [4243456, 1],
+        [4243472, 2],
+        [4243500, 3],
+        [4243548, 4],
+        [4243584, 5],
+        [4243616, 6],
+        [4243652, 19],
+        [4243696, 23],
+        [4243732, 26],
+        [4243744, 35],
+        [4243760, 39],
+        [4243768, 64],
+        [4243776, 70],
+        [4243804, 115],
+        [4243828, 117],
+        [4243868, 119],
+        [4243908, 122],
+        [4243960, 127],
+    ]

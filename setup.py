@@ -36,10 +36,10 @@ setup(
     entry_points={
         'console_scripts': [
             'kordesii = kordesii.cli:main',
-            'kordesii-tool = kordesii.tools.kordesii_tool:main',
-            'kordesii-client = kordesii.tools.kordesii_client:main',
-            'kordesii-server = kordesii.tools.kordesii_server:main',
-            'kordesii-test = kordesii.tools.kordesii_test:main'
+            'kordesii-tool = kordesii.tools.tool:main',       # DEPRECATED
+            'kordesii-client = kordesii.tools.client:main',   # DEPRECATED
+            'kordesii-server = kordesii.tools.server:main',   # DEPRECATED
+            'kordesii-test = kordesii.tools.test:main'        # DEPRECATED
         ],
         'kordesii.decoders': [
             'kordesii = kordesii.decoders',
@@ -61,6 +61,10 @@ setup(
         'yara-python',
         'ruamel.yaml',
         'six',
+
+        # For the server and API
+        'flask~=1.1.0',
+        'pygments~=2.2.0',
 
         # Testing
         'pytest',

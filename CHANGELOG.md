@@ -7,15 +7,31 @@ All notable changes to this project will be documented in this file.
 - *function_tracing:*
     - Added `base_addr` attribute to `Operand` object. This attribute is the referenced memory address of an operand minus any indexing.
         (e.g. The `ebp+var_8` from `[ebp+ecx*2+var_8]`)
-    - Added `variables` attribute to cpu context. This object can be used to query variables that have been
-    encountered during emulation.
-- Added `api_calls` attribute to `SuperFunc_t`. This attribute is a `collections.Counter` dictionary
-containing the names of API function calls found in the function and the number of times they appear.
+    - Added `variables` attribute to `ProcessorContext`. This object can be used to query variables that have been
+    encountered during emulation. (See [documentation](docs/CPUEmulation.md#variables) for more information.)
+    - Added initial support for x87 FPU registers and opcodes which involve loading, storing, and computing floating point numbers (e.g. FLD, FST, FADD)
+        - Warning: Internal opcodes like FLDENV and FSAVE as well as proper handling of rounding and stack faults are not fully supported.
+    - Added `callers` and `calls_to` properties to `SuperFunc_t`. 
+        - These can be use to get the functions that call the given function and the addresses where the given function is called respectively.
+    - Added `api_calls` property to `SuperFunc_t` which returns a `collections.Counter` object that contains API function names and the number of times they are called in the given function.
+    - Added `num_args` parameter to `*_function_args()` functions which allows the user to force a specific
+        number of arguments. 
+        Extra arguments not detected by the disassmbler will be assumed to be "int" type.
+    - Added `get_function_signature()` function to `ProcessorContext`, which returns a `FunctionSignature`
+        object that allows for modification of the function signature before pulling argument values.
+        (See [documentation](docs/CPUEmulation.md#modifying-function-signature) for more information.)
 - `StackStringNG` decoder which uses `function_tracing` to extract stack strings.
+- Added `iter_imports()`, `iter_exports()`, and `get_import_addr()` functions to `kordesii.utils.utils`.
+
 
 ### Changed
 - Alternative IDA installation directory can now be provided with the `IDA_DIR` environment variable.
 - Improved speed of CPU emulation.
+- kordesii server is now implemented with Flask instead of Bottle.
+    - If using the server as a WSGI app, the app instance must be created with
+      the factory function `kordesii.tools.server.create_app()`.
+- Renamed `obtain_export_by_name()` to `get_export_addr()`
+- Renamed `obtain_function_by_name()` to `get_function_addr()`
 
 ### Fixed
 - *function_tracing:*
@@ -25,9 +41,12 @@ containing the names of API function calls found in the function and the number 
     - Fixed incorrect overflow flag calculation in some opcodes.
     - Fixed incorrect "sib" scale in operand displacement calculation.
     - Emulating paths with parent blocks at an address greater than itself is now fully supported.
+- The `error` key in the API results now correctly contains a list of strings.
     
 ### Deprecated
 - `ProcessorContext.get_variable_name()` is deprecated in favor of using the new `variables` attribute.
+- The `error` key in the API results now correctly contains a list of strings.
+- The `IterApis()` class is deprecated in favor of using `iter_imports()` or `iter_functions()`.
 
 
 ## [1.5.0] - 2019-06-20

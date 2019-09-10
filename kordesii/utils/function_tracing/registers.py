@@ -52,14 +52,12 @@ class Register(object):
                     shift += 1
             _masks[name.lower()] = (mask, shift)
         self_dict['_masks'] = _masks
-        self_dict['names'] = _masks.keys()
 
     def __deepcopy__(self, memo):
         copy = Register(self.size)
         memo[id(self)] = copy
         copy_dict = copy.__dict__
         copy_dict['_masks'] = dict(self._masks)
-        copy_dict['names'] = copy._masks.keys()
         copy_dict['_value'] = self._value
         return copy
 
@@ -90,6 +88,10 @@ class Register(object):
     def __contains__(self, reg_name):
         return reg_name.lower() in self._masks
 
+    @property
+    def names(self):
+        return self._masks.keys()
+
 
 class RegisterMap(object):
     """
@@ -105,7 +107,11 @@ class RegisterMap(object):
         """
         self_dict = self.__dict__
         self_dict['_registers'] = registers
+        self_dict['_reg_map'] = self._build_reg_map(registers)
 
+    @staticmethod
+    def _build_reg_map(registers):
+        """Builds and returns a dictionary mapping register names to their respective Register object."""
         # Build a hash table mapping member names to registers.
         # (This also validates that we have no collisions while we are at it.)
         reg_map = {}
@@ -114,11 +120,17 @@ class RegisterMap(object):
                 if name in reg_map:
                     raise RuntimeError('Duplicate register name: {}'.format(name))
                 reg_map[name] = register
-        self_dict['_reg_map'] = reg_map
-        self_dict['names'] = reg_map.keys()
+        return reg_map
 
     def __deepcopy__(self, memo):
-        return RegisterMap([deepcopy(reg, memo) for reg in self._registers])
+        copy = self.__new__(self.__class__)
+        memo[id(self)] = copy
+
+        copy_dict = copy.__dict__
+        copy_dict['_registers'] = [deepcopy(reg, memo) for reg in self._registers]
+        copy_dict['_reg_map'] = self._build_reg_map(copy._registers)
+
+        return copy
 
     def __getattr__(self, reg_name):
         reg_name = reg_name.lower()
@@ -141,3 +153,7 @@ class RegisterMap(object):
 
     def __setitem__(self, reg_name, value):
         self.__setattr__(reg_name, value)
+
+    @property
+    def names(self):
+        return self._reg_map.keys()

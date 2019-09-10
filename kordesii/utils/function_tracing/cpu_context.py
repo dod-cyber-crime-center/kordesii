@@ -23,6 +23,7 @@ from kordesii.utils.function_tracing.constants import *
 from kordesii.utils.function_tracing.memory import Memory
 from kordesii.utils.function_tracing.variables import VariableMap
 from kordesii.utils.function_tracing.operands import Operand, OperandLite
+from kordesii.utils.function_tracing.functions import FunctionSignature
 
 
 logger = logging.getLogger(__name__)
@@ -514,7 +515,24 @@ class ProcessorContext(object):
 
         raise ValueError('Invalid data_type: {!r}'.format(data_type))
 
-    def get_function_args(self, func_ea=None):
+    def get_function_signature(self, func_ea=None):
+        """
+        Returns the function signature of the given func_ea with argument values pulled
+        from this context.
+
+        :param func_ea: address of the function to pull signature from.
+            The first operand is used if not provided. (helpful for a "call" instruction)
+        :return: FunctionSignature object
+        """
+        # If func_ea is not given, assume we are using the first operand from a call instruction.
+        if not func_ea:
+            operand = self.operands[0]
+            # function pointer can be a memory reference or immediate.
+            func_ea = operand.addr or operand.value
+
+        return FunctionSignature(self, func_ea)
+
+    def get_function_args(self, func_ea=None, num_args=None):
         """
         Returns the function argument values for this context based on the
         given function.
@@ -523,63 +541,23 @@ class ProcessorContext(object):
         >>> args = cpu_context.get_function_args(0x180011772)
 
         :param int func_ea: Ea of the function to pull a signature from.
+        :param int num_args: Force a specific number of arguments.
+            If not provided, number of arguments is determined by the disassembler.
+            Extra arguments not defined by the disassembler are assumed to be 'int' type.
+            Use get_function_signature() and adjust the FunctionSignature manually
+            if more customization is needed.
 
         :returns: list of function arguments
         """
-        # If func_ea is not given, assume we are using the first operand from a call instruction.
-        if not func_ea:
-            operand = self.operands[0]
-            # function pointer can be a memory reference or immediate.
-            func_ea = operand.addr or operand.value
+        func_sig = self.get_function_signature(func_ea)
 
-        # First get a func_type_data_t structure for the function
-        funcdata = utils.get_function_data(func_ea)
+        if num_args is not None:
+            if num_args < 0:
+                raise ValueError('num_args is negative')
+            arg_types = func_sig.arg_types
+            if len(arg_types) > num_args:
+                func_sig.arg_types = arg_types[:num_args]
+            elif len(arg_types) < num_args:
+                func_sig.arg_types = arg_types + ('int',) * (num_args - len(arg_types))
 
-        # Now use the data contained in funcdata to obtain the values for the arguments.
-        args = []
-        for i in range(funcdata.size()):
-            loc_type = funcdata[i].argloc.atype()
-            # Where was this parameter passed?
-            if loc_type == 0:  # ALOC_NONE, not sure what this means...
-                raise NotImplementedError("Argument {} location of type ALOC_NONE".format(i))
-            elif loc_type == 1:  # ALOC_STACK
-                # read the argument from the stack using the calculated stack offset from the disassembler
-                cur_esp = self.sp + funcdata[i].argloc.stkoff()
-                arg = self.mem_read(cur_esp, self.byteness)
-                args.append(utils.struct_unpack(arg))
-            elif loc_type == 2:  # ALOC_DIST, arguments described by multiple locations
-                # TODO: Uses the scattered_aloc_t class, which is a qvector or argpart_t objects
-                # funcdata[i].argloc.scattered()
-                raise NotImplementedError("Argument {} location of type ALOC_DIST".format(i))
-            elif loc_type == 3:  # ALOC_REG1, single register
-                arg = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg1()])
-                width = funcdata[i].type.get_size()
-                args.append(arg & utils.get_mask(width))
-            elif loc_type == 4:  # ALOC_REG2, register pair (eg: edx:eax [reg2:reg1])
-                # TODO: CURRENTLY UNTESTED
-                logger.info("Argument {} of untested type ALOC_REG2.  Verify results and report issues".format(i))
-                reg1_val = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg1()])
-                reg2_val = self.reg_read(utils.REG_MAP[funcdata[i].argloc.reg2()])
-                # TODO: Probably need to determine how to check the width of these register values in order to shift
-                #       the data accordingly.  Will likely need examples for testing/verification of functionality.
-                args.append(reg2_val << 32 | reg1_val)
-            elif loc_type == 5:  # ALOC_RREL, register relative (displacement from address pointed by register
-                # TODO: CURRENTLY UNTESTED
-                logger.info("Argument {} of untested type ALOC_RREL.  Verify results and report issues.".format(i))
-                # Obtain the register-relative argument location
-                rrel = funcdata[i].argloc.get_rrel()
-                # Extract the pointer value in the register
-                ptr_val = self.reg_read(utils.REG_MAP[rrel.reg])
-                # Get the offset
-                offset = rrel.off
-                args.append(ptr_val + offset)
-            elif loc_type == 6:  # ALOC_STATIC, global address
-                # TODO: CURRENTLY UNTESTED
-                logger.info("Argument {} of untested type ALOC_STATIC.  Verify results and report issues.".format(i))
-                args.append(funcdata[i].argloc.get_ea())
-            elif loc_type >= 7:  # ALOC_CUSTOM, custom argloc
-                # TODO: Will need to figure out the functionality and usage for the custloc_desc_t structure
-                # funcdata[i].argloc.get_custom()
-                raise NotImplementedError("Argument {} location of type ALOC_CUSTOM".format(i))
-
-        return args
+        return [arg.value for arg in func_sig.args]

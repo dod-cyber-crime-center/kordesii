@@ -7,10 +7,10 @@ Used for running and testing decoders.
 from __future__ import print_function, division
 
 import datetime
-import logging
 import glob
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
@@ -18,12 +18,9 @@ import timeit
 import traceback
 
 import click
-import six
-import tabulate
-
 import kordesii
+import tabulate
 from kordesii.tester import Tester
-
 
 logger = logging.getLogger('kordesii')
 
@@ -389,6 +386,23 @@ def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
         # Force ERROR level logs so we don't spam the console.
         logging.root.setLevel(logging.ERROR)
         _run_tests(tester, silent, show_passed)
+
+
+@main.command()
+@click.option('--host', default='127.0.0.1', show_default=True, help="The interface to bind to.")
+@click.option('--port', default=8081, show_default=True, help="The port to bind to.")
+@click.option(
+    '--debug', is_flag=True,
+    help="Show the interactive debugger if errors occur, and auto-reload on code changes.")
+def serve(host, port, debug):
+    """Run a server to handle parsing requests."""
+    from kordesii.tools import server
+
+    if debug:
+        os.environ['FLASK_ENV'] = 'development'
+
+    app = server.create_app()
+    app.run(host=host, port=port, use_reloader=False)
 
 
 if __name__ == '__main__':

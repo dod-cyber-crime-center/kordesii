@@ -62,7 +62,7 @@ to trigger execution of a particular DC3-Kordesii decoder.
 
 There are 2 options for integration of DC3-Kordesii:
 - CLI: `kordesii`
-- REST API based on wsgi/bottle: ```kordesii-server```, ```kordesii-client```
+- REST API: ```kordesii serve```
 
 ### CLI tool
 
@@ -126,12 +126,20 @@ The REST API provides two commonly used functions:
 * ```/run_decoder/<decoder>``` -- executes a decoder on uploaded file
 * ```/descriptions``` -- provides list of available parsers
 
-`kordesii-client` and the following curl commands demonstrate how to use this web service:
+To use, first start the server by running:
+```console
+> kordesii serve
+```
+
+The following curl commands demonstrate how to use this web service:
 ```console
 > curl --form data=@README.md http://localhost:8080/run_decoder/foo
 > curl http://localhost:8080/descriptions
 ```
 
+A simple HTML interface is also available at the same address.
+Individual samples can be submitted and results
+saved as JSON, plain text, or ZIP archives.
 
 ## Logging
 DC3-Kordesii uses Python's builtin in `logging` module to log all messages.

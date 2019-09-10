@@ -12,17 +12,13 @@ import idaapi
 import idc
 import ida_allins
 import ida_idp
+import ida_nalt
+import ida_typeinf
 
 from .exceptions import FunctionTracingError
 
 
 logger = logging.getLogger(__name__)
-
-
-REG_MAP = {0: 'rax', 1: 'rcx', 2: 'rdx',  3: 'rbx',  4: 'rsp',  5: 'rbp',  6: 'rsi',  7: 'rdi',
-           8: 'r8',  9: 'r9',  10: 'r10', 11: 'r11', 12: 'r12', 13: 'r13', 14: 'r14', 15: 'r15',
-           16: 'al', 17: 'cl', 18: 'dl',  19: 'bl',
-           20: 'ah', 21: 'ch', 22: 'dh',  23: 'bh',  24: 'spl', 25: 'bpl', 26: 'sil', 27: 'dil'}
 
 
 def signed(n, bit_width):
@@ -264,7 +260,7 @@ def get_function_data(offset):
     """
     global _func_types
 
-    tif = idaapi.tinfo_t()
+    tif = ida_typeinf.tinfo_t()
 
     try:
         func_type = idc.get_type(offset)
@@ -273,7 +269,7 @@ def get_function_data(offset):
 
     # First see if it's a type we already set before.
     if func_type and offset in _func_types:
-        idaapi.get_tinfo(tif, offset)
+        ida_nalt.get_tinfo(tif, offset)
 
     else:
         # Otherwise, try to use the Hexrays decompiler to determine function signature.
@@ -303,7 +299,7 @@ def get_function_data(offset):
         except RuntimeError:
             if func_type:
                 # If IDA's disassembler set it already, go with that.
-                idaapi.get_tinfo(tif, offset)
+                ida_nalt.get_tinfo(tif, offset)
             else:
                 # Otherwise try to pull it from guess_type()
                 guessed_type = idc.guess_type(offset)
@@ -319,10 +315,10 @@ def get_function_data(offset):
                     "\(", " {}(".format(func_name), "{};".format(guessed_type))
                 idc.SetType(offset, guessed_type)
                 # Try one more time to get the tinfo_t object
-                if not idaapi.get_tinfo(tif, offset):
+                if not ida_nalt.get_tinfo(tif, offset):
                     raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
 
-    funcdata = idaapi.func_type_data_t()
+    funcdata = ida_typeinf.func_type_data_t()
     if not tif.get_func_details(funcdata):
         raise RuntimeError("failed to obtain func_type_data_t object for offset 0x{:X}".format(offset))
 

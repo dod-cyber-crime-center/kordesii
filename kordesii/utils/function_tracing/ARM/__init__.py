@@ -4,7 +4,7 @@ Components for emulating an x86/x64 architecture.
 
 from ..cpu_context import ProcessorContext
 from ..registry import registrar
-from .registers import ARM_registers
+from .registers import ARM_Registers
 from .opcodes import OPCODES
 
 
@@ -22,7 +22,7 @@ class ARMProcessorContext(ProcessorContext):
 
     def __init__(self):
         super(ARMProcessorContext, self).__init__(
-            ARM_registers(),
+            ARM_Registers(),
             instruction_pointer='pc',
             stack_pointer='sp',
             stack_registers=['sp', 'wsp'],

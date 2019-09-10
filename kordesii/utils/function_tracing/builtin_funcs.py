@@ -19,6 +19,7 @@ def memmove(cpu_context, call_ip, func_name, func_args):
 
 """
 
+from contextlib import contextmanager
 import logging
 
 from . import utils
@@ -33,6 +34,47 @@ logger = logging.getLogger(__name__)
 # Dictionary containing builtin function names -> function
 BUILTINS = {}
 builtin_func = registrar(BUILTINS, name='builtin')
+
+# Collections of user defined hooks.
+_USER_DEFINED = None
+
+
+def get(func_name_or_start_ea):
+    """
+    Gets function hook for given function name or start address.
+
+    :param func_name_or_start_ea: Name or start address of the function to get hook for.
+
+    :return: A function to run.
+    :rtype: function
+    """
+    # Convert the string to lowercase so it can match the dictionary of built-in functions
+    if isinstance(func_name_or_start_ea, str):
+        func_name_or_start_ea = func_name_or_start_ea.lower()
+
+    # First check user defined hooks.
+    if _USER_DEFINED and func_name_or_start_ea in _USER_DEFINED:
+        return _USER_DEFINED[func_name_or_start_ea]
+
+    # Then pull from our builtins.
+    return BUILTINS.get(func_name_or_start_ea)
+
+
+@contextmanager
+def hooks(hooks):
+    """
+    Context manager used to temporarily set the given user defined function hooks
+    during emulation.
+
+    :param hooks: Dictionary of function names mapping to hook functions.
+    :return:
+    """
+    global _USER_DEFINED
+    try:
+        _USER_DEFINED = hooks
+        yield
+    finally:
+        _USER_DEFINED = None
 
 
 @builtin_func('_alloca')

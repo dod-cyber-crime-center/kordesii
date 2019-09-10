@@ -13,7 +13,8 @@ import idc
 
 from .constants import *
 from .flowchart import FlowChart
-from . import functions
+from . import builtin_funcs
+from .cpu_context import ProcessorContext
 
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class FunctionTracer(object):
         # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.
 
         for path_block in self.flowchart.get_paths(ea):
-            with functions.hooks(self._hooks):
+            with builtin_funcs.hooks(self._hooks):
                 if not depth:
                     yield path_block.cpu_context(ea)
                     continue
@@ -185,7 +186,7 @@ class FunctionTracer(object):
         for cpu_context, value in self.iter_operand_value(ea, index, depth=depth):
             return cpu_context, value
 
-    def iter_function_args(self, ea, depth=0, exhaustive=True):
+    def iter_function_args(self, ea, depth=0, exhaustive=True, num_args=None):
         """
         Given the EA of a function call, attempt to determine the number of arguments passed to the function and
         return those values to the caller.  Additionally, give back the context as well since it may be useful.
@@ -201,15 +202,18 @@ class FunctionTracer(object):
         :param bool exhaustive: If true, all paths for each depth is processed
             if false, only the first path for each depth is processed.
             (defaults to exhaustive)
+        :param int num_args: Force a specific number of arguments.
+            If not provided, number of arguments is determined by the disassembler.
+            Extra arguments not defined by the disassembler are assumed to be 'int' type.
 
         :yield tuple: (context at ea, list of function parameters passed to called function in order)
         """
         # Iterate all the paths leading up to ea
         for cpu_context in self.iter_context_at(ea, depth=depth, exhaustive=exhaustive):
             func_ea = cpu_context.operands[0].value
-            yield cpu_context, cpu_context.get_function_args(func_ea)
+            yield cpu_context, cpu_context.get_function_args(func_ea, num_args=num_args)
 
-    def get_function_args(self, ea, depth=0):
+    def get_function_args(self, ea, depth=0, num_args=None):
         """
         Simply calls iter_function_args with the provided ea and returns the first set of arguments.
 
@@ -221,10 +225,13 @@ class FunctionTracer(object):
         :param int ea: address containing the function call of interest
         :param int depth: Number of calls up the stack to pull context from.
             (defaults to 0, meaning a empty context will be generate at the top of the current function.)
+        :param int num_args: Force a specific number of arguments.
+            If not provided, number of arguments is determined by the disassembler.
+            Extra arguments not defined by the disassembler are assumed to be 'int' type.
 
         :return tuple: (context at ea, list of function parameters passed to called function in order)
         """
-        for cpu_context, args in self.iter_function_args(ea, depth=depth):
+        for cpu_context, args in self.iter_function_args(ea, depth=depth, num_args=num_args):
             return cpu_context, args
 
     def hook(self, name_or_start_ea, func):

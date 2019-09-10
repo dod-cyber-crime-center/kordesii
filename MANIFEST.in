@@ -3,3 +3,4 @@ include LICENSE.txt
 include CHANGELOG.md
 recursive-include kordesii/config *
 recursive-include kordesii/decoders/tests *
+graft kordesii/tools/server

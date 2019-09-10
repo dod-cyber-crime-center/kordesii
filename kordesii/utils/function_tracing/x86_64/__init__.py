@@ -2,9 +2,12 @@
 Components for emulating an x86/x64 architecture.
 """
 
+from copy import deepcopy
+
 from ..cpu_context import ProcessorContext
-from .registers import x86_64_registers
+from .registers import x86_64_Registers
 from .opcodes import OPCODES
+from . import fpu_opcodes  # trigger registration
 
 
 STACK_BASE = 0x1180000  # Base address for stack
@@ -21,7 +24,7 @@ class x86_64ProcessorContext(ProcessorContext):
 
     def __init__(self):
         super(x86_64ProcessorContext, self).__init__(
-            x86_64_registers(),
+            x86_64_Registers(),
             instruction_pointer='rip',
             stack_pointer='rsp',
             stack_registers=['rsp', 'esp', 'rbp', 'ebp']

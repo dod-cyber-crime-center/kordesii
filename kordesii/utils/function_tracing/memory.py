@@ -2,6 +2,7 @@
 Interface for memory management.
 """
 
+
 import idc
 import ida_segment
 
@@ -271,10 +272,12 @@ class Memory(object):
         if end and end_page_index == page_index:
             # Since we end in this page, don't attempt to read overlap.
             offset = page.find(value, page_offset, end_page_offset)
+            if offset <= -1:
+                return -1
             return page_index << 12 | offset
 
         offset = page.find(value, page_offset)
-        if offset != -1:
+        if offset > -1:
             return page_index << 12 | offset
 
         # If we can't find it, try again with part of the next page attached
@@ -288,7 +291,7 @@ class Memory(object):
 
         next_page = self._pages.get(page_index + 1, bytearray(self.PAGE_SIZE))
         offset = (page + next_page).find(value, _start, _end)
-        if offset != -1:
+        if offset > -1:
             return page_index << 12 | offset
         else:
             # Jump to the next mapped page to continue the search.

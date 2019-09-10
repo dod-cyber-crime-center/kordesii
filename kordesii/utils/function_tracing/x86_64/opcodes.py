@@ -31,7 +31,7 @@ import idautils
 
 from .. import utils
 from ..cpu_context import Operand
-from .. import functions
+from .. import builtin_funcs
 from ..registry import registrar
 
 
@@ -131,13 +131,13 @@ def CALL(cpu_context, ip, mnem, operands):
         cpu_context.func_calls[ip] = (func_name, args)
 
         # Emulate the effects of any known builtin functions.
-        func = functions.get(func_ea)
+        func = builtin_funcs.get(func_ea)
         if not func:
-            func = functions.get(func_name)
+            func = builtin_funcs.get(func_name)
             if not func:
                 # Try one more time with a sanitized name.
                 func_name = _sanitize_func_name(func_name)
-                func = functions.get(func_name)
+                func = builtin_funcs.get(func_name)
 
         if func:
             try:

@@ -2,7 +2,7 @@
 from ..registers import Register, RegisterMap
 
 
-def ARM_registers():
+def ARM_Registers():
     """Initializes registers for ARM architecture"""
     registers = [
         Register(8, x0=0xFFFFFFFFFFFFFFFF, w0=0xFFFFFFFF),

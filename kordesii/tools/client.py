@@ -10,7 +10,7 @@ import os
 import sys
 import urllib2
 import uuid
-
+import warnings
 
 USAGE = 'USAGE: kordesii-client [options] DECODER INPUT_FILE'
 
@@ -78,6 +78,7 @@ def main():
      - Optionally extract, decode, and write out the generated IDB.
      - List the written files to the console.
     """
+    warnings.warn('kordesii-client is deprecated.', DeprecationWarning)
     optparser = make_opt_parser()
     options, args = optparser.parse_args()
 

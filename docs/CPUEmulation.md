@@ -7,8 +7,10 @@ and trace instructions within a function.
 - [Creating a ProcessorContext](#creating-a-processorcontext)
 - [Iterating Multiple Paths](#iterating-multiple-paths)
 - [Emulating Call Stack](#emulating-call-stack)
+- [Modifying Function Signature](#modifying-function-signature)
 - [Hooking Functions](#hooking-functions)
-- [Getting Original Pointer Locations](#getting-original-pointer-locations)
+- [Pointer History](#pointer-history)
+- [Variables](#variables)
 
 ### Guides
 - [CPU Emulation](CPUEmulation.md)
@@ -98,7 +100,7 @@ for context, args in tracer.get_function_args(addr):
         value = context.mem_read(arg, size=100)
 ```
 
-### Iterating Multiple Paths
+## Iterating Multiple Paths
 
 If you would like to retrieve the context, operands, or function arguments for all possible code paths we can
 use the `iter_context_at()`, `iter_operand_value()` or `iter_function_args()` functions within the
@@ -121,7 +123,7 @@ for context, args in tracer.iter_function_args(addr):
     # ...    
 ```
 
-### Emulating Call Stack
+## Emulating Call Stack
 
 By default, when you request a context, operand, or function argument, the emulation will
 start at the top of the function for that tracer. If you would like to have the callers of that
@@ -151,6 +153,64 @@ for context in tracer.iter_context_at(addr, depth=1):
 context, args = tracer.context_at(addr, depth=1)
 ```
 
+
+## Modifying Function Signature
+
+When extracting function arguments, if the disassembler did not correctly determine the number of arguments, we
+can adjust the function signature beforehand through a variety of methods:
+
+```python
+import idc
+from kordesii.utils import function_tracing
+
+call_ea = 0x401049
+tracer = function_tracing.get_tracer(call_ea)
+
+# Disassember incorrectly determines the number of arguments, we need to modify the function signature.
+context = tracer.context_at(call_ea)
+args = context.get_function_args()  # len(args) == 1
+```
+
+1. Adjust the function type before tracing by calling `idc.SetType()`
+    - This forces the function in the IDB file to permanently contain this new signature if not changed back.
+    
+    ```python
+    idc.SetType(context.operands[0].value, '_BYTE *__cdecl sub_401000(_BYTE *a1, char a2)')
+    args = context.get_function_args()  # len(args) == 2
+    ```
+    
+2. Force a specific number of arguments using the `num_args` parameter on `*_function_args()` type functions.
+    - This forces any extra arguments that the disassembler doesn't detect as an "int" type.
+    - This does not affect the function type within the IDB file.
+    
+    ```python
+    args = context.get_function_args(num_args=2)  # len(args) == 2
+    ```
+    
+3. Use `get_function_signature()` on the context to retreive a `FunctionSignature` object that allows for modifying
+    the function signature before argument extraction.
+    - Modifications to this signature does not affect the function type within the IDB file.
+    - The `FunctionSignature` object also allows for querying each function type, getting their size, and modifying in-place.
+    
+    ```python
+    func_sig = context.get_function_signature()
+    func_sig.arg_types = ('_BYTE *', 'char')
+    # OR
+    func_sig.declaration = '_BYTE *__cdecl sub_401000(_BYTE *a1, char a2)'
+
+    for arg in func_sig.args:
+       print('Name: ', arg.name)   
+       print('Type: ', arg.type)
+       print('Size: ', arg.width)
+       print('Value: ', arg.value)
+              
+       # We can also modify types before extraction to adjust the value that gets returned.
+       if arg.idx == 1:
+           arg.type = 'DWORD'
+                     
+    args = [arg.value for arg in func_sig.args]  # len(args) == 2
+    ```
+   
 
 ## Hooking Functions
 

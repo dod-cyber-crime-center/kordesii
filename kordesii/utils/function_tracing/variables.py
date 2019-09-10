@@ -106,7 +106,7 @@ class VariableMap(object):
             # logger.debug('VariableMap :: Created variable: {!r}'.format(var))
             self._variables[addr] = var
         if reference:
-            var.references.add(reference)
+            var.add_reference(reference)
         return var
 
     @property
@@ -147,7 +147,7 @@ class Variable(object):
         self.addr = addr
         self.frame_id = frame_id
         self.stack_offset = stack_offset
-        self.references = set()  # set of references
+        self.references = []   # list of instruction pointers where the variable was encountered.
 
     def __deepcopy__(self, memo):
         copy = self.__new__(self.__class__)
@@ -156,7 +156,7 @@ class Variable(object):
         copy.addr = self.addr
         copy.frame_id = self.frame_id
         copy.stack_offset = self.stack_offset
-        copy.references = set(self.references)
+        copy.references = list(self.references)
         return copy
 
     def __repr__(self):
@@ -203,6 +203,13 @@ class Variable(object):
     def data(self):
         """The raw data the variable is pointing to."""
         return self._cpu_context.mem_read(self.addr, self.size)
+
+    def add_reference(self, ip):
+        """Adds ip to list of references for this variable."""
+        # Ignore duplicate calls.
+        if self.references and ip == self.references[-1]:
+            return
+        self.references.append(ip)
 
     @property
     def value(self):
