@@ -92,7 +92,7 @@ def _compute(cpu_context, ip, mnem, operands):
     logger.debug("{} 0x{:X} :: {} {} {} = {}".format(mnem, ip, term1, op_str, term2, result))
 
     # Pop if mnem ends with "p"
-    if mnem.endwith('p'):
+    if mnem.endswith('p'):
         cpu_context.registers.fpu.pop()
 
 
