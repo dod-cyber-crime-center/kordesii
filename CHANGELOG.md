@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2019-09-13
+
+### Fixed
+- Fixed typo in fpu computation opcodes causing an AttributeError. (@ddash-ct)
+
 ## [1.6.0] - 2019-09-10
 
 ### Added
@@ -210,7 +215,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...HEAD
+[1.6.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.5.0...1.6.0
 [1.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.1...1.5.0
 [1.4.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.0...1.4.1
