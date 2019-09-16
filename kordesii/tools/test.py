@@ -132,6 +132,11 @@ $ kordesii-test.py -p decoder -i file_paths_file -d     Delete test cases for a 
                          dest="delete",
                          action="store_true",
                          help="Delete file(s) from test cases")
+    parser.add_argument("--force",
+                        default=False,
+                        dest="force",
+                        action="store_true",
+                        help="Force test case add/update when errors are encountered.")
 
     # Arguments to configure console output
     decoder.add_argument("-f",
@@ -212,13 +217,13 @@ def main():
             if args.delete:
                 tester.remove_test(input_file)
             else:
-                tester.add_test(input_file)
+                tester.add_test(input_file, args.force)
 
     # Update
     elif args.update:
         if not args.decoder_name:
             sys.exit('Decoder must be provided when updating a test case.')
-        tester.update_tests()
+        tester.update_tests(args.force)
 
     # Default is to run test cases
     else:

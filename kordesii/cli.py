@@ -313,6 +313,7 @@ def _add_to_malware_repo(file_path, malware_repo):
               help='Deletes given file from the test case. '
                    '(Note, this does not delete the test file if placed in a malware repo.)')
 @click.option('-y', '--yes', is_flag=True, help="Auto confirm questions.")
+@click.options('--force', is_flag=True, help="Force test case add/update when errors are encountered.")
 # Arguments to configure console output
 @click.option('-f', '--show-passed', is_flag=True,
               help='Display tests case details for passed tests as well.'
@@ -322,7 +323,7 @@ def _add_to_malware_repo(file_path, malware_repo):
 # Decoder to process.
 @click.argument('decoder', nargs=-1, required=False)
 def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
-         yes, show_passed, silent, decoder):
+         yes, force, show_passed, silent, decoder):
     """
     Testing utility to create and execute decoder test cases.
 
@@ -365,7 +366,7 @@ def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
             click.echo('Adding new test cases. May take a while...')
             if malware_repo:
                 file_path = _add_to_malware_repo(file_path, malware_repo)
-            tester.add_test(file_path)
+            tester.add_test(file_path, force)
 
         for file_path in delete:
             if malware_repo:
@@ -377,7 +378,7 @@ def test(testcase_dir, malware_repo, nprocs, update, add, add_filelist, delete,
         if not decoder and not yes:
             click.confirm('WARNING: About to update test cases for ALL decoders. Continue?', abort=True)
         click.echo('Updating test cases. May take a while...')
-        tester.update_tests()
+        tester.update_tests(force)
 
     # Run tests
     else:
