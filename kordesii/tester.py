@@ -211,7 +211,7 @@ class Tester(object):
 
         return data
 
-    def update_tests(self, force):
+    def update_tests(self, force=False):
         """
         Updates existing test cases by rerunning parsers.
 
@@ -237,7 +237,7 @@ class Tester(object):
         finally:
             logging.root.setLevel(orig_level)
 
-    def add_test(self, file_path, force):
+    def add_test(self, file_path, force=False):
         """
         Adds test case for given file path.
 
