@@ -211,9 +211,11 @@ class Tester(object):
 
         return data
 
-    def update_tests(self):
+    def update_tests(self, force=False):
         """
         Updates existing test cases by rerunning parsers.
+
+        :param bool force: Whether to force adding the test case even if errors are encountered
         """
         orig_level = logging.root.level
         logging.root.setLevel(logging.INFO)  # Force info level logs so test cases stay consistent.
@@ -229,14 +231,19 @@ class Tester(object):
                         metadata = self.gen_results(decoder.full_name, input_file)
                         if not metadata:
                             logger.warning('Empty results for {} in {}, not updating.'.format(input_file, results_file_path))
-                        if not self.reporter.errors:
+                        if force or not self.reporter.errors:
                             logger.info('Updating results for {} in {}'.format(input_file, results_file_path))
                             self._update_test_results(results_file_path, metadata, replace=True)
         finally:
             logging.root.setLevel(orig_level)
 
-    def add_test(self, file_path):
-        """Adds test case for given file path."""
+    def add_test(self, file_path, force=False):
+        """
+        Adds test case for given file path.
+
+        :param str file_path: Path to input file to add.
+        :param bool force: Whether to force adding the test case even if errors are encountered
+        """
         orig_level = logging.root.level
         logging.root.setLevel(logging.INFO)  # Force info level logs so test cases stay consistent.
         try:
@@ -246,7 +253,7 @@ class Tester(object):
                     metadata = self.gen_results(decoder.full_name, file_path)
                     if not metadata:
                         logger.warning('Empty results for {} in {}, not adding.'.format(file_path, results_file_path))
-                    if not self.reporter.errors:
+                    if force or not self.reporter.errors:
                         logger.info('Adding results for {} in {}'.format(file_path, results_file_path))
                         self._update_test_results(results_file_path, metadata, replace=True)
         finally:

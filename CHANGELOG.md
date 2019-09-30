@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+## [Unreleased]
+
+### Added
+- Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 
 ## [1.6.1] - 2019-09-13
 
