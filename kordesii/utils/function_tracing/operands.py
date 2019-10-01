@@ -168,7 +168,8 @@ class Operand(object):
         if not self.has_phrase:
             return None
         base_reg = utils.reg2str(utils.x86_base_reg(self._insn, self._op))
-        return self._cpu_context.registers[base_reg]
+        value = self._cpu_context.registers[base_reg]
+        return utils.signed(value, utils.get_bits())
 
     @property
     def index(self):
@@ -179,7 +180,8 @@ class Operand(object):
         if index_reg == -1:
             return 0
         index_reg = utils.reg2str(index_reg)
-        return self._cpu_context.registers[index_reg]
+        value = self._cpu_context.registers[index_reg]
+        return utils.signed(value, utils.get_bits())
 
     def _calc_displacement(self):
         """

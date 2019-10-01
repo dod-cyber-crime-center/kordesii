@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 
+### Fixed
+- Fixed bug in `function_tracing` displacement operands to interpret `base` and `index` properties as signed integers. (@ddash-ct)
+
 ## [1.6.1] - 2019-09-13
 
 ### Fixed
