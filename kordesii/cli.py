@@ -313,7 +313,7 @@ def _add_to_malware_repo(file_path, malware_repo):
               help='Deletes given file from the test case. '
                    '(Note, this does not delete the test file if placed in a malware repo.)')
 @click.option('-y', '--yes', is_flag=True, help="Auto confirm questions.")
-@click.options('--force', is_flag=True, help="Force test case add/update when errors are encountered.")
+@click.option('--force', is_flag=True, help="Force test case add/update when errors are encountered.")
 # Arguments to configure console output
 @click.option('-f', '--show-passed', is_flag=True,
               help='Display tests case details for passed tests as well.'
