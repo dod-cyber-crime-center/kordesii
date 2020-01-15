@@ -2,18 +2,151 @@
 Interface for memory management.
 """
 
+from future.builtins import range
 
-import idc
-import ida_segment
-
+from copy import deepcopy
 import collections
 import logging
+import itertools
 
-from kordesii.utils import utils
+import idc
+import ida_bytes
+import ida_range
+import ida_segment
+
+from kordesii.utils import segments
 from kordesii.utils.function_tracing.utils import get_bits
 
 
 logger = logging.getLogger(__name__)
+
+
+class PageMap(collections.defaultdict):
+    """
+    Dictionary of page indexes to pages.
+
+    Creates a new page when missing.
+    New pages uses the bytes from the IDB if in a segment.
+    Segments pages will be mapped, but data retrieval will be delayed until the page
+    is requested. (Helps to avoid unnecessary processing of large unused data segments.)
+    """
+
+    PAGE_SIZE = 0x1000
+
+    # Cache of segment pages.
+    # Used to prevent multiple calls to pull data from the IDB.
+    _segment_cache = {}
+
+    def __init__(self, map_segments=True):
+        # Setting default_factory to None, because we have overwritten it in __missing__()
+        super(PageMap, self).__init__(None)
+        if map_segments:
+            self.map_segments()
+
+    def __deepcopy__(self, memo):
+        copy = PageMap(map_segments=False)
+        memo[id(self)] = copy
+        copy.update({index: (page[:] if page is not None else None) for index, page in self.items()})
+        return copy
+
+    def __missing__(self, page_index):
+        """
+        Creates a new page when index first encountered.
+
+        :return: page
+        :rtype: bytearray
+        """
+        ret = self[page_index] = self._new_page(page_index)
+        return ret
+
+    def __getitem__(self, page_index):
+        try:
+            page = super(PageMap, self).__getitem__(page_index)
+        except KeyError:
+            return self.__missing__(page_index)
+
+        # If page is None, that means this was set for delayed retrieval.
+        # Retrieve page now that it is being requested.
+        if page is None:
+            return self.__missing__(page_index)
+
+        return page
+
+    def _is_delayed(self, page_index):
+        """Determines if page is set for delayed retrieval."""
+        return page_index in self and super(PageMap, self).__getitem__(page_index) is None
+
+    def map_segments(self):
+        """Sets segment pages for delayed retrieval"""
+        for n in range(ida_segment.get_segm_qty()):
+            seg = ida_segment.getnseg(n)
+            if seg:
+                for page_index in range(seg.start_ea >> 12, ((seg.end_ea - 1) >> 12) + 1):
+                    self[page_index] = None
+
+    @staticmethod
+    def _obtain_bytes(start, end):
+        """
+        Obtain bytes efficiently, sets non-loaded bytes to \x00
+
+        :param int start: starting address
+        :param int end: ending address
+
+        :return bytearray: bytearray containing bytes within range
+        """
+        # Reconstruct the segment, account for bytes which are not loaded.
+        # Can't use xrange() here because we can get a "Python int too large to conver to C long" error
+        bytes_range = iter(itertools.count(start).next, end)  # a range from start -> end
+        return bytearray(ida_bytes.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in bytes_range)
+
+    def _new_page(self, page_index):
+        """
+        Creates a new page based on index.
+
+        :return: page
+        :rtype: bytearray
+        """
+        if page_index in self._segment_cache:
+            return self._segment_cache[page_index][:]
+
+        start_ea = page_index * self.PAGE_SIZE
+        end_ea = start_ea + self.PAGE_SIZE
+
+        # If page was set for delayed retrieval it is coming from segment data, so pull from IDB.
+        # Update this check if ever use delayed retrieval for non-segment data.
+        if self._is_delayed(page_index):
+            logger.debug('Reading segment data 0x{:X} -> 0x{:X} from IDB'.format(start_ea, end_ea))
+            page = self._obtain_bytes(start_ea, end_ea)
+            self._segment_cache[page_index] = page[:]  # cache page first
+            return page
+
+        # If range is not in a segment, provide a page of all zeros.
+        return bytearray(self.PAGE_SIZE)
+
+    def peek(self, page_index):
+        """
+        Returns the page for the given page index.
+        If page doesn't exist, it creates the page but doesn't set it in the map.
+
+        .. warning:: If you are using this you shouldn't try to modify the page since its
+            effects may not propagate to the map.
+            (ie. this is a read-only copy)
+
+        :param page_index:
+        :return: page
+        :rtype: bytearray
+        """
+        if page_index in self and not self._is_delayed(page_index):
+            return self[page_index]
+        return self._new_page(page_index)
+
+
+def clear_cache():
+    """
+    Clears the internal cache of segment bytes.
+    Calling this will be necessary if you have patched in new bytes into the IDB.
+    """
+    PageMap._segment_cache = {}
 
 
 class Memory(object):
@@ -24,7 +157,7 @@ class Memory(object):
     If a memory address has not been written to, null bytes will be returned.
     """
 
-    PAGE_SIZE = 0x1000
+    PAGE_SIZE = PageMap.PAGE_SIZE
 
     HEAP_BASE = idc.get_inf_attr(idc.INF_MAX_EA)
     # Slack space between heap allocations.
@@ -35,31 +168,18 @@ class Memory(object):
     MAX_MEM_READ = 0x10000000
     MAX_MEM_WRITE = 0x10000000
 
-    def __init__(self, map_segments=True):
-        """Initializes Memory object.
-
-        :param bool map_segments: Whether to write segment data on initialization.
-        """
-        self._pages = collections.defaultdict(lambda: bytearray(self.PAGE_SIZE))
+    def __init__(self, _copying=False):
+        """Initializes Memory object."""
+        self._pages = PageMap(map_segments=not _copying)
         # A map of base addresses to size for heap allocations.
         self._heap_allocations = {}
-        if map_segments:
-            self._map_segments()
 
     def __deepcopy__(self, memo):
-        copy = Memory(map_segments=False)
+        copy = Memory(_copying=True)
         memo[id(self)] = copy
-        copy._pages = collections.defaultdict(
-            lambda: bytearray(self.PAGE_SIZE), {index: page[:] for index, page in self._pages.items()})
+        copy._pages = deepcopy(self._pages, memo)
         copy._heap_allocations = self._heap_allocations.copy()
         return copy
-
-    def _map_segments(self):
-        """Maps segments into memory."""
-        for n in range(ida_segment.get_segm_qty()):
-            seg = ida_segment.getnseg(n)
-            seg_bytes = utils.get_segment_bytes(seg.start_ea)
-            self.write(seg.start_ea, seg_bytes)
 
     @property
     def blocks(self):
@@ -124,7 +244,8 @@ class Memory(object):
         # Otherwise, use the largest base address not used.
         # TODO: We may want to reuse previously freed space in the future.
         else:
-            max_base_address, heap_size = sorted(self._heap_allocations.items())[-1]
+            max_base_address = max(self._heap_allocations)
+            heap_size = self._heap_allocations[max_base_address]
             address = max_base_address + heap_size + self.HEAP_SLACK
 
         # NOTE: We are just going to record that the memory as been allocated
@@ -155,6 +276,12 @@ class Memory(object):
                 if address < base_address < address + size:
                     # We need to relocate the memory block.
                     new_address = self.alloc(size)
+
+                    # Copy over data from previous allocation.
+                    # Since relocation is very rare, we will accept the loss in cycles
+                    # if we end up writing emptyf data.
+                    self.write(new_address, self.read(address, previous_size))
+
                     # Don't free the old, because the user may want to search it.
                     logger.debug('[realloc] :: Relocated 0x{:X} -> 0x{:X}'.format(address, new_address))
                     return new_address
@@ -195,7 +322,7 @@ class Memory(object):
         out = bytearray()
         while size:
             # We don't want to trigger a page creation on read().. only write().
-            page = self._pages.get(page_index, bytearray(self.PAGE_SIZE))
+            page = self._pages.peek(page_index)
             read_bytes = page[page_offset:page_offset + size]
             out += read_bytes
             size -= len(read_bytes)
@@ -206,7 +333,7 @@ class Memory(object):
 
     def write(self, address, data):
         """
-        Writes data to given address.
+        Writes data to given addre ss.
 
         :param address: Address to write data to.
         :param data: data to write
@@ -266,7 +393,7 @@ class Memory(object):
         else:
             end_page_index = end_page_offset = None
 
-        page = self._pages.get(page_index, bytearray(self.PAGE_SIZE))
+        page = self._pages.peek(page_index)
 
         # First search for the entire value in the page.
         if end and end_page_index == page_index:
@@ -289,7 +416,7 @@ class Memory(object):
             if _end == self.PAGE_SIZE + end_page_offset and _end <= _start:
                 return -1
 
-        next_page = self._pages.get(page_index + 1, bytearray(self.PAGE_SIZE))
+        next_page = self._pages.peek(page_index + 1)
         offset = (page + next_page).find(value, _start, _end)
         if offset > -1:
             return page_index << 12 | offset

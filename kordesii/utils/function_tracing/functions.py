@@ -28,6 +28,12 @@ class FunctionSignature(object):
     """
 
     def __init__(self, cpu_context, start_ea):
+        """
+        :param cpu_context: ProcessorContext to use for pulling argument values.
+        :param start_ea: Starting address of function to create function signature from.
+
+        :raises RuntimeError: If a function type could not be created from given ea.
+        """
         self._cpu_context = cpu_context
         self.start_ea = start_ea
         # TODO: Possibly move the get_function_data work into this class?
@@ -50,7 +56,12 @@ class FunctionSignature(object):
         """The full function declaration."""
         # There is no way to get the full function declaration directly from IDA with
         # the function name intact. So we have to recreate it.
-        return re.sub('\(', ' {}('.format(self.name), '{};'.format(str(self._tif)))
+
+        # If function doesn't have a name (usually because the function was dynamically created
+        # within a register), then we are just going to call it "no_name" so we can still get the
+        # function typing to still work.
+
+        return re.sub('\(', ' {}('.format(self.name or 'no_name'), '{};'.format(str(self._tif)))
 
     @declaration.setter
     def declaration(self, decl):

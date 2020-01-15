@@ -63,7 +63,8 @@ class x86_64_Registers(RegisterMap):
                 "tf": 0x100, "if": 0x200, "df": 0x400, "of": 0x800,
                 "iopl": 0x2000, "nt": 0x4000,
                 "rf": 0x10000, "vm": 0x20000, "ac": 0x40000,
-                "vif": 0x80000, "vip": 0x100000, "id": 0x200000
+                "vif": 0x80000, "vip": 0x100000, "id": 0x200000,
+                "flags": 0xFFFF, "eflags": 0xFFFFFFFF,
             }),
         ]
         super(x86_64_Registers, self).__init__(registers)

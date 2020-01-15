@@ -201,15 +201,17 @@ class Operand(object):
             addr = 0
 
         # Before returning, record the stack variable that we have encountered.
-        stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
-        if stack_var:
-            frame_id = idc.get_frame_id(self.ip)
-            member, stack_offset = stack_var
-            # If the offset in the member object is different than the given stack_offset
-            # then we are indexing into a variable.
-            # We need to adjust the address to be pointing to the base variable address.
-            var_addr = addr - (stack_offset - member.soff)
-            self._cpu_context.variables.add(var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip)
+        # Ignore if base is 0, because that means we don't have enough information to designate this to a variable.
+        if self.base:
+            stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
+            if stack_var:
+                frame_id = idc.get_frame_id(self.ip)
+                member, stack_offset = stack_var
+                # If the offset in the member object is different than the given stack_offset
+                # then we are indexing into a variable.
+                # We need to adjust the address to be pointing to the base variable address.
+                var_addr = addr - (stack_offset - member.soff)
+                self._cpu_context.variables.add(var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip)
 
         return addr
 

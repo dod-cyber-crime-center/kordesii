@@ -263,8 +263,13 @@ def test_memory():
     m.write(second_alloc_ea, b'helloworld')
     assert m.find_in_heap(b'helloworld') == second_alloc_ea
 
+    # tests reallocations
     assert m.realloc(first_alloc_ea, 40) == first_alloc_ea  # no relocation
     assert m.realloc(first_alloc_ea, m.PAGE_SIZE * 5) == second_alloc_ea + 20 + m.HEAP_SLACK  # relocation
+    assert m.realloc(second_alloc_ea, 40) == second_alloc_ea  # no relocation
+    second_alloc_realloced_ea = m.realloc(second_alloc_ea, m.PAGE_SIZE * 6)
+    assert second_alloc_realloced_ea != second_alloc_ea
+    assert m.read(second_alloc_realloced_ea, 10) == b'helloworld'  # data should be copied over.
 
 
 @pytest.mark.in_ida
@@ -298,7 +303,7 @@ def test_registers():
         'ac', 'af', 'ah', 'al', 'ax', 'b', 'bh', 'bl', 'bp', 'bpl', 'bx',
         'c0', 'c1', 'c2', 'c3', 'cf', 'ch', 'cl', 'cs', 'cx', 'd', 'df',
         'dh', 'di', 'dil', 'dl', 'dm', 'ds', 'dx', 'eax', 'ebp', 'ebx',
-        'ecx', 'edi', 'edx', 'es', 'esi', 'esp', 'fs', 'gs', 'i', 'ic',
+        'ecx', 'edi', 'edx', 'eflags', 'es', 'esi', 'esp', 'flags', 'fs', 'gs', 'i', 'ic',
         'id', 'iem', 'if', 'im', 'iopl', 'ir', 'nt', 'o', 'of', 'om', 'p',
         'pc', 'pf', 'pm', 'r10', 'r10b', 'r10d', 'r10w', 'r11', 'r11b',
         'r11d', 'r11w', 'r12', 'r12b', 'r12d', 'r12w', 'r13', 'r13b', 'r13d',
@@ -504,3 +509,13 @@ def test_function_signature():
         [4243908, 122],
         [4243960, 127],
     ]
+
+
+    # Test that we can force function signatures.
+    with pytest.raises(RuntimeError):
+        context.get_function_args(0xFFF)
+    with pytest.raises(RuntimeError):
+        context.get_function_signature(0xFFF)
+    assert len(context.get_function_args(0xFFF, num_args=3)) == 3
+    func_sig = context.get_function_signature(0xFFF, force=3)
+    assert func_sig.declaration == 'int __cdecl no_name();'

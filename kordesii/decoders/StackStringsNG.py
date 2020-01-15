@@ -10,13 +10,13 @@ import idc
 import kordesii
 from kordesii.utils import decoderutils
 from kordesii.utils import function_tracing
+from kordesii.utils import utils
 
 
 logger = kordesii.get_logger()
 
 
 ENCODINGS = [('utf-8', 1), ('utf-16-le', 2)]
-MIN_STRING_LEN = 3
 
 
 def num_raw_bytes(string):
@@ -171,6 +171,10 @@ def main():
         return
     function_tracing.hook_tracers('memset', memset)
 
-    for func in decoderutils.iter_functions():
+    for ea, name in utils.iter_functions():
+        try:
+            func = decoderutils.SuperFunc_t(ea)
+        except AttributeError:
+            continue
         if not func.is_library:
             StackStringExtractor().parse_stack_strings(func)

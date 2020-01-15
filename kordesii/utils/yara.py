@@ -24,13 +24,12 @@ from __future__ import absolute_import, print_function
 import logging
 
 import idc
-import idautils
 import idaapi
 
 import yara
 from yara import *
 
-from kordesii.utils import utils
+from kordesii.utils import segments
 
 
 logger = logging.getLogger(__name__)
@@ -130,8 +129,8 @@ class Rules(object):
 
         # Run on segment.
         if segment:
-            kwargs['data'] = utils.get_segment_bytes(segment)
-            offset = offset or utils.get_segment_start(segment)
+            kwargs['data'] = segments.get_bytes(segment)
+            offset = offset or segments.get_start(segment)
         # Run on input file.
         elif not (args or kwargs):
             args = (idc.get_input_file_path(),)

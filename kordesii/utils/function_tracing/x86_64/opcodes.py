@@ -43,6 +43,85 @@ opcode = registrar(OPCODES, name='opcode')
 logger = logging.getLogger(__name__)
 
 
+@opcode
+def AAA(cpu_context, ip, mnem, operands):
+    """ ASCII Adjust AX After Addition """
+    if cpu_context.bitness == 64:
+        logger.debug("{} 0x{:X} :: Opcode not valid for 64-bit".format(mnem, ip))
+        return
+
+    orig_ax = cpu_context.registers.ax
+
+    if (cpu_context.registers.al & 0xf) > 9 or cpu_context.registers.af == 1:
+        cpu_context.registers.ax += 0x106
+        cpu_context.registers.af = 1
+        cpu_context.registers.cf = 1
+    else:
+        cpu_context.registers.af = 0
+        cpu_context.registers.cf = 0
+    cpu_context.registers.al &= 0xf
+
+    logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
+
+
+@opcode
+def AAD(cpu_context, ip, mnem, operands):
+    """ ASCII Adjust AX Before Division """
+    if cpu_context.bitness == 64:
+        logger.debug("{} 0x{:X} :: Opcode not valid for 64-bit".format(mnem, ip))
+        return
+
+    orig_ax = cpu_context.registers.ax
+
+    base = operands[0].value if operands else 10
+    al = cpu_context.registers.al
+    ah = cpu_context.registers.ah
+    cpu_context.registers.al = (al + (ah * base)) & 0xff
+    cpu_context.registers.ah = 0
+
+    logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
+
+
+@opcode
+def AAM(cpu_context, ip, mnem, operands):
+    """ ASCII Adjust AX After Multiply """
+    if cpu_context.bitness == 64:
+        logger.debug("{} 0x{:X} :: Opcode not valid for 64-bit".format(mnem, ip))
+        return
+
+    orig_ax = cpu_context.registers.ax
+
+    base = operands[0].value if operands else 10
+    al = cpu_context.registers.al
+    cpu_context.registers.ah = al // base
+    cpu_context.registers.al = al % base
+
+    logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
+
+
+
+@opcode
+def AAS(cpu_context, ip, mnem, operands):
+    """ ASCII Adjust AX After Subtraction """
+    if cpu_context.bitness == 64:
+        logger.debug("{} 0x{:X} :: Opcode not valid for 64-bit".format(mnem, ip))
+        return
+
+    orig_ax = cpu_context.registers.ax
+
+    if (cpu_context.registers.al & 0xf) > 9 or cpu_context.registers.af == 1:
+        cpu_context.registers.ax -= 6
+        cpu_context.registers.ah -= 1
+        cpu_context.registers.af = 1
+        cpu_context.registers.cf = 1
+    else:
+        cpu_context.registers.cf = 0
+        cpu_context.registers.af = 0
+    cpu_context.registers.al &= 0xf
+
+    logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
+
+
 @opcode("adc")
 @opcode("add")
 def _add(cpu_context, ip, mnem, operands):
@@ -176,12 +255,12 @@ def CALL(cpu_context, ip, mnem, operands):
                     # reset esp for each stack argument.
                     cpu_context.registers.rsp += cpu_context.byteness
         except RuntimeError:
-            # If we can't get function data for non-loaded functions, then we have no way of knowing how to handle
-            # the stack...
-            logger.debug(
-                "{:#08x} :: Cannot identify function information for value {:#08x}. "
-                "Stack pointer will not be adjusted.".format(ip, func_ea))
-            return
+            # If the function data cannot be obtained, then adjust the stack based on the stack delta.
+            sp_adjust = idc.get_sp_delta(idc.next_head(ip))
+            # If sp_adjust is None, that means the next instruction is not in a function.
+            # There is no way to determine the stack adjustment
+            if sp_adjust is not None:
+                cpu_context.registers.rsp += sp_adjust
     else:
         # Get address of retn instruction
         func_end = idc.get_func_attr(func_ea, idc.FUNCATTR_END)
@@ -230,6 +309,12 @@ def CLC(cpu_context, ip, mnem, operands):
 def CLD(cpu_context, ip, mnem, operands):
     """ Clear Direction Flag """
     cpu_context.registers.df = 0
+
+
+@opcode
+def CMC(cpu_context, ip, mnem, operands):
+    """ Complement Carry Flag """
+    cpu_context.registers.cf = int(not cpu_context.registers.cf)
 
 
 @opcode
@@ -285,6 +370,23 @@ def CMPSD(cpu_context, ip, mnem, operands):
 
 
 @opcode
+def CQO(cpu_context, ip, mnem, operands):
+    """ Convert QWORD to DQWORD with sign extension """
+    # Only works in 64-bit mode
+    if cpu_context.bitness != 64:
+        logger.debug("CQO 0x{:X} :: Opcode only available for 64-bit mode.")
+        return
+
+    if cpu_context.registers.rax >> 63:
+        result = 0xFFFFFFFFFFFFFFFF
+    else:
+        result = 0x0
+
+    logger.debug("CQO 0x{:X} :: Setting register RDX to 0x{:X}".format(ip, result))
+    cpu_context.registers.rdx = result
+
+
+@opcode
 def CVTDQ2PD(cpu_context, ip, mnem, operands):
     """ Convert Packed Doubleword Integers to Packed Double-Precision Floating-Point Values """
     opvalue2 = operands[1].value
@@ -314,6 +416,18 @@ def CVTTSD2SI(cpu_context, ip, mnem, operands):
     result = int(utils.int_to_float(opvalue2))
     logger.debug("{} 0x{:X} :: float {} -> int equivalent {}".format(mnem, ip, opvalue2, result))
     operands[0].value = result
+
+
+@opcode
+def CWD(cpu_context, ip, mnem, operands):
+    """ Convert WORD to DWORD with sign extension """
+    if cpu_context.registers.ax >> 15:
+        result = 0xFFFF
+    else:
+        result = 0x0
+
+    logger.debug("CWD 0x{:X} :: Setting register DX to 0x{:X}".format(ip, result))
+    cpu_context.registers.dx = result
 
 
 @opcode
@@ -1081,8 +1195,8 @@ def OR(cpu_context, ip, mnem, operands):
 @opcode
 def POP(cpu_context, ip, mnem, operands):
     """ POP stack value """
-    result = utils.struct_unpack(cpu_context.mem_read(cpu_context.registers.rsp, cpu_context.byteness))
-    cpu_context.registers.rsp += cpu_context.byteness
+    result = utils.struct_unpack(cpu_context.mem_read(cpu_context.sp, cpu_context.byteness))
+    cpu_context.sp += cpu_context.byteness
     logger.debug("POP 0x{:X} :: Popped value {} into {}".format(ip, result, operands[0].text))
     operands[0].value = result
 
@@ -1096,21 +1210,37 @@ def POPA(cpu_context, ip, mnem, operands):
     NOTE: This function will return None.  This is one instance where accessing the registers directly makes more
             sense.
     """
-    # We are using a helper function anyway, so we'll use the 64-bit names for the registers
-    logger.debug("POPA 0x{:X}".format(ip))
-    reg_order = ["EDI", "ESI", "EBP", "ESP", "EBX", "EDX", "ECX", "EAX"]
+    # NOTE Some assemblers may force size based on operand size instead of mnem.
+    # However, IDA should set the proper mnemonic for us.
+    if mnem.endswith('d'):
+        reg_order = ["EDI", "ESI", "EBP", "ESP", "EBX", "EDX", "ECX", "EAX"]
+    else:
+        reg_order = ["DI", "SI", "BP", "SP", "BX", "DX", "CX", "AX"]
+
+    logger.debug("{} 0x{:X}".format(mnem, ip))
     for reg in reg_order:
-        if reg == "ESP":
-            # Skip next 4 or 2 bytes
-            if mnem == "popad":
-                cpu_context.registers.esp += 4
-            else:
-                cpu_context.registers.esp += 2
-        else:
+        if reg not in ("ESP", "SP"):
             # reg <- Pop()
             val = utils.struct_unpack(cpu_context.mem_read(cpu_context.registers.esp, cpu_context.byteness))
             cpu_context.registers[reg] = val
-            cpu_context.registers.esp += 4
+            logger.debug("{}} 0x{:X} :: Popped value {} into {}".format(mnem, ip, val, reg))
+        cpu_context.sp += cpu_context.byteness
+
+
+@opcode("popf")
+@opcode("popfd")
+@opcode("popfq")
+def POPF(cpu_context, ip, mnem, operands):
+    """ Pop FLAGS/EFLAGS register off the stack """
+    flags = utils.struct_unpack(cpu_context.mem_read(cpu_context.sp, cpu_context.byteness))
+    cpu_context.sp += cpu_context.byteness
+
+    logger.debug("{} 0x{:X} :: Popped value {} into flags register".format(mnem, ip, flags))
+    if cpu_context.bitness == 16:
+        cpu_context.registers.flags = flags
+    else:
+        # Also works for RFLAGS. Since we don't support them, they are all zeros.
+        cpu_context.registers.eflags = flags
 
 
 @opcode
@@ -1121,20 +1251,46 @@ def PUSH(cpu_context, ip, mnem, operands):
     cpu_context.registers.rsp -= cpu_context.byteness
     cpu_context.mem_write(cpu_context.registers.esp, utils.struct_pack(operand.value, width=operand.width))
 
-@opcode
+
+@opcode("pusha")
+@opcode("pushad")
 def PUSHA(cpu_context, ip, mnem, operands):
-    """
-    PUSHA (valid only for x86)
-    """
-    reg_order = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
-    # Store the original ESP value to push
-    orig_esp = cpu_context.registers.esp
-    logger.debug("PUSHA 0x{:X}".format(ip))
+    """ Push all general-purpose registers (valid only for x86) """
+    # NOTE Some assemblers may force size based on operand size instead of mnem.
+    # However, IDA should set the proper mnemonic for us.
+    if mnem.endswith('d'):
+        reg_order = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
+        orig_esp = cpu_context.registers.esp
+    else:
+        reg_order = ["AX", "CX", "DX", "BX", "SP", "BP", "SI", "DI"]
+        orig_esp = cpu_context.registers.sp
+
+    logger.debug("{} 0x{:X}".format(mnem, ip))
     for reg in reg_order:
-        cpu_context.registers.esp -= 4
-        pushed_value = orig_esp if reg == "ESP" else cpu_context.registers[reg]
-        logger.debug("PUSHA 0x{:X} :: Pushing {} onto stack".format(ip, pushed_value))
+        cpu_context.sp -= cpu_context.byteness
+        pushed_value = orig_esp if reg in ("ESP", "SP") else cpu_context.registers[reg]
+        logger.debug("{} 0x{:X} :: Pushing {} onto stack".format(mnem, ip, pushed_value))
         cpu_context.mem_write(cpu_context.registers.esp, utils.struct_pack(pushed_value))
+
+
+@opcode("pushf")
+@opcode("pushfd")
+@opcode("pushfq")
+def PUSHF(cpu_context, ip, mnem, operands):
+    """ Push FLAGS/EFLAGS register onto the stack """
+    if cpu_context.bitness == 16:
+        flags = cpu_context.registers.flags
+    else:
+        # Also works for RFLAGS. Since we don't support them, they are all zeros.
+        flags = cpu_context.registers.eflags
+
+    # VM and RF flags are not copied.
+    flags &= ~0x10000  # rf
+    flags &= ~0x20000  # vm
+
+    logger.debug("{} 0x{:X} :: Pushing {} onto the stack".format(mnem, ip, flags))
+    cpu_context.sp -= cpu_context.byteness
+    cpu_context.mem_write(cpu_context.sp, utils.struct_pack(flags))
 
 
 @opcode
@@ -1146,10 +1302,10 @@ def RCR(cpu_context, ip, mnem, operands):
 
     # Because we want to allow for 64-bit code, we'll use 0x3F as our mask.
     if width == 8:
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F)
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 9, 17, 33 when the width is 1 byte, 2 bytes or 4 bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F) % ((width * 8) + 1)
+        tempcount = (opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)) % ((width * 8) + 1)
     else:
         # This is undefined behavior
         return
@@ -1182,10 +1338,10 @@ def RCL(cpu_context, ip, mnem, operands):
 
     # Because we want to allow for 64-bit code, we'll use 0x3F as our mask.
     if width == 8:
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F)
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 9, 17, 33 when width is 1 byte, 2 bytes or 4 bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F) % ((width * 8) + 1)
+        tempcount = (opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)) % ((width * 8) + 1)
     else:
         # This is undefined behavior
         return
@@ -1218,10 +1374,10 @@ def ROL(cpu_context, ip, mnem, operands):
 
     # Because we want to allow for 64-bit code, we'll use 0x3F as our mask.
     if width == 8:
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F)
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 8, 16, 32 when width is 1 byte, 2 bytes or 4 bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F) % (width * 8)
+        tempcount = (opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)) % (width * 8)
     else:
         # This is undefined behavior
         return
@@ -1255,10 +1411,10 @@ def ROR(cpu_context, ip, mnem, operands):
 
     # Because we want to allow for 64-bit code, we'll use 0x3F as our mask.
     if width == 8:
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F)
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
     elif width in [1, 2, 4]:
         # Basically MOD by 8, 16, 32 when width is 1 byte, 2 bytes or 4 bytes
-        tempcount = (opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F) % (width * 8)
+        tempcount = (opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)) % (width * 8)
     else:
         # This is undefined behavior
         return
@@ -1293,7 +1449,8 @@ def sal_shl(cpu_context, ip, mnem, operands):
     result = opvalue1
 
     if opvalue2:
-        tempcount = opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F  # 0x3F Because we want to allow for 64-bit code
+        # 0x3F Because we want to allow for 64-bit code
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
         while tempcount:
             cpu_context.registers.cf = get_msb(result, width)
             result *= 2
@@ -1325,7 +1482,8 @@ def SAR(cpu_context, ip, mnem, operands):
     width = get_max_operand_size(operands)
     result = opvalue1
     if opvalue2:
-        tempcount = opvalue2 & 0x3F if cpu_context.bitness == 64 else 0x1F  # 0x3F Because we want to allow for 64-bit code
+        # 0x3F Because we want to allow for 64-bit code
+        tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
         msb = get_msb(opvalue1, cpu_context.byteness)
         while tempcount:
             cpu_context.registers.cf = get_lsb(result)

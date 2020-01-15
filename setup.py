@@ -51,15 +51,18 @@ setup(
     install_requires=[
         'bottle',
         'click',
+        'dill',
         'numpy',
         'pyelftools',
         'pefile>=2019.4.18',
         'PyCrypto',
         'requests',
+        'Pyro4',
         'pyyaml',
         'tabulate',
         'yara-python',
         'ruamel.yaml',
+        'setuptools',
         'six',
 
         # For the server and API

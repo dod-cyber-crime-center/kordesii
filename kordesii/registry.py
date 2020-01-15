@@ -6,6 +6,8 @@ from collections import namedtuple
 import os
 import logging
 
+import pkg_resources
+
 from .decoder import Decoder
 
 
@@ -50,14 +52,6 @@ def register_entry_points():
     """
     Registers decoders found in entry_point: "kordesii.decoders"
     """
-    # if pkg_resources is not available, we are not going to use this feature.
-    # resorting on only to decoders registered manually.
-    try:
-        import pkg_resources
-    except ImportError:
-        logger.warning(
-            'pkg_resources could not be imported. "kordesii.decoders" entry points will not be registered.')
-        return
     for entry in pkg_resources.iter_entry_points('kordesii.decoders'):
         package = entry.load()
         register_decoder_package(package, source_name=entry.name)

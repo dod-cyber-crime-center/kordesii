@@ -1,17 +1,48 @@
 # Changelog
 All notable changes to this project will be documented in this file.
+
+
 ## [Unreleased]
 
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
+- *function_tracing:*
+    - Added support for more x86/64 opcodes: AAA, AAD, AAM, AAS, CMC, CQO, CWD, POPF, POPFD, POPFQ, PUSHF, PUSHFD, PUSHFQ
+    - Added support for builtin functions: memchr, strpbrk, strchr, strstr
+- Added experimental feature which allows you to run IDA code remotely. 
+    (See [documentation](README.md#ida-proxy) for more information.)
+
+### Changed
+- Changed `iter_functions()` and `iter_imports()` functions to include matching functions with underscores or integer suffixes.
+    - e.g. `iter_functions("memcpy")` would match on `memcpy`, `_memcpy`, and `_memcpy_0`
+- *function_tracing:*
+    - If IDA fails to guess a function type, a function signature will now be forced using cdecl calling convention if the `num_args` parameter is set for `get_function_args()` or the `force` parameter for `get_function_signature()`.
+    This is useful for functions that were dynamically declared.
+    - Segment data is now retrieved on-demand. This helps to greatly speed up emulation for samples containing large data segments.
+- Renamed and moved component:
+    - `kordesii.utils.utils.IDA_re()` -> `kordesii.utils.ida_re.Pattern()`
+    - `kordesii.utils.utils.get_segment_bytes()` -> `kordesii.utils.segments.get_bytes()`
+    - `kordesii.utils.utils.get_segment_start()` -> `kordesii.utils.segments.get_start()`
+- `setuptools` is now required for decoder package discovery. (This is no longer optional.)
 
 ### Fixed
-- Fixed bug in `function_tracing` displacement operands to interpret `base` and `index` properties as signed integers. (@ddash-ct)
+- `ida_re.search()` will now properly search all segments if a segment is not provided.
+- *function_tracing:*
+    - Fixed stack delta calculation in CALL opcode by using `get_sp_delta()` when function data cannot be obtained.
+    - Fixed bug in displacement operands to interpret `base` and `index` properties as signed integers. (@ddash-ct)
+    - Fixed logic error in rotate and shift opcodes due to incorrectly placed parenthesis.
+    - Added a check to ensure stack variables have a non-zero base before being added to the context's variable set.
+    - `Memory.realloc()` now appropriately copies the data from the previous address if a relocation occurs.
+
+### Deprecated
+- `iter_functions()` in `kordesii.utils.decoderutils` is deprecated in favor of using the one in `kordesii.utils.utils`
+
 
 ## [1.6.1] - 2019-09-13
 
 ### Fixed
 - Fixed typo in fpu computation opcodes causing an AttributeError. (@ddash-ct)
+
 
 ## [1.6.0] - 2019-09-10
 
@@ -54,10 +85,9 @@ All notable changes to this project will be documented in this file.
     - Fixed incorrect "sib" scale in operand displacement calculation.
     - Emulating paths with parent blocks at an address greater than itself is now fully supported.
 - The `error` key in the API results now correctly contains a list of strings.
-    
+
 ### Deprecated
 - `ProcessorContext.get_variable_name()` is deprecated in favor of using the new `variables` attribute.
-- The `error` key in the API results now correctly contains a list of strings.
 - The `IterApis()` class is deprecated in favor of using `iter_imports()` or `iter_functions()`.
 
 

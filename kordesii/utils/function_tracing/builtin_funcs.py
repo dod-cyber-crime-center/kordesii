@@ -19,6 +19,8 @@ def memmove(cpu_context, call_ip, func_name, func_args):
 
 """
 
+import six
+
 from contextlib import contextmanager
 import logging
 
@@ -148,6 +150,26 @@ def realloc(cpu_context, func_name, func_args):
         return cpu_context.mem_realloc(ptr, size)
 
 
+@builtin_func
+def memchr(cpu_context, func_name, func_args):
+    """
+    Locate character in block of memory.
+
+    Searches within the first num bytes of the block of memory pointed by data_ptr
+    for the first occurrence of value (interpreted as an unsigned char) and returns a pointer
+    to it.
+    """
+    data_ptr, value, num = func_args
+    if six.PY2:
+        value = chr(value)
+
+    ptr = cpu_context.memory.find(value, start=data_ptr, end=data_ptr + num)
+    if ptr == -1:
+        return 0
+    else:
+        return ptr
+
+
 @builtin_func('memmove')
 @builtin_func('memmove_s')
 @builtin_func('wmemmove')
@@ -274,6 +296,46 @@ def strncat(cpu_context, func_name, func_args):
         return 0 if secure else dst
 
 
+@builtin_func
+def strpbrk(cpu_context, func_name, func_args):
+    """
+    Locate characters in string.
+
+    Returns a pointer to the first occurrence of str1 of any of the characters
+    that are part of str2, or a null pointer if there are no matches.
+    """
+    str1_ptr, str2_ptr = func_args
+    str1 = cpu_context.read_data(str1_ptr)
+    str2 = cpu_context.read_data(str2_ptr)
+
+    for offset, ch in enumerate(str1):
+        if ch in str2:
+            return str1_ptr + offset
+    return 0
+
+
+@builtin_func('strchr')
+@builtin_func('strrchr')
+def strchr(cpu_context, func_name, func_args):
+    """
+    Locate first or last occurrence of character in string.
+    """
+    string_ptr, character = func_args
+    string = cpu_context.read_data(string_ptr)
+    if six.PY2:
+        character = chr(character)
+
+    if func_name == 'strchr':
+        offset = string.find(character)
+    else:
+        offset = string.rfind(character)
+
+    if offset == -1:
+        return 0
+    else:
+        return string_ptr + offset
+
+
 @builtin_func('strcpy')
 @builtin_func('strcpy_s')
 @builtin_func('wcscpy')
@@ -336,7 +398,14 @@ def strncpy(cpu_context, func_name, func_args):
         cpu_context.mem_copy(src, dst, size)
         # Non-secure version also pads the rest with null characters to reach count size
         if not secure and size < count:
-            cpu_context.mem_write(src + size, b'\0' * (count - size))
+            # As a safety check, we shouldn't be writing more than about 0x1000 of padding.
+            delta = count - size
+            if delta > 0x1000:
+                logger.warning(
+                    ' :: Attempted to write {} bytes of padding. Ignoring request and using {} bytes '
+                    'of padding instead.'.format(delta, 0x1000))
+                delta = 0x1000
+            cpu_context.mem_write(src + size, b'\0' * delta)
         return 0 if secure else dst
 
 
@@ -407,3 +476,21 @@ def strlen(cpu_context, func_name, func_args):
         if strsz is not None and size > strsz:
             return strsz
         return size
+
+
+@builtin_func
+def strstr(cpu_context, func_name, func_args):
+    """
+    Locate substring.
+
+    Returns a pointer to the first occurrence of str2 in str1, or a null pointer if str2 is not part of str1.
+    """
+    str1_ptr, str2_ptr = func_args
+    str1 = cpu_context.read_data(str1_ptr)
+    str2 = cpu_context.read_data(str2_ptr)
+
+    offset = str1.find(str2)
+    if offset == -1:
+        return 0
+    else:
+        return str1_ptr + offset

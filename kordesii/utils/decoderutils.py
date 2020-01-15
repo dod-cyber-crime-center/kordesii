@@ -11,6 +11,7 @@ import re
 import sys
 import warnings
 
+import ida_bytes
 import ida_name
 import idaapi
 import idautils
@@ -22,7 +23,7 @@ import kordesii
 from kordesii.utils import function_tracing
 from kordesii.utils import yara
 from kordesii.utils.function_creator import create_function_precise
-from kordesii.utils.utils import IDA_re
+from kordesii.utils import ida_re
 from kordesii.serialization import serializable_class
 
 logger = logging.getLogger(__name__)
@@ -225,9 +226,17 @@ class SuperFunc_t(object):
                 yield func
                 cache.add(func.name)
 
+    @property
+    def data(self):
+        """Returns all the bytes contained in the function."""
+        return ida_bytes.get_bytes(self.start_ea, self.end_ea - self.start_ea)
+
 
 def iter_functions():
     """Iterates all the functions in the sample."""
+    warnings.warn(
+        'kordesii.utils.decoderutils.iter_functions() is deprecated. '
+        'Please use kordesii.utils.utils.iter_functions() instead', DeprecationWarning)
     cache = set()
     for func_ea in idautils.Functions():
         func = SuperFunc_t(func_ea)
@@ -1175,7 +1184,7 @@ def re_find_functions(regex, flags=0, section=None, func_name=None):
         Clear the matches each time to prevent duplicates.
 
     Input:
-        regex - A compiled regular expression or regular expression string or an IDA_re object
+        regex - A compiled regular expression or regular expression string or an ida_re.Pattern object
         section - PE section to restrict searches to
         func_name - The name to be applied to the found function(s). No name will be applied
                     if func_name = None.
@@ -1187,10 +1196,10 @@ def re_find_functions(regex, flags=0, section=None, func_name=None):
         RuntimeError - Assumes that there's no point in continuing if there is no YARA match
                        and that we were expecting a YARA match, so error in that case.
     """
-    if isinstance(regex, IDA_re):
+    if isinstance(regex, ida_re.Pattern):
         _regex = regex
     else:
-        _regex = IDA_re(regex, flags)
+        _regex = ida_re.Pattern(regex, flags)
 
     funcs = set()
     for match in _regex.finditer(section):

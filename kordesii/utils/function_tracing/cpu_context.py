@@ -515,14 +515,19 @@ class ProcessorContext(object):
 
         raise ValueError('Invalid data_type: {!r}'.format(data_type))
 
-    def get_function_signature(self, func_ea=None):
+    def get_function_signature(self, func_ea=None, force=False):
         """
         Returns the function signature of the given func_ea with argument values pulled
         from this context.
 
-        :param func_ea: address of the function to pull signature from.
+        :param int func_ea: address of the function to pull signature from.
             The first operand is used if not provided. (helpful for a "call" instruction)
+        :param bool force: Whether to force a function signature using cdecl calling
+            convention and no arguments if we fail to generate the signature.
+            (Useful when trying to declare a function that was dynamically created in a register)
         :return: FunctionSignature object
+
+        :raises RuntimeError: If a function signature could not be created from given ea.
         """
         # If func_ea is not given, assume we are using the first operand from a call instruction.
         if not func_ea:
@@ -530,7 +535,19 @@ class ProcessorContext(object):
             # function pointer can be a memory reference or immediate.
             func_ea = operand.addr or operand.value
 
-        return FunctionSignature(self, func_ea)
+        try:
+            return FunctionSignature(self, func_ea)
+        except RuntimeError as e:
+            # If we fail to get a function signature but force is set, set the type to
+            # cdecl with no arguments.
+            if force:
+                logger.warning(
+                    'Failed to create function signature at 0x{:0X} with error: {}\n'
+                    'Forcing signature with assumed cdecl calling convention.'.format(func_ea, e))
+                idc.SetType(func_ea, 'int __cdecl no_name();')
+                return FunctionSignature(self, func_ea)
+            else:
+                raise
 
     def get_function_args(self, func_ea=None, num_args=None):
         """
@@ -546,10 +563,11 @@ class ProcessorContext(object):
             Extra arguments not defined by the disassembler are assumed to be 'int' type.
             Use get_function_signature() and adjust the FunctionSignature manually
             if more customization is needed.
+            (NOTE: The function signature will be forced on failure if this is set.)
 
         :returns: list of function arguments
         """
-        func_sig = self.get_function_signature(func_ea)
+        func_sig = self.get_function_signature(func_ea, force=num_args is not None)
 
         if num_args is not None:
             if num_args < 0:
