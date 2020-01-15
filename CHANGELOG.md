@@ -2,7 +2,10 @@
 All notable changes to this project will be documented in this file.
 
 
-## [Unreleased]
+## [1.7.0] - 2020-01-15
+
+**NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
+The next release will only support Python 3 and IDA >= 7.4.**
 
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
@@ -252,7 +255,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...HEAD
+[1.7.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...1.7.0
 [1.6.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.5.0...1.6.0
 [1.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.4.1...1.5.0
