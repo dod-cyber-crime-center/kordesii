@@ -5,7 +5,7 @@ future==0.16.0
 idna==2.7
 pefile==2017.9.3
 pyelftools==0.25
-requests==2.19.1
+requests==2.20.0
 urllib3==1.23
 yara-python==3.6.3
 ruamel.yaml==0.15.71
