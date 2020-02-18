@@ -3,18 +3,17 @@ Interface for operand management.
 """
 
 import collections
-from copy import deepcopy
 import logging
-import numpy
+from copy import deepcopy
 
-import idaapi
 import ida_frame
 import ida_ua
+import idaapi
 import idc
+import numpy
 
-from kordesii.utils.function_tracing.exceptions import FunctionTracingError
 from kordesii.utils.function_tracing import utils
-
+from kordesii.utils.function_tracing.exceptions import FunctionTracingError
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ class Operand(object):
         # 15: 3, # dt_3byte -> no longer used
         16: 0,  # dt_ldbl -> long double (which may be different from tbyte)
         17: 32,  # dt_byte32 -> 256 bit
-        18: 64  # dt_byte64 -> 512 bit
+        18: 64,  # dt_byte64 -> 512 bit
     }
 
     def __init__(self, cpu_context, ip, idx):
@@ -59,10 +58,10 @@ class Operand(object):
         self.__insn = None
 
     def __repr__(self):
-        string = '<Operand 0x{:0x}:{} : {} = {!r}'.format(self.ip, self.idx, self.text, self.value)
+        string = "<Operand 0x{:0x}:{} : {} = {!r}".format(self.ip, self.idx, self.text, self.value)
         if self.addr is not None:
-            string += ' : &{} = 0x{:0x}'.format(self.text, self.addr)
-        string += ' : width = {}>'.format(self.width)
+            string += " : &{} = 0x{:0x}".format(self.text, self.addr)
+        string += " : width = {}>".format(self.width)
         return string
 
     def __deepcopy__(self, memo):
@@ -82,7 +81,7 @@ class Operand(object):
         insn = ida_ua.insn_t()
         ida_ua.decode_insn(insn, self.ip)
         if not insn:
-            raise FunctionTracingError('Failed to decode instruction at 0x:{:X}'.format(self.ip))
+            raise FunctionTracingError("Failed to decode instruction at 0x:{:X}".format(self.ip))
         self.__insn = insn
         return self.__insn
 
@@ -125,8 +124,7 @@ class Operand(object):
     @property
     def has_register(self):
         """True if the operand contains a register."""
-        return self.type in (
-            idc.o_reg, idc.o_displ, idc.o_phrase, idc.o_fpreg, idc.o_trreg, idc.o_creg, idc.o_dbreg)
+        return self.type in (idc.o_reg, idc.o_displ, idc.o_phrase, idc.o_fpreg, idc.o_trreg, idc.o_creg, idc.o_dbreg)
 
     @property
     def is_immediate(self):
@@ -195,9 +193,11 @@ class Operand(object):
         addr = self.base + self.index * self.scale + self.offset
         logger.debug(
             "calc_displacement :: Displacement {} -> {} + {}*{} + {} = {}".format(
-                self.text, self.base, self.index, self.scale, self.offset, addr))
+                self.text, self.base, self.index, self.scale, self.offset, addr
+            )
+        )
         if addr < 0:
-            logger.debug('calc_displacement :: Address is negative, resorting to address of 0.')
+            logger.debug("calc_displacement :: Address is negative, resorting to address of 0.")
             addr = 0
 
         # Before returning, record the stack variable that we have encountered.
@@ -211,7 +211,9 @@ class Operand(object):
                 # then we are indexing into a variable.
                 # We need to adjust the address to be pointing to the base variable address.
                 var_addr = addr - (stack_offset - member.soff)
-                self._cpu_context.variables.add(var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip)
+                self._cpu_context.variables.add(
+                    var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip
+                )
 
         return addr
 
@@ -303,14 +305,14 @@ class Operand(object):
 
             # Return empty
             if not self.width:
-                logger.debug('Width is zero for {}, returning empty string.'.format(self.text))
-                return b''
+                logger.debug("Width is zero for {}, returning empty string.".format(self.text))
+                return b""
 
             # Otherwise, dereference the address.
             value = self._cpu_context.mem_read(addr, self.width)
             return utils.struct_unpack(value)
 
-        raise FunctionTracingError('Invalid operand type: {}'.format(self.type), ip=self.ip)
+        raise FunctionTracingError("Invalid operand type: {}".format(self.type), ip=self.ip)
 
     @value.setter
     def value(self, value):
@@ -357,9 +359,9 @@ class Operand(object):
             self._cpu_context.mem_write(self.addr, value)
             return
 
-        raise FunctionTracingError('Invalid operand type: {}'.format(self.type), ip=self.ip)
+        raise FunctionTracingError("Invalid operand type: {}".format(self.type), ip=self.ip)
 
 
 # This is a "lite" version of the Operand class that only allows access only to a few attributes, is read only,
 # and not backed by a CPU context.
-OperandLite = collections.namedtuple('OperandLite', 'ip idx text value')
+OperandLite = collections.namedtuple("OperandLite", "ip idx text value")

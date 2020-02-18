@@ -24,20 +24,17 @@ from __future__ import division
 import logging
 import re
 
-import idc
-import idaapi
 import idautils
+import idc
 
-
+from .. import builtin_funcs
 from .. import utils
 from ..cpu_context import Operand
-from .. import builtin_funcs
 from ..registry import registrar
-
 
 # Dictionary containing opcode names -> function
 OPCODES = {}
-opcode = registrar(OPCODES, name='opcode')
+opcode = registrar(OPCODES, name="opcode")
 
 
 logger = logging.getLogger(__name__)
@@ -52,14 +49,14 @@ def AAA(cpu_context, ip, mnem, operands):
 
     orig_ax = cpu_context.registers.ax
 
-    if (cpu_context.registers.al & 0xf) > 9 or cpu_context.registers.af == 1:
+    if (cpu_context.registers.al & 0xF) > 9 or cpu_context.registers.af == 1:
         cpu_context.registers.ax += 0x106
         cpu_context.registers.af = 1
         cpu_context.registers.cf = 1
     else:
         cpu_context.registers.af = 0
         cpu_context.registers.cf = 0
-    cpu_context.registers.al &= 0xf
+    cpu_context.registers.al &= 0xF
 
     logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
 
@@ -76,7 +73,7 @@ def AAD(cpu_context, ip, mnem, operands):
     base = operands[0].value if operands else 10
     al = cpu_context.registers.al
     ah = cpu_context.registers.ah
-    cpu_context.registers.al = (al + (ah * base)) & 0xff
+    cpu_context.registers.al = (al + (ah * base)) & 0xFF
     cpu_context.registers.ah = 0
 
     logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
@@ -99,7 +96,6 @@ def AAM(cpu_context, ip, mnem, operands):
     logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
 
 
-
 @opcode
 def AAS(cpu_context, ip, mnem, operands):
     """ ASCII Adjust AX After Subtraction """
@@ -109,7 +105,7 @@ def AAS(cpu_context, ip, mnem, operands):
 
     orig_ax = cpu_context.registers.ax
 
-    if (cpu_context.registers.al & 0xf) > 9 or cpu_context.registers.af == 1:
+    if (cpu_context.registers.al & 0xF) > 9 or cpu_context.registers.af == 1:
         cpu_context.registers.ax -= 6
         cpu_context.registers.ah -= 1
         cpu_context.registers.af = 1
@@ -117,7 +113,7 @@ def AAS(cpu_context, ip, mnem, operands):
     else:
         cpu_context.registers.cf = 0
         cpu_context.registers.af = 0
-    cpu_context.registers.al &= 0xf
+    cpu_context.registers.al &= 0xF
 
     logger.debug("{} 0x{:X} :: Adjusted AX 0x{:X} -> 0x{:X}".format(mnem, ip, orig_ax, cpu_context.registers.ax))
 
@@ -140,7 +136,7 @@ def _add(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
+    cpu_context.registers.of = int(not (-(mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -180,11 +176,11 @@ def BSWAP(cpu_context, ip, mnem, operands):
 def _sanitize_func_name(func_name):
     """Sanitizes the IDA function names to it's core name."""
     # remove the extra "_" IDA likes to add to the function name.
-    if func_name.startswith('_'):
+    if func_name.startswith("_"):
         func_name = func_name[1:]
 
     # Remove the numbered suffix IDA likes to add to duplicate function names.
-    func_name = re.sub('_[0-9]+$', '', func_name)
+    func_name = re.sub("_[0-9]+$", "", func_name)
 
     return func_name
 
@@ -200,7 +196,7 @@ def CALL(cpu_context, ip, mnem, operands):
     func_ea = operands[0].addr or operands[0].value
     func_name = utils.get_function_name(func_ea)
 
-    logger.debug("CALL 0x{:X} :: call {}".format(ip, func_name or '0x{:X}'.format(func_ea)))
+    logger.debug("CALL 0x{:X} :: call {}".format(ip, func_name or "0x{:X}".format(func_ea)))
 
     # TODO: Should we be placing the ip on the stack to simulate the retn address?
 
@@ -220,18 +216,18 @@ def CALL(cpu_context, ip, mnem, operands):
 
         if func:
             try:
-                logger.debug(' :: {}({})'.format(func_name, ', '.join(map(repr, args))))
+                logger.debug(" :: {}({})".format(func_name, ", ".join(map(repr, args))))
                 ret = func(cpu_context, func_name, args)
                 # Set return value to rax
                 if ret is not None:
-                    logger.debug(' :: Setting {!r} into rax'.format(ret))
+                    logger.debug(" :: Setting {!r} into rax".format(ret))
                     cpu_context.registers.rax = ret
             except RuntimeError:
                 raise  # Allow RuntimeError exceptions to be thrown.
             except Exception as e:
                 logger.debug(
-                    '{:#08x} :: Failed to emulate builtin function: {}() with error: {}'.format(
-                        ip, func_name, e))
+                    "{:#08x} :: Failed to emulate builtin function: {}() with error: {}".format(ip, func_name, e)
+                )
 
     if idc.__EA64__:
         return
@@ -330,7 +326,7 @@ def CMP(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
+    cpu_context.registers.of = int(not (-(mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -441,8 +437,7 @@ def DEC(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int(result & 0x0F == 0x0F)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(
-        utils.sign_bit(opvalue1, width) and not utils.sign_bit(result, width))
+    cpu_context.registers.of = int(utils.sign_bit(opvalue1, width) and not utils.sign_bit(result, width))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["af", "zf", "sf", "of", "pf"], operands)
 
@@ -532,8 +527,8 @@ def _mul(cpu_context, ip, mnem, operands):
     else:
         ax_reg = RAX_REG_SIZE_MAP[width]
         dx_reg = RDX_REG_SIZE_MAP[width]
-        dx_result = ((result & (utils.get_mask(width) << (width * 8))) >> (width * 8))
-        ax_result = (result & utils.get_mask(width))
+        dx_result = (result & (utils.get_mask(width) << (width * 8))) >> (width * 8)
+        ax_result = result & utils.get_mask(width)
         if mnem.upper() == "MUL":
             if result >> (width * 8):
                 cpu_context.registers.cf = 1
@@ -543,10 +538,12 @@ def _mul(cpu_context, ip, mnem, operands):
                 cpu_context.registers.of = 0
 
     if mnem.upper() == "IMUL":
-        cpu_context.registers.cf = int(not (
-            (not utils.sign_bit(multiplier1, width) and multiplier2 & mask == 0)
-             or (utils.sign_bit(multiplier1, width) and multiplier2 & mask == mask)
-        ))
+        cpu_context.registers.cf = int(
+            not (
+                (not utils.sign_bit(multiplier1, width) and multiplier2 & mask == 0)
+                or (utils.sign_bit(multiplier1, width) and multiplier2 & mask == mask)
+            )
+        )
         cpu_context.registers.of = cpu_context.registers.cf
         cpu_context.registers.zf = int(multiplier1 & mask == 0)
         cpu_context.registers.sf = utils.sign_bit(multiplier1, width)
@@ -554,17 +551,16 @@ def _mul(cpu_context, ip, mnem, operands):
         flags.extend(["zf", "sf", "pf"])
 
     cpu_context.jcccontext.update_flag_opnds(flags, operands)
-    logger.debug("{} 0x{:X} :: {} * {} = {} || EAX -> {} || EDX -> {}".format(
-        mnem.upper(),
-        ip, multiplier1,
-        multiplier2,
-        result,
-        ax_result,
-        dx_result if dx_reg else ''))
+    logger.debug(
+        "{} 0x{:X} :: {} * {} = {} || EAX -> {} || EDX -> {}".format(
+            mnem.upper(), ip, multiplier1, multiplier2, result, ax_result, dx_result if dx_reg else ""
+        )
+    )
 
     cpu_context.registers[ax_reg] = ax_result
     if dx_reg:
         cpu_context.registers[dx_reg] = dx_result
+
 
 # TODO: Clean up mul, imul, and _mul
 @opcode
@@ -599,10 +595,12 @@ def IMUL(cpu_context, ip, mnem, operands):
     mask = utils.get_mask(width)
     result = multiplier1 * multiplier2
 
-    cpu_context.registers.cf = int(not (
+    cpu_context.registers.cf = int(
+        not (
             (not utils.sign_bit(multiplier1, width) and multiplier2 & mask == 0)
             or (utils.sign_bit(multiplier1, width) and multiplier2 & mask == mask)
-    ))
+        )
+    )
     cpu_context.registers.of = cpu_context.registers.cf
     cpu_context.registers.zf = int(multiplier1 & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(multiplier1, width)
@@ -628,8 +626,7 @@ def INC(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int(result & 0x0F == 0)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(
-        not utils.sign_bit(opvalue1, width) and utils.sign_bit(result, width))
+    cpu_context.registers.of = int(not utils.sign_bit(opvalue1, width) and utils.sign_bit(result, width))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["af", "zf", "sf", "of", "pf"], operands)
 
@@ -678,8 +675,12 @@ def JA_JNBE(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value + 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
+
 
 @opcode("jae")
 @opcode("jnb")
@@ -707,8 +708,11 @@ def JAE_JNB(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value + 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jb")
@@ -739,8 +743,11 @@ def JB_JNAE(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value - 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jbe")
@@ -770,8 +777,11 @@ def JBE_JNA(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value - 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("je")
@@ -820,8 +830,11 @@ def JE_JZ(cpu_context, ip, mnem, operands):
         else:
             cpu_context.jcccontext.alt_branch_data = operand1.value
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jg")
@@ -851,8 +864,11 @@ def JG_JNLE(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value + 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jge")
@@ -882,8 +898,11 @@ def JGE_JNL(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value + 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jl")
@@ -913,8 +932,11 @@ def JL_JNGE(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value - 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jle")
@@ -944,8 +966,11 @@ def JLE_JNG(cpu_context, ip, mnem, operands):
         cpu_context.jcccontext.condition_target_ea = next_inst
         cpu_context.jcccontext.alt_branch_data = operand1.value - 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{:X} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode("jne")
@@ -998,8 +1023,11 @@ def JNE_JNZ(cpu_context, ip, mnem, operands):
         # the second operand will be enough to make the condition false.
         cpu_context.jcccontext.alt_branch_data = operand1.value + 1
 
-    logger.debug("{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{} for alternate branch".format(
-        mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data))
+    logger.debug(
+        "{} 0x{:X} :: Primary branch 0x{:X}, using value 0x{} for alternate branch".format(
+            mnem, ip, cpu_context.jcccontext.condition_target_ea, cpu_context.jcccontext.alt_branch_data
+        )
+    )
 
 
 @opcode
@@ -1007,27 +1035,32 @@ def JNO(cpu_context, ip, mnem, operands):
     """ Jump Not Overflow (OF=0) """
     pass
 
+
 @opcode("jnp")
 @opcode("jpo")
 def JNP_JPO(cpu_context, ip, mnem, operands):
     """ Jump Not Parity (PF=0) """
     pass
 
+
 @opcode
 def JNS(cpu_context, ip, mnem, operands):
     """ Jump Not Sign (SF=0) """
     pass
+
 
 @opcode
 def JO(cpu_context, ip, mnem, operands):
     """ Jump Overflow (OF=1) """
     pass
 
+
 @opcode("jp")
 @opcode("jpe")
 def JP_JPE(cpu_context, ip, mnem, operands):
     """ Jump Parity (PF=1) """
     pass
+
 
 @opcode
 def JS(cpu_context, ip, mnem, operands):
@@ -1212,7 +1245,7 @@ def POPA(cpu_context, ip, mnem, operands):
     """
     # NOTE Some assemblers may force size based on operand size instead of mnem.
     # However, IDA should set the proper mnemonic for us.
-    if mnem.endswith('d'):
+    if mnem.endswith("d"):
         reg_order = ["EDI", "ESI", "EBP", "ESP", "EBX", "EDX", "ECX", "EAX"]
     else:
         reg_order = ["DI", "SI", "BP", "SP", "BX", "DX", "CX", "AX"]
@@ -1258,7 +1291,7 @@ def PUSHA(cpu_context, ip, mnem, operands):
     """ Push all general-purpose registers (valid only for x86) """
     # NOTE Some assemblers may force size based on operand size instead of mnem.
     # However, IDA should set the proper mnemonic for us.
-    if mnem.endswith('d'):
+    if mnem.endswith("d"):
         reg_order = ["EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"]
         orig_esp = cpu_context.registers.esp
     else:
@@ -1320,12 +1353,7 @@ def RCR(cpu_context, ip, mnem, operands):
         tempcount -= 1
 
     cpu_context.jcccontext.update_flag_opnds(["cf"], operands)
-    logger.debug("RCR 0x{:X} :: Rotate {} right by {} -> {}".format(
-        ip,
-        operands[0].value,
-        opvalue2,
-        opvalue1)
-    )
+    logger.debug("RCR 0x{:X} :: Rotate {} right by {} -> {}".format(ip, operands[0].value, opvalue2, opvalue1))
     operands[0].value = opvalue1
 
 
@@ -1356,12 +1384,7 @@ def RCL(cpu_context, ip, mnem, operands):
         cpu_context.registers.of = get_msb(opvalue1, width) ^ cpu_context.registers.cf
 
     cpu_context.jcccontext.update_flag_opnds(["cf", "of"], operands)
-    logger.debug("RCL 0x{:X} :: Rotate {} left by {} -> {}".format(
-        ip,
-        operands[0].value,
-        opvalue2,
-        opvalue1)
-    )
+    logger.debug("RCL 0x{:X} :: Rotate {} left by {} -> {}".format(ip, operands[0].value, opvalue2, opvalue1))
     operands[0].value = opvalue1
 
 
@@ -1393,12 +1416,7 @@ def ROL(cpu_context, ip, mnem, operands):
             cpu_context.registers.of = get_msb(opvalue1, width) ^ cpu_context.registers.cf
 
     cpu_context.jcccontext.update_flag_opnds(["cf", "of"], operands)
-    logger.debug("ROL 0x{:X} :: Rotate {} left by {} -> {}".format(
-        ip,
-        operands[0].value,
-        opvalue2,
-        opvalue1)
-    )
+    logger.debug("ROL 0x{:X} :: Rotate {} left by {} -> {}".format(ip, operands[0].value, opvalue2, opvalue1))
     operands[0].value = opvalue1
 
 
@@ -1430,12 +1448,7 @@ def ROR(cpu_context, ip, mnem, operands):
             cpu_context.registers.of = get_msb(opvalue1, width) ^ (get_msb(opvalue1, width) - 1)
 
     cpu_context.jcccontext.update_flag_opnds(["cf", "of"], operands)
-    logger.debug("ROR 0x{:X} :: Rotate {} right by {} -> {}".format(
-        ip,
-        operands[0].value,
-        opvalue2,
-        opvalue1)
-    )
+    logger.debug("ROR 0x{:X} :: Rotate {} right by {} -> {}".format(ip, operands[0].value, opvalue2, opvalue1))
     operands[0].value = opvalue1
 
 
@@ -1500,7 +1513,7 @@ def SAR(cpu_context, ip, mnem, operands):
         cpu_context.registers.of = 0
         cpu_context.registers.pf = get_parity(result)
 
-        result |= (msb << cpu_context.bitness)
+        result |= msb << cpu_context.bitness
 
     cpu_context.jcccontext.update_flag_opnds(["cf", "zf", "sf", "of", "pf"], operands)
     logger.debug("SAR 0x{:X} :: Shift {} right by {} -> {}".format(ip, opvalue1, opvalue2, result))
@@ -1519,11 +1532,10 @@ def SBB(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
+    cpu_context.registers.of = int(not (-(mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["af", "zf", "sf", "of", "pf"], operands)
-    logger.debug("SBB 0x{:X} :: {} - {} = {}".format(
-        ip, opvalue1, (opvalue2 + cpu_context.registers.cf), result))
+    logger.debug("SBB 0x{:X} :: {} - {} = {}".format(ip, opvalue1, (opvalue2 + cpu_context.registers.cf), result))
     operands[0].value = result
 
 
@@ -1824,7 +1836,7 @@ def SUB(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
+    cpu_context.registers.of = int(not (-(mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -1845,7 +1857,7 @@ def TEST(cpu_context, ip, mnem, operands):
     cpu_context.registers.af = int((opvalue1 ^ opvalue2 ^ result) & 0x10)
     cpu_context.registers.zf = int(result & mask == 0)
     cpu_context.registers.sf = utils.sign_bit(result, width)
-    cpu_context.registers.of = int(not (- (mask // 2) <= result < (mask // 2)))
+    cpu_context.registers.of = int(not (-(mask // 2) <= result < (mask // 2)))
     cpu_context.registers.pf = get_parity(result)
     cpu_context.jcccontext.update_flag_opnds(["cf", "af", "zf", "sf", "of", "pf"], operands)
 
@@ -1883,6 +1895,7 @@ def _xor(cpu_context, ip, mnem, operands):
 
 
 # Global helper functions
+
 
 def get_max_operand_size(operands):
     """
@@ -1947,16 +1960,27 @@ def swap_bytes(value, size):
         return ((value & 0xFF) << 8) | ((value & 0xFF00) >> 8)
 
     if size == 4:
-        return (((value & 0xFF) << 24) | (((value & 0xFF00) >> 8) << 16) |
-                (((value & 0xFF0000) >> 16) << 8) | ((value & 0xFF000000) >> 24))
+        return (
+            ((value & 0xFF) << 24)
+            | (((value & 0xFF00) >> 8) << 16)
+            | (((value & 0xFF0000) >> 16) << 8)
+            | ((value & 0xFF000000) >> 24)
+        )
 
     if size == 8:
-        return (((value & 0xFF) << 56) | (((value & 0xFF00) >> 8) << 48) |
-                (((value & 0xFF0000) >> 16) << 40) | (((value & 0xFF000000) >> 24) << 32) |
-                (((value & 0xFF00000000) >> 32) << 24) | (((value & 0xFF0000000000) >> 40) << 16) |
-                (((value & 0xFF000000000000) >> 48) << 8) | ((value & 0xFF00000000000000) >> 56))
+        return (
+            ((value & 0xFF) << 56)
+            | (((value & 0xFF00) >> 8) << 48)
+            | (((value & 0xFF0000) >> 16) << 40)
+            | (((value & 0xFF000000) >> 24) << 32)
+            | (((value & 0xFF00000000) >> 32) << 24)
+            | (((value & 0xFF0000000000) >> 40) << 16)
+            | (((value & 0xFF000000000000) >> 48) << 8)
+            | ((value & 0xFF00000000000000) >> 56)
+        )
 
 
+# fmt: off
 parity_lookup_table = [
     1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
@@ -1973,8 +1997,9 @@ parity_lookup_table = [
     1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
     0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0,
-    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1
+    1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
 ]
+# fmt: on
 
 
 def get_parity(value):

@@ -3,7 +3,6 @@ Core components that will be integrated as part of the root "kordesii" module.
 
 NOTE: Importing "kordesii" is safe to do outside of IDA. Other modules, not so much.
 """
-from __future__ import print_function
 
 import atexit
 import glob
@@ -25,6 +24,7 @@ from kordesii import logutil
 
 try:
     import idc
+
     in_ida = True
 except ImportError:
     idc = None
@@ -35,15 +35,23 @@ logger = logging.getLogger(__name__)
 
 # Special logger for IDA output stream.
 # (using separate name to allow for filtering as desired.)
-ida_logger = logging.getLogger('ida')
+ida_logger = logging.getLogger("ida")
 
 
-__all__ = ['decoder_entry', 'called_from_framework', 'in_ida', 'find_ida',
-           'run_ida', 'is_64_bit', 'append_string', 'write_unique_file']
+__all__ = [
+    "decoder_entry",
+    "called_from_framework",
+    "in_ida",
+    "find_ida",
+    "run_ida",
+    "is_64_bit",
+    "append_string",
+    "write_unique_file",
+]
 
 # Determines if the code was called from framework or directly from IDA
 # TODO: Determine better way to do this.
-called_from_framework = in_ida and 'exit' in idc.ARGV
+called_from_framework = in_ida and "exit" in idc.ARGV
 
 IDA_LOG_FILE = "ida_log.txt"
 IDA_STRINGS_FILE = "ida_strings.txt"
@@ -65,8 +73,11 @@ def decoder_entry(main_func):
 
     :param main_func: function to call
     """
-    decoder_locals = inspect.stack()[1][0].f_locals
-    if decoder_locals.get('__name__') == '__main__':
+    try:
+        decoder_locals = inspect.stack(0)[1][0].f_locals
+    except TypeError:
+        return main_func
+    if decoder_locals.get("__name__") == "__main__":
         if in_ida:
             # Setup logging.
             logutil.setup_logging()
@@ -83,12 +94,13 @@ def decoder_entry(main_func):
                 # Must import here to avoid cyclic import.
                 # FIXME: A proper fix for the serializer should be put in place.
                 from kordesii import serialization
+
                 serialization._serializers = {}
                 # Exit if called from framework
                 if called_from_framework:
                     idc.qexit(0)
         else:
-            sys.exit('Script must be called from IDA or kordesii.')
+            sys.exit("Script must be called from IDA or kordesii.")
             # TODO: We could possibly call run_ida() if outside.
 
     return main_func
@@ -110,17 +122,17 @@ def find_ida(is_64_bit=False):
         IOError: If no installation of IDA could be found.
     """
     # Use user defined location if available.
-    if 'IDA_DIR' in os.environ:
-        ida_dirs = [os.environ['IDA_DIR']]
+    if "IDA_DIR" in os.environ:
+        ida_dirs = [os.environ["IDA_DIR"]]
     else:
         # Find installed IDA paths.
-        ida_dirs = glob.glob(r'C:\Program Files*\IDA *')
+        ida_dirs = glob.glob(r"C:\Program Files*\IDA *")
 
         # Sort by highest version.
-        get_version = lambda path: path.rpartition(' ')[2]
+        get_version = lambda path: path.rpartition(" ")[2]
         ida_dirs.sort(key=get_version, reverse=True)
 
-    ida_exe_re = re.compile('idaq?64(\.exe)?$' if is_64_bit else 'idaq?(\.exe)?$')
+    ida_exe_re = re.compile("idaq?64(\.exe)?$" if is_64_bit else "idaq?(\.exe)?$")
 
     # Find highest version with a ida.exe or idaq.exe in the directory.
     for ida_dir in ida_dirs:
@@ -128,7 +140,7 @@ def find_ida(is_64_bit=False):
             if ida_exe_re.match(filename):
                 return os.path.abspath(os.path.join(ida_dir, filename))
 
-    raise IOError('Unable to find IDA installation or executable. Please ensure IDA is installed.')
+    raise IOError("Unable to find IDA installation or executable. Please ensure IDA is installed.")
 
 
 def is_64_bit(input_file):
@@ -145,16 +157,16 @@ def is_64_bit(input_file):
     Output:
         True if it is 64 bit. False if it is not or if pefile couldn't parse the header.
     """
-    if input_file.endswith('.i64'):
+    if input_file.endswith(".i64"):
         return True
-    elif input_file.endswith('.idb'):
+    elif input_file.endswith(".idb"):
         return False
 
     # Get first bytes of file to check the file magic
-    with open(input_file, 'rb') as f:
+    with open(input_file, "rb") as f:
         first_bytes = f.read(8)
 
-    if first_bytes[0:2] == "\x4D\x5A":
+    if first_bytes[0:2] == b"\x4D\x5A":
         # PE file type
         try:
             pe = pefile.PE(input_file, fast_load=True)
@@ -162,18 +174,18 @@ def is_64_bit(input_file):
             pe.close()
         except:
             result = False
-    elif first_bytes[1:4] == "\x45\x4C\x46":
+    elif first_bytes[1:4] == b"\x45\x4C\x46":
         # elf file type
         try:
-            with open(input_file, 'rb') as f:
+            with open(input_file, "rb") as f:
                 elf = elffile.ELFFile(f)
                 result = elf.get_machine_arch() in ["AArch64", "x64"]
         except ELFError:
             result = False
-    elif first_bytes[0:4] == "\xCE\xFA\xED\xFE":
+    elif first_bytes[0:4] == b"\xCE\xFA\xED\xFE":
         # 32 bit MACH-O executable
         result = False
-    elif first_bytes[0:4] == "\xCF\xFA\xED\xFE":
+    elif first_bytes[0:4] == b"\xCF\xFA\xED\xFE":
         # 64 bit MACH-O executable
         result = True
     else:
@@ -188,30 +200,32 @@ def communicate(proc):
     and only clutters the test results.
     """
     stdout, stderr = proc.communicate()
-    ignore_str = "swig/python detected a memory leak of type 'std::out_of_range *', no destructor found."
+    ignore_str = b"swig/python detected a memory leak of type 'std::out_of_range *', no destructor found."
     if stdout:
         for out_line in stdout.splitlines(True):
             if out_line.strip() == ignore_str:
                 continue
-            sys.stdout.write(out_line)
+            sys.stdout.buffer.write(out_line)
 
     if stderr:
         for out_line in stderr.splitlines(True):
             if out_line.strip() == ignore_str:
                 continue
-            sys.stderr.write(out_line)
+            sys.stderr.buffer.write(out_line)
 
 
-def run_ida(reporter,
-            script_path,
-            input_file,
-            autonomous=True,
-            ida_path=None,
-            timeout=3600,
-            log=False,
-            cleanup_txt_files=True,
-            cleanup_output_files=False,
-            cleanup_idb_files=False):
+def run_ida(
+    reporter,
+    script_path,
+    input_file,
+    autonomous=True,
+    ida_path=None,
+    timeout=3600,
+    log=False,
+    cleanup_txt_files=True,
+    cleanup_output_files=False,
+    cleanup_idb_files=False,
+):
     """
     Description:
         Call IDA given an input file and IDA script to run.
@@ -257,24 +271,23 @@ def run_ida(reporter,
     assert logutil.listen_port
 
     # Setup the process to run the IDA decoder script
-    command = [ida_path,
-               '-P',
-               '-S"\"{script_path}\" {log_level} {log_port} exit"'.format(
-                   script_path=script_path,
-                   log_level=logging.root.getEffectiveLevel(),
-                   log_port=logutil.listen_port,
-               )]
+    command = [
+        ida_path,
+        "-P",
+        '-S""{script_path}" {log_level} {log_port} exit"'.format(
+            script_path=script_path, log_level=logging.root.getEffectiveLevel(), log_port=logutil.listen_port,
+        ),
+    ]
     if autonomous:
-        command.append('-A')
+        command.append("-A")
     if log:
         command.append('-L"{}"'.format(log_file_path))
 
     command.append('"{}"'.format(input_file))
-    command = ' '.join(command)  # Doesn't work unless we convert to string!
+    command = " ".join(command)  # Doesn't work unless we convert to string!
 
-    logger.debug('Running command: {}'.format(command))
-    process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != 'win32')
+    logger.debug("Running command: {}".format(command))
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != "win32")
 
     atexit.register(process.kill)
 
@@ -283,7 +296,7 @@ def run_ida(reporter,
     thread.start()
     thread.join(timeout if timeout and timeout > 0 else None)  # Block on timeout of 0
     if thread.is_alive():  # This will only be true if timeout != 0
-        logger.info('Killing IDA process: exceeded timeout of ' + str(timeout))
+        logger.info("Killing IDA process: exceeded timeout of " + str(timeout))
         process.kill()
         thread.join()
         return
@@ -299,22 +312,23 @@ def run_ida(reporter,
     # TODO: Determine if/how we can pull the console output as it's produced.
     #   If possible, we could feed the output as debug logs instead of treating them differently.
     if log and os.path.isfile(log_file_path):
-        with io.open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+        with io.open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
             reporter.ida_log = f.read()
 
             # Also throw logs to debug.
             f.seek(0)
             for line in f.readlines():
-                ida_logger.debug(line.rstrip('\r\n'))
+                ida_logger.debug(line.rstrip("\r\n"))
 
     # Ingest any strings output by the script
     if os.path.isfile(strings_file_path):
         with open(strings_file_path, "r") as f:
             # NOTE: We can't sort and dedup because other parsers may depend on their order.
             strings = [entry.rstrip("\r\n") for entry in f.readlines()]
+            # print("strings: " + repr(strings))
         for string in strings:
             try:
-                reporter.add_string(string.decode("unicode-escape"))
+                reporter.add_string(string.encode("latin1").decode("unicode-escape"))
             except Exception as e:
                 logger.error("Bad string {!r}: {}".format(string, e))
 
@@ -323,7 +337,7 @@ def run_ida(reporter,
         for root, dirs, files in os.walk(output_dir_path):
             for file in files:
                 file_path = os.path.join(root, file)
-                with open(file_path, 'rb') as fo:
+                with open(file_path, "rb") as fo:
                     file_data = fo.read()
                 reporter.add_output_file(file, file_data)
 
@@ -352,15 +366,15 @@ def _remove_idbs(input_file):
     input_file_name = os.path.splitext(input_file)[0]
 
     try:
-        if os.path.exists(input_file_name + '.idb'):
-            os.remove(input_file_name + '.idb')
-        elif os.path.exists(input_file_name + '.i64'):
-            os.remove(input_file_name + '.i64')
+        if os.path.exists(input_file_name + ".idb"):
+            os.remove(input_file_name + ".idb")
+        elif os.path.exists(input_file_name + ".i64"):
+            os.remove(input_file_name + ".i64")
     except:
-        print('Error: Unable to remove ' + input_file)
+        logger.warning("Unable to remove " + input_file)
 
     # The order of the extensions here is important.
-    for ext in ('.til', '.nam', '.id0', '.id1', '.id2', '.id3'):
+    for ext in (".til", ".nam", ".id0", ".id1", ".id2", ".id3"):
         try:
             os.remove(input_file_name + ext)
         except OSError:
@@ -380,13 +394,13 @@ def append_string(string):
 
     try:
         # Make sure string is unicode escaped before writing!
-        if not isinstance(string, unicode):
-            string = string.decode('unicode-escape')
-        string = string.encode('unicode-escape')
-        with open(IDA_STRINGS_FILE, 'ab') as f:
-            f.write(b''.join([string, b'\n']))
+        if not isinstance(string, str):
+            string = string.decode("latin1")
+        string = string.encode("unicode-escape")
+        with open(IDA_STRINGS_FILE, "ab") as f:
+            f.write(b"".join([string, b"\n"]))
     except Exception as e:
-        print("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
+        logger.error("Error writing string to %s: %s" % (IDA_STRINGS_FILE, str(e)))
 
 
 def write_unique_file(filename, data):
@@ -406,8 +420,8 @@ def write_unique_file(filename, data):
     filepath = os.path.join(DECODER_OUTPUT_DIR, filename)
 
     try:
-        with open(filepath, 'wb') as f:
+        with open(filepath, "wb") as f:
             f.write(data)
-        logger.info('Wrote file: {}'.format(filepath))
+        logger.info("Wrote file: {}".format(filepath))
     except Exception as e:
-        print("Error writing data to %s: %s" % (filepath, str(e)))
+        logger.error("Error writing data to %s: %s" % (filepath, str(e)))

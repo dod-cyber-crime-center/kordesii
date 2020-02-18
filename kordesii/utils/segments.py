@@ -3,11 +3,10 @@ Utility for interfacing with segments more efficiently.
 """
 
 import numbers
-import itertools
 
-import idc
 import ida_bytes
 import ida_segment
+import idc
 
 _cache = {}
 
@@ -26,7 +25,7 @@ def get_start(name_or_addr):
     elif isinstance(name_or_addr, numbers.Number):
         return idc.get_segm_attr(name_or_addr, idc.SEGATTR_START)
     else:
-        raise ValueError('Invalid value: {}'.format(name_or_addr))
+        raise ValueError("Invalid value: {}".format(name_or_addr))
 
 
 def _obtain_bytes(start, end):
@@ -40,8 +39,8 @@ def _obtain_bytes(start, end):
     """
     # Reconstruct the segment, account for bytes which are not loaded.
     # Can't use xrange() here because we can get a "Python int too large to conver to C long" error
-    bytes_range = iter(itertools.count(start).next, end)  # a range from start -> end
-    return str(bytearray(ida_bytes.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in bytes_range))
+    bytes_range = range(start, end)  # a range from start -> end
+    return bytes(bytearray(ida_bytes.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in bytes_range))
 
 
 def get_bytes(name_or_addr):
@@ -51,7 +50,7 @@ def get_bytes(name_or_addr):
 
     :param string|int name_or_addr: either the name of a segment or an EA within a segment
 
-    :return string: bytes which are contained with the segment
+    :return bytes: bytes which are contained with the segment
     """
     seg_start = get_start(name_or_addr)
     seg_bytes = _cache.get(seg_start)

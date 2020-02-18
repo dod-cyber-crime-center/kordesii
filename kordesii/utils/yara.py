@@ -19,13 +19,11 @@ usage::
         # ...
 """
 
-from __future__ import absolute_import, print_function
-
 import logging
 
 import idc
 import idaapi
-
+import idc
 import yara
 from yara import *
 
@@ -101,17 +99,19 @@ class Rules(object):
             # YARA doesn't provide any easy way to get rule info, so we are going to have
             # to fake a match to get the info dictionary.
             self._infos = []
+
             def _callback(info):
                 self._infos.append(info)
                 return yara.CALLBACK_CONTINUE
-            self._rules.match(data=b'', callback=_callback, which_callbacks=yara.CALLBACK_NON_MATCHES)
+
+            self._rules.match(data=b"", callback=_callback, which_callbacks=yara.CALLBACK_NON_MATCHES)
         return self._infos
 
     @property
     def names(self):
         """Returns names of all the rules contained within."""
         infos = self._extract_info()
-        return [info['rule'] for info in infos]
+        return [info["rule"] for info in infos]
 
     def match(self, *args, **kwargs):
         """
@@ -123,21 +123,20 @@ class Rules(object):
             :param int offset: Optional offset to offset string offsets by.
             :param str|int segment: Name or EA of segment to match to.
         """
-        input_offset = kwargs.pop('input_offset', False)
-        offset = kwargs.pop('offset', None)
-        segment = kwargs.pop('segment', None)
+        input_offset = kwargs.pop("input_offset", False)
+        offset = kwargs.pop("offset", None)
+        segment = kwargs.pop("segment", None)
 
         # Run on segment.
         if segment:
-            kwargs['data'] = segments.get_bytes(segment)
+            kwargs["data"] = segments.get_bytes(segment)
             offset = offset or segments.get_start(segment)
         # Run on input file.
         elif not (args or kwargs):
             args = (idc.get_input_file_path(),)
             input_offset = True
 
-        return [Match(match, offset=offset, file_offset=input_offset)
-                for match in self._rules.match(*args, **kwargs)]
+        return [Match(match, offset=offset, file_offset=input_offset) for match in self._rules.match(*args, **kwargs)]
 
     def match_strings(self, *args, **kwargs):
         """
@@ -175,5 +174,6 @@ def match(rule_text, *args, **kwargs):
 def match_strings(rule_text, *args, **kwargs):
     rule = compile(source=rule_text)
     return rule.match_strings(*args, **kwargs)
+
 
 # ====================================

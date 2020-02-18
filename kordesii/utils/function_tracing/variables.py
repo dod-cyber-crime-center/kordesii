@@ -2,6 +2,9 @@
 Interface for variable management.
 """
 
+from builtins import map
+from builtins import range
+from builtins import object
 from copy import deepcopy
 import functools
 import logging
@@ -22,8 +25,9 @@ class VariableMap(object):
         self._cpu_context = cpu_context
 
     def __repr__(self):
-        return '<VariableMap : \n\t{}\n>'.format(
-            '\n\t'.join(map(repr, sorted(self._variables.values(), key=lambda var: var.addr))))
+        return "<VariableMap : \n\t{}\n>".format(
+            "\n\t".join(map(repr, sorted(list(self._variables.values()), key=lambda var: var.addr)))
+        )
 
     def __deepcopy__(self, memo):
         """
@@ -31,20 +35,20 @@ class VariableMap(object):
         """
         copy = VariableMap(deepcopy(self._cpu_context, memo))
         memo[id(self)] = copy
-        copy._variables = {addr: deepcopy(variable, memo) for addr, variable in self._variables.items()}
+        copy._variables = {addr: deepcopy(variable, memo) for addr, variable in list(self._variables.items())}
         return copy
 
     def __getitem__(self, addr_or_name):
         """Gets a variable by name or address."""
         if isinstance(addr_or_name, str):
-            for var in self._variables.values():
+            for var in list(self._variables.values()):
                 if addr_or_name == var.name:
                     return var
-            raise KeyError('{} not found.'.format(addr_or_name))
-        elif isinstance(addr_or_name, (int, long)):
+            raise KeyError("{} not found.".format(addr_or_name))
+        elif isinstance(addr_or_name, int):
             return self._variables[addr_or_name]
         else:
-            raise ValueError('Invalid variable name or address: {!r}'.format(addr_or_name))
+            raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
     def get(self, addr_or_name, default=None):
         """Gets a variable by name or address."""
@@ -63,33 +67,32 @@ class VariableMap(object):
         :raises ValueError: If instruction has not been executed yet.
         """
         if ip not in self._cpu_context.executed_instructions:
-            raise ValueError(
-                'Unable to get variables. Instruction at 0x{:0x} has not been executed.'.format(ip))
+            raise ValueError("Unable to get variables. Instruction at 0x{:0x} has not been executed.".format(ip))
 
         return [var for var in self if ip in var.references]
 
     def __setitem__(self, addr_or_name, variable):
         """Sets a variable by name or address."""
         if isinstance(addr_or_name, str):  # TODO
-            raise NotImplementedError('Creating new variable by name is currently not supported.')
-        elif isinstance(addr_or_name, (int, long)):
+            raise NotImplementedError("Creating new variable by name is currently not supported.")
+        elif isinstance(addr_or_name, int):
             self._variables[addr_or_name] = variable
         else:
-            raise ValueError('Invalid variable name or address: {!r}'.format(addr_or_name))
+            raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
     def __contains__(self, addr_or_name):
         if isinstance(addr_or_name, str):
-            for var in self._variables.values():
+            for var in list(self._variables.values()):
                 if addr_or_name == var.name:
                     return True
             return False
-        elif isinstance(addr_or_name, (int, long)):
+        elif isinstance(addr_or_name, int):
             return addr_or_name in self._variables
         else:
-            raise ValueError('Invalid variable name or address: {!r}'.format(addr_or_name))
+            raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
     def __iter__(self):
-        return iter(self._variables.values())
+        return iter(list(self._variables.values()))
 
     def add(self, addr, frame_id=None, stack_offset=None, reference=None):
         """
@@ -111,19 +114,19 @@ class VariableMap(object):
 
     @property
     def names(self):
-        return [var.name for var in self._variables.values()]
+        return [var.name for var in list(self._variables.values())]
 
     @property
     def addrs(self):
-        return self._variables.keys()
+        return list(self._variables.keys())
 
     @property
     def stack_variables(self):
-        return [var for var in self._variables.values() if var.is_stack]
+        return [var for var in list(self._variables.values()) if var.is_stack]
 
     @property
     def global_variables(self):
-        return [var for var in self._variables.values() if not var.is_stack]
+        return [var for var in list(self._variables.values()) if not var.is_stack]
 
 
 @functools.total_ordering
@@ -140,14 +143,13 @@ class Variable(object):
     }
 
     def __init__(self, cpu_context, addr, frame_id=None, stack_offset=None):
-        if ((frame_id is not None and stack_offset is None)
-                or (frame_id is None and stack_offset is not None)):
-            raise ValueError('Both frame_id and stack_offset must be provided.')
+        if (frame_id is not None and stack_offset is None) or (frame_id is None and stack_offset is not None):
+            raise ValueError("Both frame_id and stack_offset must be provided.")
         self._cpu_context = cpu_context
         self.addr = addr
         self.frame_id = frame_id
         self.stack_offset = stack_offset
-        self.references = []   # list of instruction pointers where the variable was encountered.
+        self.references = []  # list of instruction pointers where the variable was encountered.
 
     def __deepcopy__(self, memo):
         copy = self.__new__(self.__class__)
@@ -160,11 +162,12 @@ class Variable(object):
         return copy
 
     def __repr__(self):
-        string = '<Variable {} : addr = 0x{:0x} : value = {!r} : size = {}'.format(
-            self.name, self.addr, self.value, self.size)
+        string = "<Variable {} : addr = 0x{:0x} : value = {!r} : size = {}".format(
+            self.name, self.addr, self.value, self.size
+        )
         if self.is_stack:
-            string += ' : frame_id = 0x{:0x} : stack_offset = {}'.format(self.frame_id, self.stack_offset)
-        string += '>'
+            string += " : frame_id = 0x{:0x} : stack_offset = {}".format(self.frame_id, self.stack_offset)
+        string += ">"
         return string
 
     def __eq__(self, other):
@@ -189,7 +192,7 @@ class Variable(object):
         else:
             name = idc.get_name(self.addr)
         if not name:
-            return ''
+            return ""
         return name
 
     @property
@@ -228,8 +231,9 @@ class Variable(object):
                 else:
                     # If data size is greater than type size, then we have an array.
                     data = self.data
-                    return [utils.struct_unpack(data[i:i+data_type_size])
-                            for i in range(0, len(data), data_type_size)]
+                    return [
+                        utils.struct_unpack(data[i : i + data_type_size]) for i in range(0, len(data), data_type_size)
+                    ]
             else:
                 return self.data
         else:

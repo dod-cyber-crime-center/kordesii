@@ -2,21 +2,15 @@
 Interface for memory management.
 """
 
-from future.builtins import range
-
-from copy import deepcopy
 import collections
 import logging
-import itertools
+from copy import deepcopy
 
-import idc
 import ida_bytes
-import ida_range
 import ida_segment
+import idc
 
-from kordesii.utils import segments
 from kordesii.utils.function_tracing.utils import get_bits
-
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +89,7 @@ class PageMap(collections.defaultdict):
         :return bytearray: bytearray containing bytes within range
         """
         # Reconstruct the segment, account for bytes which are not loaded.
-        # Can't use xrange() here because we can get a "Python int too large to conver to C long" error
-        bytes_range = iter(itertools.count(start).next, end)  # a range from start -> end
+        bytes_range = range(start, end)  # a range from start -> end
         return bytearray(ida_bytes.get_wide_byte(i) if idc.is_loaded(i) else 0 for i in bytes_range)
 
     def _new_page(self, page_index):
@@ -115,7 +108,7 @@ class PageMap(collections.defaultdict):
         # If page was set for delayed retrieval it is coming from segment data, so pull from IDB.
         # Update this check if ever use delayed retrieval for non-segment data.
         if self._is_delayed(page_index):
-            logger.debug('Reading segment data 0x{:X} -> 0x{:X} from IDB'.format(start_ea, end_ea))
+            logger.debug("Reading segment data 0x{:X} -> 0x{:X} from IDB".format(start_ea, end_ea))
             page = self._obtain_bytes(start_ea, end_ea)
             self._segment_cache[page_index] = page[:]  # cache page first
             return page
@@ -220,11 +213,13 @@ class Memory(object):
         title = "{}{}{}".format("Base Address".ljust(_just), "Address Range".ljust(_just), "Size")
         memory_ranges = []
         for base_address, size in self.blocks:
-            memory_ranges.append("{}{}{}".format(
-                _hex_fmt.format(base_address).ljust(_just),
-                "{} - {}".format(_hex_fmt.format(base_address), _hex_fmt.format(base_address + size)).ljust(_just),
-                size
-            ))
+            memory_ranges.append(
+                "{}{}{}".format(
+                    _hex_fmt.format(base_address).ljust(_just),
+                    "{} - {}".format(_hex_fmt.format(base_address), _hex_fmt.format(base_address + size)).ljust(_just),
+                    size,
+                )
+            )
 
         return "{}\n{}\n".format(title, "\n".join(memory_ranges))
 
@@ -253,7 +248,7 @@ class Memory(object):
         # This helps to prevent us from wasting (real) memory if someone allocates
         # a huge amount of memory but only uses a small amount.
         self._heap_allocations[address] = size
-        logger.debug('[alloc] :: Allocated {} bytes at 0x{:X}'.format(size, address))
+        logger.debug("[alloc] :: Allocated {} bytes at 0x{:X}".format(size, address))
         return address
 
     def realloc(self, address, size):
@@ -266,7 +261,7 @@ class Memory(object):
         """
         # Passed in address should be the base address of a previously allocated memory region.
         if address not in self._heap_allocations:
-            raise ValueError('0x{:X} address is not allocated.'.format(address))
+            raise ValueError("0x{:X} address is not allocated.".format(address))
 
         previous_size = self._heap_allocations[address]
 
@@ -283,13 +278,16 @@ class Memory(object):
                     self.write(new_address, self.read(address, previous_size))
 
                     # Don't free the old, because the user may want to search it.
-                    logger.debug('[realloc] :: Relocated 0x{:X} -> 0x{:X}'.format(address, new_address))
+                    logger.debug("[realloc] :: Relocated 0x{:X} -> 0x{:X}".format(address, new_address))
                     return new_address
 
         # Otherwise we just need to adjust the size.
         if previous_size != size:
-            logger.debug('[realloc] :: Reallocating heap size at 0x{:X} from {} to {} bytes.'.format(
-                address, previous_size, size))
+            logger.debug(
+                "[realloc] :: Reallocating heap size at 0x{:X} from {} to {} bytes.".format(
+                    address, previous_size, size
+                )
+            )
             self._heap_allocations[address] = size
         return address
 
@@ -303,27 +301,27 @@ class Memory(object):
         :return: byte string of read data.
         """
         if address < 0:
-            raise ValueError('Address must be a positive integer. Got 0x{:08X}'.format(address))
+            raise ValueError("Address must be a positive integer. Got 0x{:08X}".format(address))
         if size < 0:
-            raise ValueError('Size must be a positive integer.')
+            raise ValueError("Size must be a positive integer.")
         if size > self.MAX_MEM_READ:
             logger.error(
-                '[mem_read] :: Attempted to read {} bytes from 0x{:08X}. '
-                'Ignoring request and reading {} bytes instead.'.format(
-                    size, address, self.MAX_MEM_READ))
+                "[mem_read] :: Attempted to read {} bytes from 0x{:08X}. "
+                "Ignoring request and reading {} bytes instead.".format(size, address, self.MAX_MEM_READ)
+            )
             size = self.MAX_MEM_READ
 
-        logger.debug('[mem_read] :: Reading {} bytes from 0x{:08X}'.format(size, address))
+        logger.debug("[mem_read] :: Reading {} bytes from 0x{:08X}".format(size, address))
 
         page_index = address >> 12
-        page_offset = address & 0xfff
+        page_offset = address & 0xFFF
 
         # Read data from pages.
         out = bytearray()
         while size:
             # We don't want to trigger a page creation on read().. only write().
             page = self._pages.peek(page_index)
-            read_bytes = page[page_offset:page_offset + size]
+            read_bytes = page[page_offset : page_offset + size]
             out += read_bytes
             size -= len(read_bytes)
             page_offset = 0
@@ -339,27 +337,30 @@ class Memory(object):
         :param data: data to write
         """
         if address < 0:
-            raise ValueError('Address must be a positive integer. Got 0x{:08X}'.format(address))
+            raise ValueError("Address must be a positive integer. Got 0x{:08X}".format(address))
 
         size = len(data)
         if size > self.MAX_MEM_WRITE:
             logger.error(
-                '[mem_read] :: Attempted to write {} bytes to 0x{:08X}. '
-                'Ignoring request and using first {} bytes instead.'.format(
-                    size, address, self.MAX_MEM_WRITE))
-            data = data[:self.MAX_MEM_WRITE]
+                "[mem_read] :: Attempted to write {} bytes to 0x{:08X}. "
+                "Ignoring request and using first {} bytes instead.".format(size, address, self.MAX_MEM_WRITE)
+            )
+            data = data[: self.MAX_MEM_WRITE]
 
-        logger.debug('[mem_write] :: Writing {} bytes to 0x{:08X}'.format(len(data), address))
+        logger.debug("[mem_write] :: Writing {} bytes to 0x{:08X}".format(len(data), address))
 
         page_index = address >> 12
-        page_offset = address & 0xfff
+        page_offset = address & 0xFFF
 
         # Write data into pages.
         while data:
             page = self._pages[page_index]
             split_index = self.PAGE_SIZE - page_offset
             to_write = data[:split_index]
-            page[page_offset:page_offset + len(to_write)] = to_write
+            try:
+                page[page_offset : page_offset + len(to_write)] = to_write
+            except TypeError:
+                raise TypeError("to_write: {} {}".format(type(to_write), repr(to_write)))
             data = data[split_index:]
             page_offset = 0
             page_index += 1
@@ -378,18 +379,17 @@ class Memory(object):
         """
         # We are not going to handle things that could expand beyond multiple pages
         if len(value) >= self.PAGE_SIZE:
-            raise ValueError('Search value must be less than {} bytes, got {}'.format(
-                self.PAGE_SIZE, len(value)))
+            raise ValueError("Search value must be less than {} bytes, got {}".format(self.PAGE_SIZE, len(value)))
 
         if end and end <= start:
-            raise ValueError('Ending address must be greater than starting address.')
+            raise ValueError("Ending address must be greater than starting address.")
 
         page_index = start >> 12
-        page_offset = start & 0xfff
+        page_offset = start & 0xFFF
 
         if end:
             end_page_index = end >> 12
-            end_page_offset = end & 0xfff
+            end_page_offset = end & 0xFFF
         else:
             end_page_index = end_page_offset = None
 

@@ -1,7 +1,6 @@
 """
 DC3-Kordesii framework primary object used for execution of decoders and collection of metadata.
 """
-from __future__ import print_function
 
 import base64
 import codecs
@@ -17,13 +16,14 @@ import sys
 import tempfile
 import traceback
 import warnings
+from typing import List, Optional
 
 import kordesii
 from kordesii import decoders, logutil
 from kordesii.serialization import deserialize
 
 logger = logging.getLogger(__name__)
-ascii_writer = codecs.getwriter('ascii')
+ascii_writer = codecs.getwriter("ascii")
 
 # Constant fields
 FIELD_DEBUG = "debug"
@@ -78,19 +78,17 @@ class Reporter(object):
 
     """
 
-    def __init__(self,
-                 decoderdir=None,
-                 tempdir=None,
-                 disabletempcleanup=False,
-                 disabledebug=False,
-                 base64outputfiles=False,
-                 ):
+    def __init__(
+        self, decoderdir=None, tempdir=None, disabletempcleanup=False, disabledebug=False, base64outputfiles=False,
+    ):
 
         # defaults
         if decoderdir:
             warnings.warn(
-                'Supplying a decoderdir in the Reporter class is no longer supported. '
-                'Please call kordesii.register_decoder_directory() beforehand instead.', DeprecationWarning)
+                "Supplying a decoderdir in the Reporter class is no longer supported. "
+                "Please call kordesii.register_decoder_directory() beforehand instead.",
+                DeprecationWarning,
+            )
             kordesii.register_decoder_directory(decoderdir)
         else:
             # This is here until to keep backwards compatibility. In the future this will be removed
@@ -98,8 +96,11 @@ class Reporter(object):
             kordesii.register_entry_points()
 
         if disabledebug:
-            warnings.warn('Supplying a disabledebug in the Reporter class is no longer supported. '
-                          'Please set the log level using the logging library instead.', DeprecationWarning)
+            warnings.warn(
+                "Supplying a disabledebug in the Reporter class is no longer supported. "
+                "Please set the log level using the logging library instead.",
+                DeprecationWarning,
+            )
             # You would think disabling "debug" would mean to set log level to INFO, however "reporter.debug()"
             # was really used for INFO level logs, so set level to WARNING instead.
             logging.root.setLevel(logging.WARNING)
@@ -108,11 +109,11 @@ class Reporter(object):
         self.metadata = {}
         self.errors = []
         # TODO: Remove disassembler specific details from reporter.
-        self.ida_log = ''
+        self.ida_log = ""
 
         self._log_handler = None
-        self._temp_file_name = ''
-        self._managed_tempdir = ''
+        self._temp_file_name = ""
+        self._managed_tempdir = ""
 
         self._disable_temp_cleanup = disabletempcleanup
         self._base64_output_files = base64outputfiles
@@ -123,7 +124,8 @@ class Reporter(object):
     @property
     def decoderdir(self):
         warnings.warn(
-            'Reporter.decoderdir is deprecated, please use kordesii.get_sources() instead.', DeprecationWarning)
+            "Reporter.decoderdir is deprecated, please use kordesii.get_sources() instead.", DeprecationWarning
+        )
         # NOTE: While we can technically have more than one source now, anyone still using this
         # deprecated attribute will most likely still be using a single source.
         return kordesii.get_sources()[0].path
@@ -136,9 +138,9 @@ class Reporter(object):
         :return: Dict of the serialized data
         :rtype: dict
         """
-        return self.get_serialized('other_data')
+        return self.get_serialized("other_data")
 
-    def get_serialized(self, name='other_data'):
+    def get_serialized(self, name="other_data"):
         """
         Get the data from a named serializer (that is, other than the default
         'other data' serializer).
@@ -150,7 +152,7 @@ class Reporter(object):
         _deserialized_data = self._deserialized_data
         if name in _deserialized_data:
             return _deserialized_data[name]
-        yml_data = self.get_file_contents('{}.yml'.format(name))
+        yml_data = self.get_file_contents("{}.yml".format(name))
         data = deserialize(yml_data)
         _deserialized_data[name] = data
         return data
@@ -173,9 +175,7 @@ class Reporter(object):
         """
         Record an error message--typically only framework reports error and decoders report via debug
         """
-        warnings.warn(
-            'Reporter.debug() is deprecated, please use logger.error() instead.', DeprecationWarning
-        )
+        warnings.warn("Reporter.debug() is deprecated, please use logger.error() instead.", DeprecationWarning)
         message = self.convert_to_unicode(message)
 
         self.errors.append(message)
@@ -185,8 +185,8 @@ class Reporter(object):
         Return list of errors.
         """
         warnings.warn(
-            'Reporter.get_errors() is deprecated, please pull errors from the logger using a log handler.',
-            DeprecationWarning
+            "Reporter.get_errors() is deprecated, please pull errors from the logger using a log handler.",
+            DeprecationWarning,
         )
         return self.errors
 
@@ -194,9 +194,7 @@ class Reporter(object):
         """
         Record a debug message
         """
-        warnings.warn(
-            'Reporter.debug() is deprecated, please use logger.debug() instead.', DeprecationWarning
-        )
+        warnings.warn("Reporter.debug() is deprecated, please use logger.debug() instead.", DeprecationWarning)
         fieldu = self.convert_to_unicode(FIELD_DEBUG)
         messageu = self.convert_to_unicode(message)
 
@@ -210,8 +208,8 @@ class Reporter(object):
         Return list of debug statements. Returns empty list if none.
         """
         warnings.warn(
-            'Reporter.get_debug() is deprecated, please pull errors from the logger using a log handler.',
-            DeprecationWarning
+            "Reporter.get_debug() is deprecated, please pull errors from the logger using a log handler.",
+            DeprecationWarning,
         )
         if FIELD_DEBUG in self.metadata:
             return self.metadata[FIELD_DEBUG]
@@ -230,7 +228,7 @@ class Reporter(object):
 
         self.metadata[fieldu].append(stringu)
 
-    def get_strings(self):
+    def get_strings(self) -> List[str]:
         """
         Get a list of any recorded strings.
         """
@@ -252,11 +250,14 @@ class Reporter(object):
             self.metadata[fieldu] = []
 
         if self._base64_output_files:
-            self.metadata[fieldu].append([filenameu, descriptionu, md5, base64.b64encode(data)])
+            self.metadata[fieldu].append([filenameu, descriptionu, md5, base64.b64encode(data).decode("latin1")])
         else:
             self.metadata[fieldu].append([filenameu, descriptionu, md5])
 
-    def get_file_contents(self, filename):
+        if filenameu == u"other_data.yml":
+            self.metadata["other_data"] = data.decode("latin1")
+
+    def get_file_contents(self, filename) -> Optional[bytes]:
         """
         If the file name exists and has its contents are stored in the reporter, then take
         the base64 encoded contents, base64 decode it, and return it.
@@ -273,8 +274,7 @@ class Reporter(object):
         Retrieve list of decoder
         """
         warnings.warn(
-            'Reporter.list_decoders() is deprecated, please use kordesii.iter_decoders() instead.',
-            DeprecationWarning
+            "Reporter.list_decoders() is deprecated, please use kordesii.iter_decoders() instead.", DeprecationWarning
         )
         return [decoder.name for decoder in kordesii.iter_decoders()]
 
@@ -294,12 +294,12 @@ class Reporter(object):
             ValueError if the decoder could not be found.
         """
         warnings.warn(
-            'Reporter.get_decoder_path() is deprecated, please use kordesii.iter_decoders() instead.',
-            DeprecationWarning
+            "Reporter.get_decoder_path() is deprecated, please use kordesii.iter_decoders() instead.",
+            DeprecationWarning,
         )
         for decoder in kordesii.iter_decoders(name=decoder_name):
             return decoder.script_path
-        raise ValueError('Failed to find decoder: {}'.format(decoder_name))
+        raise ValueError("Failed to find decoder: {}".format(decoder_name))
 
     def run_decoder(self, name, filename=None, data=None, **run_config):
         """
@@ -313,14 +313,14 @@ class Reporter(object):
         self.__reset()
 
         if not (filename or data):
-            raise ValueError('filename or data must be provided.')
+            raise ValueError("filename or data must be provided.")
 
         if filename:
             input_file = filename
         else:
             # we were passed data buffer. Lazy initialize a temp file for this
             input_file = os.path.join(self.managed_tempdir(), hashlib.md5(data).hexdigest())
-            with open(input_file, 'wb') as file_object:
+            with open(input_file, "wb") as file_object:
                 file_object.write(data)
 
         try:
@@ -332,19 +332,19 @@ class Reporter(object):
                     try:
                         decoder.run(input_file, self, **run_config)
                     except (Exception, SystemExit) as e:
-                        logger.exception('Error running decoder {} on {}'.format(
-                            decoder.full_name, os.path.basename(input_file)
-                        ))
+                        logger.exception(
+                            "Error running decoder {} on {}".format(decoder.full_name, os.path.basename(input_file))
+                        )
                 if not found:
-                    logger.error('Could not find decoder with name: {}'.format(name))
+                    logger.error("Could not find decoder with name: {}".format(name))
         finally:
             self.__cleanup()
 
     def convert_to_unicode(self, input_string):
-        if isinstance(input_string, unicode):
+        if isinstance(input_string, str):
             return input_string
         else:
-            return unicode(input_string, encoding='utf8', errors='replace')
+            return str(input_string, encoding="utf8", errors="replace")
 
     def print_report(self):
         """
@@ -354,7 +354,7 @@ class Reporter(object):
         # for writing a bytes string. Otherwise just write to whatever is at sys.stdout
         print(
             self.get_output_text(),
-            file=ascii_writer(getattr(sys.stdout, 'buffer', sys.stdout), 'backslashreplace')
+            # file=ascii_writer(getattr(sys.stdout, 'buffer', sys.stdout), 'backslashreplace')
         )
 
     def get_output_text(self):
@@ -370,7 +370,7 @@ class Reporter(object):
             output += u"No decoded strings found\n"
         else:
             for item in self.metadata[FIELD_STRINGS]:
-                output += u"{}\n".format(item)
+                output += u"{}\n".format(item.encode("unicode-escape").decode())
 
         if FIELD_FILES in self.metadata:
             output += u"\n----Files----\n\n"
@@ -397,7 +397,7 @@ class Reporter(object):
     @contextlib.contextmanager
     def __redirect_stdout(self):
         """Redirects stdout temporarily while in a with statement."""
-        debug_stdout = io.BytesIO()
+        debug_stdout = io.StringIO()
         orig_stdout = sys.stdout
         sys.stdout = debug_stdout
         try:
@@ -413,12 +413,12 @@ class Reporter(object):
 
         Goal is to make the reporter safe to use for multiple run_decoder instances
         """
-        self._temp_file_name = ''
-        self._managed_tempdir = ''
+        self._temp_file_name = ""
+        self._managed_tempdir = ""
 
         self.metadata = {}
         self.errors = []
-        self.ida_log = ''
+        self.ida_log = ""
 
         # To keep backwards compatibility, setup log handler to add errors and debug messages to reporter.
         # TODO: Remove this when the Reporter object should no longer be responsible for logging.
@@ -445,17 +445,17 @@ class Reporter(object):
                     os.remove(self._temp_file_name)
                 except Exception as e:
                     logger.warning("Failed to purge temp file: %s, %s" % (self._temp_file_name, str(e)))
-                self._temp_file_name = ''
+                self._temp_file_name = ""
 
             if self._managed_tempdir:
                 try:
                     shutil.rmtree(self._managed_tempdir, ignore_errors=True)
                 except Exception as e:
                     logger.warning("Failed to purge temp dir: %s, %s" % (self._managed_tempdir, str(e)))
-                self._managed_tempdir = ''
+                self._managed_tempdir = ""
 
-        self._temp_file_name = ''
-        self._managed_tempdir = ''
+        self._temp_file_name = ""
+        self._managed_tempdir = ""
 
     def __del__(self):
         self.__cleanup()

@@ -1,7 +1,6 @@
 """
 IDA logging utility.
 """
-from __future__ import print_function
 
 import copy
 import errno
@@ -13,6 +12,7 @@ import os
 import struct
 import sys
 import threading
+import traceback
 import warnings
 from collections import deque
 
@@ -27,15 +27,15 @@ class LevelCharFilter(logging.Filter):
 
     def filter(self, record):
         if record.levelno >= logging.ERROR:
-            record.level_char = '!'
+            record.level_char = "!"
         elif record.levelno >= logging.WARN:
-            record.level_char = '-'
+            record.level_char = "-"
         elif record.levelno >= logging.INFO:
-            record.level_char = '+'
+            record.level_char = "+"
         elif record.levelno >= logging.DEBUG:
-            record.level_char = '*'
+            record.level_char = "*"
         else:
-            record.level_char = ' '
+            record.level_char = " "
         return True
 
 
@@ -67,7 +67,7 @@ class MPRotatingFileHandler(logging.handlers.RotatingFileHandler):
         try:
             super(MPRotatingFileHandler, self).doRollover()
         except OSError as e:
-            if not (sys.platform == 'win32' and e.errno == errno.EACCES):
+            if not (sys.platform == "win32" and e.errno == errno.EACCES):
                 raise
 
 
@@ -138,7 +138,7 @@ class LogRecordStreamHandler(socketserver.StreamRequestHandler):
             chunk = self.connection.recv(4)
             if len(chunk) < 4:
                 break
-            slen = struct.unpack('>L', chunk)[0]
+            slen = struct.unpack(">L", chunk)[0]
             chunk = self.connection.recv(slen)
             while len(chunk) < slen:
                 chunk = chunk + self.connection.recv(slen - len(chunk))
@@ -171,17 +171,17 @@ class LogRecordSocketReceiver(socketserver.ThreadingTCPServer):
 
     def __init__(self):
         # Since this is all local, we are using port 0 to let the system pick a random open port for us.
-        socketserver.ThreadingTCPServer.__init__(self, ('localhost', 0), LogRecordStreamHandler)
+        socketserver.ThreadingTCPServer.__init__(self, ("localhost", 0), LogRecordStreamHandler)
         self.abort = 0
         self.timeout = 1
         self.logname = None
 
     def serve_until_stopped(self):
         import select
+
         abort = 0
         while not abort:
-            rd, wr, ex = select.select(
-                [self.socket.fileno()], [], [], self.timeout)
+            rd, wr, ex = select.select([self.socket.fileno()], [], [], self.timeout)
             if rd:
                 self.handle_request()
             abort = self.abort
@@ -225,11 +225,12 @@ def setup_logging(default_level=logging.INFO):
             # get received by the framework.
             # (log level and port will passed in as the 1st and 2nd command line argument)
             import idc
+
             log_level = int(idc.ARGV[1])
             log_port = int(idc.ARGV[2])
 
             logging.root.setLevel(log_level)
-            socket_handler = logging.handlers.SocketHandler('localhost', log_port)
+            socket_handler = logging.handlers.SocketHandler("localhost", log_port)
             logging.root.addHandler(socket_handler)
         else:
             # If running decoder from IDA interface, send simple logs to output window only.
@@ -248,13 +249,13 @@ def setup_logging(default_level=logging.INFO):
             _setup_logging = True
     else:
         # Allow setting log configuration using 'KORDESII_LOG_CFG' environment variable.
-        log_config = os.getenv('KORDESII_LOG_CFG', kordesii_config.LOG_CONFIG_PATH)
+        log_config = os.getenv("KORDESII_LOG_CFG", kordesii_config.LOG_CONFIG_PATH)
         try:
-            with open(log_config, 'rt') as f:
+            with open(log_config, "rt") as f:
                 config = yaml.safe_load(f.read())
             logging.config.dictConfig(config)
         except IOError as e:
-            warnings.warn('Unable to set log config file: {} with error: {}'.format(log_config, e))
+            warnings.warn("Unable to set log config file: {} with error: {}".format(log_config, e))
             logging.basicConfig(level=default_level)
 
         # Receive decoder logs passed though the socket.
@@ -278,13 +279,24 @@ def get_logger(call_level=1):
 
     :return: logging.Logger object
     """
-    frame, file_path, _, _, _, _ = inspect.stack()[call_level]
-    caller_name = frame.f_locals.get('__name__', '__main__')
-    if caller_name == '__main__':
+    try:
+        frame, file_path, _, _, _, _ = inspect.stack(0)[call_level]
+        caller_name = frame.f_locals.get("__name__", "__main__")
+    except TypeError:
+        f = sys._getframe().f_back
+        stack = traceback.StackSummary.extract(traceback.walk_stack(f), limit=call_level + 1, capture_locals=True)
+        stack.reverse()
+        frame = stack[call_level]
+        caller_name = frame.locals.get("__name__", "__main__")
+        file_path = frame.filename
+    if caller_name == "__main__":
         # Manually construct module path based on file locations.
         module_path = os.path.relpath(file_path, os.path.dirname(kordesii.__file__))
-        module_path = ['kordesii'] + filter(None, list(os.path.split(module_path)))
+        module_path = ["kordesii"] + list(filter(None, list(os.path.split(module_path))))
         module_path[-1] = os.path.splitext(module_path[-1])[0]  # remove extension
-        caller_name = '.'.join(module_path)
+        caller_name = ".".join(module_path)
+
+    if os.sep in caller_name:
+        caller_name = "kordesii." + caller_name.rpartition(os.sep)[2]
 
     return logging.getLogger(caller_name)

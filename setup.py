@@ -8,10 +8,6 @@ from setuptools import setup, find_packages
 
 
 version_tuple = (sys.version_info[0], sys.version_info[1])
-if version_tuple < (2, 7) or version_tuple >= (3, 0):
-    print(('Unsupported Python version: {0:s}, version 2.7 or higher and '
-         'lower than 3.x required.').format(sys.version))
-    sys.exit(1)
 
 
 def read(fname):
@@ -30,8 +26,8 @@ setup(
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
     ],
     entry_points={
         'console_scripts': [
@@ -47,7 +43,7 @@ setup(
     },
     packages=find_packages(),
     include_package_data=True,
-    python_requires='>=2.7, <3',
+    python_requires='>=3.6',
     install_requires=[
         'bottle',
         'click',
@@ -55,7 +51,7 @@ setup(
         'numpy',
         'pyelftools',
         'pefile>=2019.4.18',
-        'PyCrypto',
+        'pycryptodome',
         'requests',
         'Pyro4',
         'pyyaml',

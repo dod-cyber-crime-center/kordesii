@@ -7,10 +7,7 @@ from __future__ import print_function, division
 # Standard imports
 import argparse
 import datetime
-import json
 import logging
-import os
-import locale
 import sys
 import timeit
 

@@ -17,15 +17,12 @@ RBP_OFFSET = 0x400
 class ARMProcessorContext(ProcessorContext):
     """Processor context for ARM architecture"""
 
-    ARCH_NAME = 'ARM'
+    ARCH_NAME = "ARM"
     OPCODES = OPCODES
 
     def __init__(self):
         super(ARMProcessorContext, self).__init__(
-            ARM_Registers(),
-            instruction_pointer='pc',
-            stack_pointer='sp',
-            stack_registers=['sp', 'wsp'],
+            ARM_Registers(), instruction_pointer="pc", stack_pointer="sp", stack_registers=["sp", "wsp"],
         )
         # TODO: Set up stack correctly for ARM
         # # Set up the stack before we go.

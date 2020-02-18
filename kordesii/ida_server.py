@@ -27,53 +27,53 @@ logger = kordesii.get_logger()
 
 # The following list contains all the modules to be proxied into IDA.
 proxied_modules = [
-    'idc',
-    'idaapi',
-    'idautils',
-    'ida_allins',
-    'ida_auto',
-    'ida_bytes',
-    'ida_dbg',
-    'ida_diskio',
-    'ida_entry',
-    'ida_enum',
-    'ida_expr',
-    'ida_fixup',
-    'ida_fpro',
-    'ida_frame',
-    'ida_funcs',
-    'ida_gdl',
-    'ida_graph',
-    'ida_hexrays',
-    'ida_ida',
-    'ida_idaapi',
-    'ida_idc',
-    'ida_idd',
-    'ida_idp',
-    'ida_kernwin',
-    'ida_lines',
-    'ida_loader',
-    'ida_moves',
-    'ida_nalt',
-    'ida_name',
-    'ida_netnode',
-    'ida_offset',
-    'ida_pro',
-    'ida_problems',
-    'ida_range',
-    'ida_registry',
-    'ida_search',
-    'ida_segment',
-    'ida_segregs',
-    'ida_strlist',
-    'ida_struct',
-    'ida_tryblks',
-    'ida_typeinf',
-    'ida_ua',
-    'ida_xref',
-
+    "idc",
+    "idaapi",
+    "idautils",
+    "ida_allins",
+    "ida_auto",
+    "ida_bytes",
+    "ida_dbg",
+    "ida_diskio",
+    "ida_entry",
+    "ida_enum",
+    "ida_expr",
+    "ida_fixup",
+    "ida_fpro",
+    "ida_frame",
+    "ida_funcs",
+    "ida_gdl",
+    "ida_graph",
+    "ida_hexrays",
+    "ida_ida",
+    "ida_idaapi",
+    "ida_idc",
+    "ida_idd",
+    "ida_idp",
+    "ida_kernwin",
+    "ida_lines",
+    "ida_loader",
+    "ida_moves",
+    "ida_nalt",
+    "ida_name",
+    "ida_netnode",
+    "ida_offset",
+    "ida_pro",
+    "ida_problems",
+    "ida_range",
+    "ida_registry",
+    "ida_search",
+    "ida_segment",
+    "ida_segregs",
+    "ida_strlist",
+    "ida_struct",
+    "ida_tryblks",
+    "ida_typeinf",
+    "ida_ua",
+    "ida_xref",
     # Add kordesii modules that will work proxied.
-    'kordesii.utils.utils',
+    "kordesii.utils.utils",
+    "kordesii.utils.segments",
 ]
 
 
@@ -91,38 +91,6 @@ class IDAProxy(object):
     @staticmethod
     def testing_method():
         return "HI!!"
-
-
-def build_proxy_func(func):
-    """
-    Builds a proxy function for a given function.
-
-    Designed to be used for with IDA-based functions from
-    IDA modules to proxy and make available to IDARemote.
-
-    Due to how the serialization works between processes with Pyro4
-    some modifications are made to the arguments and return values
-
-    Arguments that are of type `unicode` are encoded with ``latin1``
-    to `bytes`.
-
-    :param function func: Function to proxy
-    :return: The wrapped function
-    """
-
-    def _proxy(*args, **kwargs):
-        new_args = list(args)
-        for idx, arg in enumerate(args):
-            if isinstance(arg, unicode):
-                new_args[idx] = arg.encode('latin1')
-
-        for key, value in kwargs.items():
-            if isinstance(value, unicode):
-                kwargs[key] = value.encode('latin1')
-
-        return func(*new_args, **kwargs)
-
-    return _proxy
 
 
 def build_proxy_property(prop):
@@ -155,15 +123,15 @@ def add_module(mod, klass):
         member = getattr(mod, member_name)
 
         # Some hackery needed because Pyro4 doesn't like private methods and attributes.
-        if member_name.startswith('_'):
-            member_name = 'priv' + member_name
+        if member_name.startswith("_"):
+            member_name = "priv" + member_name
 
         if hasattr(klass, member_name):
             continue
 
         # Wrap functions and class initializations.
         if inspect.isroutine(member):
-            setattr(klass, member_name, staticmethod(build_proxy_func(member)))
+            setattr(klass, member_name, staticmethod(member))
         elif isinstance(member, (type, types.ModuleType)):
             continue
         else:
@@ -212,22 +180,13 @@ class MainProxy(object):
             # update sys.paths, so we can find the function
             sys.path += path
             # redirect stdout and stderr so we can bring it over
-            sys.stdout = io.BytesIO()
-            sys.stderr = io.BytesIO()
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
 
             func = dill.loads(func)
 
-            new_args = list(args)
-            for idx, arg in enumerate(args):
-                if isinstance(arg, unicode):
-                    new_args[idx] = arg.encode('latin1')
-
-            for key, value in kwargs.items():
-                if isinstance(value, unicode):
-                    kwargs[key] = value.encode('latin1')
-
             try:
-                ret = func(*new_args, **kwargs)
+                ret = func(*args, **kwargs)
             except Exception as e:
                 # Pass any exceptions thrown as the return value
                 # so we can reraise it externally.
@@ -252,17 +211,17 @@ def _register(daemon):
     :raises: An exception could be raised if we fail to import a module.
     """
     for module_name in proxied_modules:
-        logging.debug('registering {}'.format(module_name))
+        logging.debug("registering {}".format(module_name))
         module = importlib.import_module(module_name)
         # Pyro4 doesn't allow private module names to be exposed, so a little hackery is in order.
-        klass = type(module_name.strip('_'), (IDAProxy,), {})
+        klass = type(module_name.strip("_"), (IDAProxy,), {})
         add_module(module, klass)
         Pyro4.expose(klass)
         daemon.register(klass, objectId=module_name)
 
     # Now expose the main Proxy controller.
     Pyro4.expose(MainProxy)
-    uri = daemon.register(MainProxy, objectId='main')
+    uri = daemon.register(MainProxy, objectId="main")
 
     return uri
 
@@ -273,7 +232,8 @@ def _send_result(result):
     (this also doubles as a way for the client to know we are ready)
     """
     import idc
-    with open(idc.ARGV[-1], 'wb') as f:
+
+    with open(idc.ARGV[-1], "wb") as f:
         f.write(dill.dumps(result))
 
 
@@ -290,13 +250,13 @@ def main():
         Pyro4.config.FLAME_ENABLED = "True"
         Pyro4.config.SERIALIZERS_ACCEPTED = {"dill"}
 
-        logger.debug('Starting daemon...')
-        daemon = Pyro4.Daemon(host='localhost')
+        logger.debug("Starting daemon...")
+        daemon = Pyro4.Daemon(host="localhost")
         warnings.simplefilter("ignore")
 
         uri = _register(daemon)
 
-        logger.info('Listening on {}'.format(uri))
+        logger.info("Listening on {}".format(uri))
         # Send port back to the client.
         _send_result(uri.port)
 
@@ -312,6 +272,6 @@ def main():
         _send_result(e)
 
 
-if __name__ == '__main__' and kordesii.in_ida:
-    logger.info('Starting')
+if __name__ == "__main__" and kordesii.in_ida:
+    logger.info("Starting")
     main()

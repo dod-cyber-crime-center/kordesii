@@ -2,6 +2,7 @@
 Interface for creating register families.
 """
 
+from builtins import object
 from copy import deepcopy
 
 
@@ -37,12 +38,12 @@ class Register(object):
         # We are modifying self.__dict__ directly to avoid triggering the
         # overwritten __setattr__()
         self_dict = self.__dict__
-        self_dict['size'] = size
-        self_dict['_size_mask'] = 2**(8 * size) - 1
-        self_dict['_value'] = 0
+        self_dict["size"] = size
+        self_dict["_size_mask"] = 2 ** (8 * size) - 1
+        self_dict["_value"] = 0
 
         _masks = {}
-        for name, mask in masks.items():
+        for name, mask in list(masks.items()):
             # Get position of rightmost set bit in mask
             shift = 0
             if mask:
@@ -51,14 +52,14 @@ class Register(object):
                     _mask >>= 1
                     shift += 1
             _masks[name.lower()] = (mask, shift)
-        self_dict['_masks'] = _masks
+        self_dict["_masks"] = _masks
 
     def __deepcopy__(self, memo):
         copy = Register(self.size)
         memo[id(self)] = copy
         copy_dict = copy.__dict__
-        copy_dict['_masks'] = dict(self._masks)
-        copy_dict['_value'] = self._value
+        copy_dict["_masks"] = dict(self._masks)
+        copy_dict["_value"] = self._value
         return copy
 
     def __getattr__(self, reg_name):
@@ -66,7 +67,7 @@ class Register(object):
         try:
             mask, shift = self._masks[reg_name]
         except KeyError:
-            raise AttributeError('Invalid register name: {}'.format(reg_name))
+            raise AttributeError("Invalid register name: {}".format(reg_name))
         return (self._value & mask) >> shift
 
     def __getitem__(self, reg_name):
@@ -77,10 +78,10 @@ class Register(object):
         try:
             mask, shift = self._masks[reg_name]
         except KeyError:
-            raise AttributeError('Invalid register name: {}'.format(reg_name))
-        if not isinstance(value, (int, long)):
-            raise ValueError('Register value must be int or long, got {}'.format(type(value)))
-        self.__dict__['_value'] = (self._value & (mask ^ self._size_mask)) | ((value & (mask >> shift)) << shift)
+            raise AttributeError("Invalid register name: {}".format(reg_name))
+        if not isinstance(value, int):
+            raise ValueError("Register value must be int or long, got {}".format(type(value)))
+        self.__dict__["_value"] = (self._value & (mask ^ self._size_mask)) | ((value & (mask >> shift)) << shift)
 
     def __setitem__(self, reg_name, value):
         self.__setattr__(reg_name, value)
@@ -90,7 +91,7 @@ class Register(object):
 
     @property
     def names(self):
-        return self._masks.keys()
+        return list(self._masks.keys())
 
 
 class RegisterMap(object):
@@ -106,8 +107,8 @@ class RegisterMap(object):
         :param registers: list of Register instances
         """
         self_dict = self.__dict__
-        self_dict['_registers'] = registers
-        self_dict['_reg_map'] = self._build_reg_map(registers)
+        self_dict["_registers"] = registers
+        self_dict["_reg_map"] = self._build_reg_map(registers)
 
     @staticmethod
     def _build_reg_map(registers):
@@ -118,7 +119,7 @@ class RegisterMap(object):
         for register in registers:
             for name in register.names:
                 if name in reg_map:
-                    raise RuntimeError('Duplicate register name: {}'.format(name))
+                    raise RuntimeError("Duplicate register name: {}".format(name))
                 reg_map[name] = register
         return reg_map
 
@@ -127,8 +128,8 @@ class RegisterMap(object):
         memo[id(self)] = copy
 
         copy_dict = copy.__dict__
-        copy_dict['_registers'] = [deepcopy(reg, memo) for reg in self._registers]
-        copy_dict['_reg_map'] = self._build_reg_map(copy._registers)
+        copy_dict["_registers"] = [deepcopy(reg, memo) for reg in self._registers]
+        copy_dict["_reg_map"] = self._build_reg_map(copy._registers)
 
         return copy
 
@@ -137,7 +138,7 @@ class RegisterMap(object):
         try:
             register = self._reg_map[reg_name]
         except KeyError:
-            raise AttributeError('Invalid register: {}'.format(reg_name))
+            raise AttributeError("Invalid register: {}".format(reg_name))
         return register[reg_name]
 
     def __getitem__(self, reg_name):
@@ -148,7 +149,7 @@ class RegisterMap(object):
         try:
             register = self._reg_map[reg_name]
         except KeyError:
-            raise AttributeError('Invalid register: {}'.format(reg_name))
+            raise AttributeError("Invalid register: {}".format(reg_name))
         register[reg_name] = value
 
     def __setitem__(self, reg_name, value):
@@ -156,4 +157,4 @@ class RegisterMap(object):
 
     @property
     def names(self):
-        return self._reg_map.keys()
+        return list(self._reg_map.keys())

@@ -8,12 +8,11 @@ import kordesii
 from kordesii.utils import decoderutils
 from kordesii.utils import function_tracing
 
-
 logger = kordesii.get_logger()
 
 
 def xor_decrypt(key, enc_data):
-    return ''.join(chr(ord(x) ^ key) for x in enc_data)
+    return bytes((x ^ key) for x in enc_data)
 
 
 def find_strings():
@@ -22,14 +21,14 @@ def find_strings():
 
         void encrypt(char *s, char key)
         {
-	        while (*s)
-		        *s++ ^= key;
+            while (*s)
+                *s++ ^= key;
         }
     """
-    for encrypt_func in decoderutils.re_find_functions(re.compile(r'\x8b\x45\x08\x0f\xbe\x08')):
-        logger.info('Found XOR encrypt function at: 0x{:0x}'.format(encrypt_func.start_ea))
+    for encrypt_func in decoderutils.re_find_functions(re.compile(br"\x8b\x45\x08\x0f\xbe\x08")):
+        logger.info("Found XOR encrypt function at: 0x{:0x}".format(encrypt_func.start_ea))
         for call_ea in encrypt_func.xrefs_to:
-            logger.debug('Tracing {:0x}'.format(call_ea))
+            logger.debug("Tracing {:0x}".format(call_ea))
             # Extract arguments for call to xor function.
             tracer = function_tracing.get_tracer(call_ea)
             context, args = tracer.get_function_args(call_ea)

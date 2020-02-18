@@ -1,4 +1,3 @@
-
 import logging
 
 import idc
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Dictionary containing opcode names -> function
 OPCODES = {}
-opcode = registrar(OPCODES, name='opcode')
+opcode = registrar(OPCODES, name="opcode")
 
 
 """ 
@@ -63,31 +62,30 @@ TBZ             Test bit and branch if zero         32KB
 # TODO: How does IDA report the mnemonic for B.cond
 
 
-
 @opcode
 def CBNZ(cpu_context, ip, mnem, opvalues):
     """Compare and branch if nonzero"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
 
 @opcode
 def CBZ(cpu_context, ip, mnem, opvalues):
     """Compare and branch if zero"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def TBNZ(cpu_context, ip, mnem, opvalues):
     """Test bit and branch if nonzero"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def TBZ(cpu_context, ip, mnem, opvalues):
     """Test bit and branch if zero"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Unconditional branch (immediate/register)
 
@@ -100,29 +98,30 @@ counter to the value in a general-purpose register.  The BLR instruction also wr
 following instruction to general-purpose register X30.
 """
 
+
 @opcode
 def B(cpu_context, ip, mnem, opvalues):
     """Branch unconditionally"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
-@opcode 
+
+
+@opcode
 def BL(cpu_context, ip, mnem, opvalues):
     """Branch with link"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def BLR(cpu_context, ip, mnem, opvalues):
     """Branch with link to register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def BR(cpu_context, ip, mnem, opvalues):
     """Branch to register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
 
 """
 System register instructions
@@ -136,12 +135,13 @@ MSR             Move general-purpose register to System register        MSR (reg
                 Move immediate to PE state field                        MSR (immediate) on page C6-1025
 """
 
+
 @opcode
 def MRS(cpu_context, ip, mnem, opvalues):
     """Move System register to general-purpose register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def MSR(cpu_context, ip, mnem, opvalues):
     """
@@ -149,8 +149,8 @@ def MSR(cpu_context, ip, mnem, opvalues):
     Move immediate to PE state field
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Load/Store register
 The Load/Store register instructions support the following addressing modes:
@@ -200,6 +200,7 @@ The unscaled 9-bit signed immediate offset address mode requires its own instruc
 
 """
 
+
 @opcode
 def LDR(cpu_context, ip, mnem, opvalues):
     """
@@ -208,8 +209,8 @@ def LDR(cpu_context, ip, mnem, opvalues):
     Load register (PC-relative literal)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDRB(cpu_context, ip, mnem, opvalues):
     """
@@ -217,7 +218,7 @@ def LDRB(cpu_context, ip, mnem, opvalues):
     Load byte (immediate offset)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
 
 @opcode
 def LDRSB(cpu_context, ip, mnem, opvalues):
@@ -226,8 +227,8 @@ def LDRSB(cpu_context, ip, mnem, opvalues):
     Load signed byte (immediate offset)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDRH(cpu_context, ip, mnem, opvalues):
     """
@@ -235,8 +236,8 @@ def LDRH(cpu_context, ip, mnem, opvalues):
     Load halfword (immediate offset)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDRSH(cpu_context, ip, mnem, opvalues):
     """
@@ -245,7 +246,7 @@ def LDRSH(cpu_context, ip, mnem, opvalues):
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def LDRSW(cpu_context, ip, mnem, opvalues):
     """
@@ -255,7 +256,7 @@ def LDRSW(cpu_context, ip, mnem, opvalues):
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def STR(cpu_context, ip, mnem, opvalues):
     """
@@ -263,8 +264,8 @@ def STR(cpu_context, ip, mnem, opvalues):
     Store register (immediate offset)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STRB(cpu_context, ip, mnem, opvalues):
     """
@@ -273,7 +274,7 @@ def STRB(cpu_context, ip, mnem, opvalues):
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def STRH(cpu_context, ip, mnem, opvalues):
     """
@@ -313,60 +314,61 @@ addressing mode of base plus a scaled, unsigned 12-bit immediate offset. This is
 (unscaled offset) instructions, that disambiguate this instruction class from the Load/Store register instruction
 """
 
+
 @opcode
 def LDUR(cpu_context, ip, mnem, opvalues):
     """Load register (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDURB(cpu_context, ip, mnem, opvalues):
     """Load byte (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDURSB(cpu_context, ip, mnem, opvalues):
     """Load signed byte (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDURH(cpu_context, ip, mnem, opvalues):
     """Load halfword (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def LDURSH(cpu_context, ip, mnem, opvalues):
     """Load signed halfword (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDURSW(cpu_context, ip, mnem, opvalues):
     """Load signed word (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STUR(cpu_context, ip, mnem, opvalues):
     """Store register (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STURB(cpu_context, ip, mnem, opvalues):
     """Store byte (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STURH(cpu_context, ip, mnem, opvalues):
     """Store halfword (unscaled offset)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Load/Store Pair
 The Load/Store Pair instructions support the following addressing modes:
@@ -410,24 +412,25 @@ CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
   takes an UNKNOWN value.
 """
 
+
 @opcode
 def LDP(cpu_context, ip, mnem, opvalues):
     """Load Pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDPSW(cpu_context, ip, mnem, opvalues):
     """Load Pair signed words"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STP(cpu_context, ip, mnem, opvalues):
     """Store Pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Load/Store unprivileged
 The Load/Store unprivileged instructions support only one addressing mode:
@@ -448,42 +451,43 @@ This means that when the value of PSTATE.UAO is 1 the access permissions for a L
 instruction are always the same as those for the corresponding Load/Store register instruction.
 """
 
+
 @opcode
 def LDTR(cpu_context, ip, mnem, opvalues):
     """Load unprivileged register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def LDTRB(cpu_context, ip, mnem, opvalues):
     """Load unpriviledged byte"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def LDTRSB(cpu_context, ip, mnem, opvalues):
     """Load unprivileged signed byte"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDTRH(cpu_context, ip, mnem, opvalues):
     """Load unprivileged halfword"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDTRSH(cpu_context, ip, mnem, opvalues):
     """Load unpriviledged signed halfword"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDTRSW(cpu_context, ip, mnem, opvalues):
     """Load unprivileged signed word"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def STTR(cpu_context, ip, mnem, opvalues):
     """Store unprivileged register"""
@@ -517,6 +521,7 @@ Load-Exclusive pair or Store-Exclusive pair instructions must be aligned to the 
 generates an Alignment fault. When a Store-Exclusive pair succeeds, it causes a single-copy atomic update of the
 entire memory location.
 """
+
 
 @opcode
 def LDXR(cpu_context, ip, mnem, opvalues):
@@ -565,8 +570,7 @@ def STXP(cpu_context, ip, mnem, opvalues):
     """Store Exclusive pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
-    
+
 """
 Load-Acquire/Store-Release
 The Load-Acquire, Load-AcquirePC, and Store-Release instructions support only one addressing mode:
@@ -583,6 +587,7 @@ otherwise the access generates an Alignment fault.
 
 A Store-Release Exclusive instruction only has the Release semantics if the store is successful.
 """
+
 
 @opcode
 def LDAPR(cpu_context, ip, mnem, opvalues):
@@ -696,8 +701,8 @@ def STLURB(cpu_context, ip, mnem, opvalues):
 def STLURH(cpu_context, ip, mnem, opvalues):
     """Store-Release Register Halfword (unscaled)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 @opcode
 def LDAXR(cpu_context, ip, mnem, opvalues):
     """Load-Acquire Exclusive register"""
@@ -744,8 +749,8 @@ def STLXRH(cpu_context, ip, mnem, opvalues):
 def STLXP(cpu_context, ip, mnem, opvalues):
     """Store-Release Exclusive pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 The LoadLOAcquire/StoreLORelease instructions support only one addressing mode:
 * Base register with no offset.
@@ -757,6 +762,7 @@ LoadLOAcquire, StoreLORelease on page B2-109.
 The LoadLOAcquire/StoreLORelease instructions require natural alignment, and an unaligned address generates an
 Alignment fault.
 """
+
 
 @opcode
 def LDLARB(cpu_context, ip, mnem, opvalues):
@@ -792,8 +798,8 @@ def STLLRH(cpu_context, ip, mnem, opvalues):
 def STLLR(cpu_context, ip, mnem, opvalues):
     """StoreLORelease register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 The Load/Store SIMD and Floating-point Non-temporal pair instructions support only one addressing mode:
 * Base plus a scaled 7-bit signed immediate offset.
@@ -837,6 +843,7 @@ behavior is CONSTRAINED UNPREDICTABLE and one of the following must occur:
   an UNKNOWN value.
 """
 
+
 @opcode
 def LDNP(cpu_context, ip, mnem, opvalues):
     """Load pair of scalar SIMD&FP registers"""
@@ -847,7 +854,7 @@ def LDNP(cpu_context, ip, mnem, opvalues):
 def STNP(cpu_context, ip, mnem, opvalues):
     """Store pair of scalar SIMD&FP registers"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
 
 """
 Load/Store Vector
@@ -862,6 +869,7 @@ element is performed. However, unlike the Load/Store instructions that transfer 
 Load/Store vector instructions do not guarantee atomicity, even when the address is naturally aligned to the size of
 the element.
 """
+
 
 @opcode
 def LD1(cpu_context, ip, mnem, opvalues):
@@ -957,8 +965,8 @@ def LD3R(cpu_context, ip, mnem, opvalues):
 def LD4R(cpu_context, ip, mnem, opvalues):
     """Load single 4-element structure and replicate to all lanes of four registers"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Compare and Swap
 The Compare and Swap instructions support only one addressing mode:
@@ -986,6 +994,7 @@ the registers which are compared and loaded are restored to the values held in t
 was executed.
 """
 
+
 @opcode
 def CAS(cpu_context, ip, mnem, opvalues):
     """Compare and swap"""
@@ -1008,8 +1017,8 @@ def CASH(cpu_context, ip, mnem, opvalues):
 def CASP(cpu_context, ip, mnem, opvalues):
     """Compare and swap pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """Atomic memory operations
 The atomic memory operation instructions support only one addressing mode:
 * Base register only.
@@ -1031,6 +1040,7 @@ synchronous Data Abort, then the source register is restored to the value it hel
 The ST<OP> instructions, and LD<OP> instructions where the destination register is WZR or XZR, are not regarded as
 doing a read for the purpose of a DMB LD barrier.
 """
+
 
 @opcode
 def LDADD(cpu_context, ip, mnem, opvalues):
@@ -1295,7 +1305,7 @@ def STUMAXB(cpu_context, ip, mnem, opvalues):
     """Atomic unsigned maximum on byte, without return"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 @opcode
 def STUMAXH(cpu_context, ip, mnem, opvalues):
     """Atomic unsigned maximum on halfword, without return"""
@@ -1319,7 +1329,7 @@ def STUMINH(cpu_context, ip, mnem, opvalues):
     """Atomic unsigned minimum on halfword, without return"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Swap
 The swap instructions support only one addressing mode:
@@ -1338,6 +1348,7 @@ For the SWP instructions, where the source and destination registers are the sam
 synchronous Data Abort, then the source register is restored to the value it held before the instruction was executed.
 """
 
+
 @opcode
 def SWP(cpu_context, ip, mnem, opvalues):
     """Swap"""
@@ -1354,8 +1365,8 @@ def SWPB(cpu_context, ip, mnem, opvalues):
 def SWPH(cpu_context, ip, mnem, opvalues):
     """Swap halfword"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Arithmetic (immediate)
 The Arithmetic (immediate) instructions accept a 12-bit unsigned immediate value, optionally shifted left by 12 bits.
@@ -1363,6 +1374,7 @@ The Arithmetic (immediate) instructions accept a 12-bit unsigned immediate value
 The Arithmetic (immediate) instructions that do not set Condition flags can read from and write to the current stack
 pointer. The flag setting instructions can read from the stack pointer, but they cannot write to it.
 """
+
 
 @opcode
 def ADD(cpu_context, ip, mnem, opvalues):
@@ -1398,8 +1410,8 @@ def CMP(cpu_context, ip, mnem, opvalues):
 def CMN(cpu_context, ip, mnem, opvalues):
     """Compare negative"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Logical (immediate)
 The Logical (immediate) instructions accept a bitmask immediate value that is a 32-bit pattern or a 64-bit pattern
@@ -1416,6 +1428,7 @@ Note
 Apart from ANDS, and its TST alias, Logical (immediate) instructions do not set the Condition flags. However, the
 final results of a bitwise operation can be tested by a CBZ, CBNZ, TBZ, or TBNZ conditional branch.
 """
+
 
 @opcode
 def AND(cpu_context, ip, mnem, opvalues):
@@ -1445,14 +1458,15 @@ def ORR(cpu_context, ip, mnem, opvalues):
 def TST(cpu_context, ip, mnem, opvalues):
     """Test bits"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Move (wide immediate)
 The Move (wide immediate) instructions insert a 16-bit immediate, or inverted immediate, into a 16-bit aligned
 position in the destination register. The value of the other bits in the destination register depends on the variant used.
 The optional shift amount can be any multiple of 16 that is smaller than the register size.
 """
+
 
 @opcode
 def MOVZ(cpu_context, ip, mnem, opvalues):
@@ -1470,8 +1484,8 @@ def MOVN(cpu_context, ip, mnem, opvalues):
 def MOVK(cpu_context, ip, mnem, opvalues):
     """Move wide with keep"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Move (immediate)
 The Move (immediate) instructions are aliases for a single MOVZ, MOVN, or ORR (immediate with zero register),
@@ -1488,6 +1502,7 @@ zero register) MOVZ, and MOVN, as a MOV mnemonic except that the underlying inst
 * MOVZ #0 or MOVN #0 have a shift amount other than LSL #0.
 """
 
+
 @opcode
 def MOV(cpu_context, ip, mnem, opvalues):
     """
@@ -1496,8 +1511,8 @@ def MOV(cpu_context, ip, mnem, opvalues):
     Move (bitmask immediate)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 PC-relative address calculation
 The ADR instruction adds a signed, 21-bit immediate to the value of the program counter that fetched this instruction,
@@ -1515,6 +1530,7 @@ The term page used in the ADRP description is short-hand for the 4KB memory regi
 memory translation granule size.
 """
 
+
 @opcode
 def ADRP(cpu_context, ip, mnem, opvalues):
     """Compute address of 4KB page at a PC-relative offset"""
@@ -1525,8 +1541,8 @@ def ADRP(cpu_context, ip, mnem, opvalues):
 def ADR(cpu_context, ip, mnem, opvalues):
     """Compute address of label at a PC-relative offset."""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Bitfield move
 The Bitfield move instructions copy a field of constant width from bit 0 in the source register to a constant bit
@@ -1537,6 +1553,7 @@ register. The remaining bits in the destination register are set as follows:
 * For SBFM, the lower bits, if any, are set to zero, and the upper bits, if any, are set to a copy of the
   most-significant bit in the copied field.
 """
+
 
 @opcode
 def BFM(cpu_context, ip, mnem, opvalues):
@@ -1555,12 +1572,13 @@ def UBFM(cpu_context, ip, mnem, opvalues):
     """Unsigned bitfield move (32-bit)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Bitfield insert and extract
 The Bitfield insert and extract instructions are implemented as aliases of the Bitfield move instructions. Table C3-40
 shows the Bitfield insert and extract aliases.
 """
+
 
 @opcode
 def BFC(cpu_context, ip, mnem, opvalues):
@@ -1611,18 +1629,20 @@ a constant bit position within a double-width value formed by the concatenation 
 destination register.
 """
 
+
 @opcode
 def EXTR(cpu_context, ip, mnem, opvalues):
     """Extract register from pair"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Shift (immediate)
 Shifts and rotates by a constant amount are implemented as aliases of the Bitfield move or Extract register
 instructions. The shift or rotate amount must be in the range 0 to one less than the register width of the instruction,
 inclusive.
 """
+
 
 @opcode
 def ASR(cpu_context, ip, mnem, opvalues):
@@ -1646,12 +1666,13 @@ def LSR(cpu_context, ip, mnem, opvalues):
 def ROR(cpu_context, ip, mnem, opvalues):
     """Rotate right"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-   
-   
+
+
 """
 Sign-extend and Zero-extend
 The Sign-extend and Zero-extend instructions are implemented as aliases of the Bitfield move instructions.
 """
+
 
 @opcode
 def SXTB(cpu_context, ip, mnem, opvalues):
@@ -1681,8 +1702,8 @@ def UXTB(cpu_context, ip, mnem, opvalues):
 def UXTH(cpu_context, ip, mnem, opvalues):
     """Unsigned extend halfword"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Arithmetic (shifted register)
 The Arithmetic (shifted register) instructions apply an optional shift operator to the second source register value
@@ -1731,6 +1752,7 @@ extend operators. For example:
 
 """
 
+
 @opcode
 def NEG(cpu_context, ip, mnem, opvalues):
     """Negate"""
@@ -1741,13 +1763,14 @@ def NEG(cpu_context, ip, mnem, opvalues):
 def NEGS(cpu_context, ip, mnem, opvalues):
     """Negate and set flags"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Arithmetic with carry
 The Arithmetic with carry instructions accept two source registers, with the carry flag as an additional input to the
 calculation. They do not support shifting of the second source register.
 """
+
 
 @opcode
 def ADC(cpu_context, ip, mnem, opvalues):
@@ -1783,7 +1806,7 @@ def NGC(cpu_context, ip, mnem, opvalues):
 def NGCS(cpu_context, ip, mnem, opvalues):
     """Negate with carry and set flags"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
 
 """
 Flag manipulation instructions
@@ -1794,6 +1817,7 @@ the input register. The instruction RMIF accepts one source register and two imm
 source register using the first immediate value and setting the NZCV condition flags masked by the second
 immediate value.
 """
+
 
 @opcode
 def CFINV(cpu_context, ip, mnem, opvalues):
@@ -1817,8 +1841,8 @@ def SETF8(cpu_context, ip, mnem, opvalues):
 def SETF16(cpu_context, ip, mnem, opvalues):
     """Evaluation of 16-bit flags SETF8,"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Logical (shifted register)
 The Logical (shifted register) instructions apply an optional shift operator to the second source register value before
@@ -1835,6 +1859,7 @@ Note
 Apart from ANDS, TST, and BICS the logical instructions do not set the Condition flags, but the final result of a bit
 operation can usually directly control a CBZ, CBNZ, TBZ, or TBNZ conditional branch.
 """
+
 
 @opcode
 def BIC(cpu_context, ip, mnem, opvalues):
@@ -1873,6 +1898,7 @@ register size. The register width of the instruction controls whether the new bi
 or rotate at bit[63] or bit[31].
 """
 
+
 @opcode
 def ASRV(cpu_context, ip, mnem, opvalues):
     """Arithmetic shift right variable"""
@@ -1895,8 +1921,8 @@ def LSRV(cpu_context, ip, mnem, opvalues):
 def RORV(cpu_context, ip, mnem, opvalues):
     """Rotate right variable"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Multiply
 The Multiply instructions write to a single 32-bit or 64-bit destination register, and are built around the fundamental
@@ -1904,6 +1930,7 @@ four operand multiply-add and multiply-subtract operation, together with 32-bit 
 64-bit to 128-bit widening multiple can be constructed with two instructions, using SMULH or UMULH to generate the
 upper 64 bits.
 """
+
 
 @opcode
 def MADD(cpu_context, ip, mnem, opvalues):
@@ -1988,7 +2015,7 @@ def UMULH(cpu_context, ip, mnem, opvalues):
     """Unsigned multiply high"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Divide
 The Divide instructions compute the quotient of a division, rounded towards zero. The remainder can then be
@@ -2002,6 +2029,7 @@ A division by zero results in a zero being written to the destination register, 
 by zero occurred.
 """
 
+
 @opcode
 def SDIV(cpu_context, ip, mnem, opvalues):
     """Signed divide"""
@@ -2012,8 +2040,8 @@ def SDIV(cpu_context, ip, mnem, opvalues):
 def UDIV(cpu_context, ip, mnem, opvalues):
     """Unsigned divide"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 CRC32
 The CRC32 instructions operate on the general-purpose register file to update a 32-bit CRC value from an input value
@@ -2028,6 +2056,7 @@ These instructions are optional in an ARMv8.0 implementation.
 
 All implementations of ARMv8.1 architecture and later are required to implement the CRC32 instructions.
 """
+
 
 @opcode
 def CRC32B(cpu_context, ip, mnem, opvalues):
@@ -2075,11 +2104,12 @@ def CRC32CW(cpu_context, ip, mnem, opvalues):
 def CRC32CX(cpu_context, ip, mnem, opvalues):
     """CRC-32C sum from doubleword"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Bit operation
 """
+
 
 @opcode
 def CLS(cpu_context, ip, mnem, opvalues):
@@ -2121,8 +2151,8 @@ def REV32(cpu_context, ip, mnem, opvalues):
 def REV64(cpu_context, ip, mnem, opvalues):
     """Reverse bytes in register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Conditional select
 The Conditional select instructions select between the first or second source register, depending on the current state
@@ -2133,6 +2163,7 @@ and its value might be optionally inverted, negated, or incremented by one, befo
 Other useful conditional set and conditional unary operations are implemented as aliases of the four Conditional
 select instructions.
 """
+
 
 @opcode
 def CSEL(cpu_context, ip, mnem, opvalues):
@@ -2186,8 +2217,8 @@ def CINV(cpu_context, ip, mnem, opvalues):
 def CNEG(cpu_context, ip, mnem, opvalues):
     """Conditional negate"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Conditional comparison
 The Conditional comparison instructions provide a conditional select for the NZCV Condition flags, setting the
@@ -2196,12 +2227,13 @@ or to an immediate value if the input condition is false. There are register and
 compares the source register to a small 5-bit unsigned value.
 """
 
+
 @opcode
 def CCMN(cpu_context, ip, mnem, opvalues):
     """
     Conditional compare negative (register)
     Conditional compare negative (immediate)
-    """    
+    """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
 
@@ -2213,7 +2245,7 @@ def CCMP(cpu_context, ip, mnem, opvalues):
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Floating-point move (register)
 The Floating-point move (register) instructions copy a scalar floating-point value from one register to another
@@ -2243,6 +2275,7 @@ an integer in the range of -3 = r = 4, that is a normalized binary floating-poin
 of fraction, and a 3-bit exponent.
 """
 
+
 @opcode
 def FMOV(cpu_context, ip, mnem, opvalues):
     """
@@ -2250,19 +2283,21 @@ def FMOV(cpu_context, ip, mnem, opvalues):
     Floating-point move to or from general-purpose register without conversion
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Convert floating-point precision
 These instructions convert a floating-point scalar with one precision to a floating-point scalar with a different
 precision, using the current rounding mode as specified by FPCR.RMode.
 """
 
+
 @opcode
 def FCVT(cpu_context, ip, mnem, opvalues):
     """Floating-point convert precision (scalar)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
+
+
 """
 Convert between floating-point and integer or fixed-point
 These instructions convert a floating-point scalar in a SIMD and floating-point register to or from a signed or
@@ -2288,6 +2323,7 @@ Note
 When ARMv8.2-FP16 is implemented, a half-precision denormal input that is flushed to zero does
 not generate an Input Denormal exception.
 """
+
 
 @opcode
 def FCVTAS(cpu_context, ip, mnem, opvalues):
@@ -2378,7 +2414,7 @@ def UCVTF(cpu_context, ip, mnem, opvalues):
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 Floating-point round to integer
 The Floating-point round to integer instructions round a floating-point value to an integer floating-point value of
@@ -2405,6 +2441,7 @@ Note
 When ARMv8.2-FP16 is implemented, a half-precision denormal input that is flushed to zero does
 not generate an Input Denormal exception.
 """
+
 
 @opcode
 def FRINTA(cpu_context, ip, mnem, opvalues):
@@ -2446,11 +2483,12 @@ def FRINTX(cpu_context, ip, mnem, opvalues):
 def FRINTZ(cpu_context, ip, mnem, opvalues):
     """Floating-point round to integer, toward zero"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point multiply-add
 """
+
 
 @opcode
 def FMADD(cpu_context, ip, mnem, opvalues):
@@ -2474,11 +2512,12 @@ def FNMADD(cpu_context, ip, mnem, opvalues):
 def FNMSUB(cpu_context, ip, mnem, opvalues):
     """Floating-point scalar negated fused multiply-subtract"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point arithmetic (one source)
 """
+
 
 @opcode
 def FABS(cpu_context, ip, mnem, opvalues):
@@ -2496,11 +2535,12 @@ def FNEG(cpu_context, ip, mnem, opvalues):
 def FSQRT(cpu_context, ip, mnem, opvalues):
     """Floating-point scalar square root"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point arithmetic (two sources)
 """
+
 
 @opcode
 def FADD(cpu_context, ip, mnem, opvalues):
@@ -2530,8 +2570,8 @@ def FNMUL(cpu_context, ip, mnem, opvalues):
 def FSUB(cpu_context, ip, mnem, opvalues):
     """Floating-point scalar subtract"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point minimum and maximum
 The min(x,y) and max(x,y) operations return a quiet NaN when either x or y is NaN.
@@ -2544,6 +2584,7 @@ The minNum(x,y) and maxNum(x,y) operations follow the IEEE 754-2008 standard and
 when one operand is numerical and the other a quiet NaN. Apart from this additional handling of a single quiet NaN
 the result is then identical to min(x,y) and max(x,y).
 """
+
 
 @opcode
 def FMAX(cpu_context, ip, mnem, opvalues):
@@ -2567,8 +2608,8 @@ def FMIN(cpu_context, ip, mnem, opvalues):
 def FMINNM(cpu_context, ip, mnem, opvalues):
     """Floating-point scalar minimum number"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point comparison
 These instructions set the NZCV Condition flags in PSTATE, based on the result of a comparison of two operands.
@@ -2587,6 +2628,7 @@ The quiet compare instructions generate an Invalid Operation floating-point exce
 operands is a signaling NaN. The signaling compare instructions generate an Invalid Operation floating-point
 exception if either of the source operands is any type of NaN.
 """
+
 
 @opcode
 def FCMP(cpu_context, ip, mnem, opvalues):
@@ -2610,23 +2652,25 @@ def FCCMP(cpu_context, ip, mnem, opvalues):
 def FCCMPE(cpu_context, ip, mnem, opvalues):
     """Floating-point conditional signaling compare"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 Floating-point conditional select
 """
+
 
 @opcode
 def FCSEL(cpu_context, ip, mnem, opvalues):
     """Floating-point scalar conditional select"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD move
 The functionality of some data movement instructions overlaps with that provided by the scalar floating-point FMOV
 instructions described in Floating-point move (register) on page C3-207.
 """
+
 
 @opcode
 def DUP(cpu_context, ip, mnem, opvalues):
@@ -2656,11 +2700,12 @@ def UMOV(cpu_context, ip, mnem, opvalues):
 def SMOV(cpu_context, ip, mnem, opvalues):
     """Signed move vector element to general-purpose register"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD arithmetic
 """
+
 
 @opcode
 def BIF(cpu_context, ip, mnem, opvalues):
@@ -2925,7 +2970,7 @@ def USHL(cpu_context, ip, mnem, opvalues):
     """Unsigned shift left (register) (vector and scalar form)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 SIMD compare
 The SIMD compare instructions compare vector or scalar elements according to the specified condition and set the
@@ -2935,6 +2980,7 @@ Note
 Some of the comparisons, such as LS, LE, LO, and LT, can be made by reversing the operands and using the
 opposite comparison, HS, GE, HI, or GT.
 """
+
 
 @opcode
 def CMEQ(cpu_context, ip, mnem, opvalues):
@@ -3042,11 +3088,12 @@ def FACGE(cpu_context, ip, mnem, opvalues):
 def FACGT(cpu_context, ip, mnem, opvalues):
     """Floating-point absolute compare greater than (vector and scalar form)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD widening and narrowing arithmetic  pg 217
 """
+
 
 @opcode
 def ADDHN(cpu_context, ip, mnem, opvalues):
@@ -3347,10 +3394,11 @@ def USUBW2(cpu_context, ip, mnem, opvalues):
     """Unsigned subtract wide (vector form)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 SIMD unary arithmetic
 """
+
 
 @opcode
 def ABS(cpu_context, ip, mnem, opvalues):
@@ -3555,10 +3603,11 @@ def XTN2(cpu_context, ip, mnem, opvalues):
     """Extract narrow (vector form)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 SIMD by element arithmetic
 """
+
 
 @opcode
 def FMLAL2(cpu_context, ip, mnem, opvalues):
@@ -3570,11 +3619,12 @@ def FMLAL2(cpu_context, ip, mnem, opvalues):
 def FMLSL2(cpu_context, ip, mnem, opvalues):
     """Floating-point fused multiply-subtract long (vector form) FMLSL,"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD permute
 """
+
 
 @opcode
 def EXT(cpu_context, ip, mnem, opvalues):
@@ -3617,10 +3667,11 @@ def ZIP2(cpu_context, ip, mnem, opvalues):
     """Zip vectors (secondary)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 SIMD immediate
 """
+
 
 @opcode
 def MOVI(cpu_context, ip, mnem, opvalues):
@@ -3632,11 +3683,12 @@ def MOVI(cpu_context, ip, mnem, opvalues):
 def MVNI(cpu_context, ip, mnem, opvalues):
     """Move inverted immediate"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD shift (immediate)
 """
+
 
 @opcode
 def RSHRN(cpu_context, ip, mnem, opvalues):
@@ -3840,13 +3892,14 @@ def USHR(cpu_context, ip, mnem, opvalues):
 def USRA(cpu_context, ip, mnem, opvalues):
     """Unsigned shift right and accumulate immediate (vector and scalar form)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD reduce (across vector lanes)
 The SIMD reduce (across vector lanes) instructions perform arithmetic operations horizontally, that is across all
 lanes of the input vector. They deliver a single scalar result.
 """
+
 
 @opcode
 def ADDV(cpu_context, ip, mnem, opvalues):
@@ -3913,12 +3966,13 @@ def UMINV(cpu_context, ip, mnem, opvalues):
     """Unsigned minimum (across vector)"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
 
-    
+
 """
 SIMD pairwise arithmetic
 The SIMD pairwise arithmetic instructions perform operations on pairs of adjacent elements and deliver a vector
 result.
 """
+
 
 @opcode
 def ADDP(cpu_context, ip, mnem, opvalues):
@@ -3978,8 +4032,8 @@ def UMAXP(cpu_context, ip, mnem, opvalues):
 def UMINP(cpu_context, ip, mnem, opvalues):
     """Unsigned minimum pairwise"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD dot product
 ARMv8.2-DotProd provides SIMD instructions that perform the dot product of the four 8-bit subelements of the
@@ -3997,6 +4051,7 @@ That is, a single element from the second vector is used, and a the dot product 
 each element of the first vector and this single element from the second vector.
 """
 
+
 @opcode
 def SDOT(cpu_context, ip, mnem, opvalues):
     """
@@ -4013,11 +4068,12 @@ def UDOT(cpu_context, ip, mnem, opvalues):
     Unsigned dot product (indexed form)
     """
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD table lookup
 """
+
 
 @opcode
 def TBL(cpu_context, ip, mnem, opvalues):
@@ -4029,8 +4085,8 @@ def TBL(cpu_context, ip, mnem, opvalues):
 def TBX(cpu_context, ip, mnem, opvalues):
     """Table vector lookup extension"""
     logger.debug("{} instruction not currently implemented.".format(mnem))
-    
-    
+
+
 """
 SIMD complex number arithmetic
 ARMv8.3-CompNum provides SIMD instructions that perform arithmetic on complex numbers held in element
@@ -4040,6 +4096,7 @@ significant element contains the imaginary component.
 These instructions provide double-precision and single-precision versions. If ARMv8.2-FP16 is implemented they
 also provide half-precision versions, otherwise the half-precision encodings are UNDEFINED.
 """
+
 
 @opcode
 def FCADD(cpu_context, ip, mnem, opvalues):
@@ -4054,6 +4111,7 @@ def FCMLA(cpu_context, ip, mnem, opvalues):
 
 
 # Global helper functions
+
 
 def get_max_operand_size(operands):
     """

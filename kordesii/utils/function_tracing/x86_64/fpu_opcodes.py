@@ -39,16 +39,16 @@ logger = logging.getLogger(__name__)
 def _compute(cpu_context, ip, mnem, operands):
     """Perform add/sub/mul/div computation on floating point numbers."""
     # Determine operator.
-    if 'add' in mnem:
-        op, op_str = operator.add, '+'
-    elif 'sub' in mnem:
-        op, op_str = operator.sub, '-'
-    elif 'div' in mnem:
-        op, op_str = operator.div, '/'
-    elif 'mul' in mnem:
-        op, op_str = operator.mul, '*'
+    if "add" in mnem:
+        op, op_str = operator.add, "+"
+    elif "sub" in mnem:
+        op, op_str = operator.sub, "-"
+    elif "div" in mnem:
+        op, op_str = operator.div, "/"
+    elif "mul" in mnem:
+        op, op_str = operator.mul, "*"
     else:
-        raise RuntimeError('Invalid mnem: {}'.format(mnem))
+        raise RuntimeError("Invalid mnem: {}".format(mnem))
 
     # Collect terms.
     if not operands:
@@ -65,7 +65,7 @@ def _compute(cpu_context, ip, mnem, operands):
         return
 
     # "r" means to reverse terms.
-    if mnem.endswith(('r', 'rp')):
+    if mnem.endswith(("r", "rp")):
         term1, term2 = term2, term1
 
     # Compute.
@@ -75,11 +75,11 @@ def _compute(cpu_context, ip, mnem, operands):
         logger.debug("OVERFLOW Detected. TODO")
         result = cpu_context.registers.fpu.NaN
     except ZeroDivisionError:
-        logger.debug('ZERO DIVISION detected. TODO')
+        logger.debug("ZERO DIVISION detected. TODO")
         result = cpu_context.registers.fpu.NaN
     except TypeError:
         # (occurs if one of the terms was None)
-        logger.debug('EMPTY value detected. TODO')
+        logger.debug("EMPTY value detected. TODO")
         result = cpu_context.registers.fpu.NaN
 
     # Store results.
@@ -92,7 +92,7 @@ def _compute(cpu_context, ip, mnem, operands):
     logger.debug("{} 0x{:X} :: {} {} {} = {}".format(mnem, ip, term1, op_str, term2, result))
 
     # Pop if mnem ends with "p"
-    if mnem.endswith('p'):
+    if mnem.endswith("p"):
         cpu_context.registers.fpu.pop()
 
 
@@ -131,7 +131,7 @@ def FCOM(cpu_context, ip, mnem, operands):
     """Compare st0 to a floating point value."""
     if not operands:
         term1 = cpu_context.registers.st0
-        term2 = 0.0 if mnem == 'ftst' else cpu_context.registers.st1
+        term2 = 0.0 if mnem == "ftst" else cpu_context.registers.st1
     elif len(operands) == 1:
         term1 = cpu_context.registers.st0
         term2 = operands[0].value
@@ -145,10 +145,10 @@ def FCOM(cpu_context, ip, mnem, operands):
     # TODO: If either value is empty (ie. None) we must set C3, C2, and C0 to None
     invalid = (None, cpu_context.registers.fpu.NaN)
 
-    if 'comi' in mnem:
-        flags = ['zf', 'pf', 'cf']
+    if "comi" in mnem:
+        flags = ["zf", "pf", "cf"]
     else:
-        flags = ['c3', 'c2', 'c0']
+        flags = ["c3", "c2", "c0"]
 
     if term1 in invalid or term2 in invalid:
         cpu_context.registers[flags[0]] = 1
@@ -168,10 +168,10 @@ def FCOM(cpu_context, ip, mnem, operands):
         cpu_context.registers[flags[2]] = 0
 
     # Pop off st0.
-    if mnem.endswith('p'):
+    if mnem.endswith("p"):
         cpu_context.registers.fpu.pop()
     # Pop off st1 as well.
-    if mnem.endswith('pp'):
+    if mnem.endswith("pp"):
         cpu_context.registers.fpu.pop()
 
     logger.debug("{} 0x{:X} :: Comparing: {} <-> {}".format(mnem, ip, term1, term2))
@@ -190,16 +190,16 @@ def FCMOV(cpu_context, ip, mnem, operands):
     condition_str = mnem[5:]
     condition = False
 
-    if 'b' in condition_str:
+    if "b" in condition_str:
         condition |= cpu_context.registers.cf == 1
 
-    if 'e' in condition_str:
+    if "e" in condition_str:
         condition |= cpu_context.registers.zf == 1
 
-    if 'u' in condition_str:
+    if "u" in condition_str:
         condition |= cpu_context.registers.pf == 1
 
-    if condition_str.startswith('n'):
+    if condition_str.startswith("n"):
         condition = not condition
 
     value = operands[1].value
@@ -222,26 +222,26 @@ def FCMOV(cpu_context, ip, mnem, operands):
 def FLD(cpu_context, ip, mnem, operands):
     """Load (push) real or integer number into stack."""
     value = orig_value = operands[0].value if operands else None
-    if mnem == 'fld':
+    if mnem == "fld":
         value = utils.int_to_float(value)
-    elif mnem == 'fild':
+    elif mnem == "fild":
         value = float(value)
-    elif mnem.endswith('z'):
+    elif mnem.endswith("z"):
         value = 0.0
-    elif mnem.endswith('1'):
+    elif mnem.endswith("1"):
         value = 1.0
-    elif mnem.endswith('pi'):
-        value = 3.141592653589793    # math.pi
-    elif mnem.endswith('l2e'):
-        value = 1.4426950408889634   # math.log(math.e, 2)
-    elif mnem.endswith('l2t'):
-        value = 3.3219280948873626   # math.log(10, 2)
-    elif mnem.endswith('lg2'):
+    elif mnem.endswith("pi"):
+        value = 3.141592653589793  # math.pi
+    elif mnem.endswith("l2e"):
+        value = 1.4426950408889634  # math.log(math.e, 2)
+    elif mnem.endswith("l2t"):
+        value = 3.3219280948873626  # math.log(10, 2)
+    elif mnem.endswith("lg2"):
         value = 0.30102999566398114  # math.log(2, 10)
-    elif mnem.endswith('ln2'):
-        value = 0.6931471805599453   # math.log(2) = ln(2)
+    elif mnem.endswith("ln2"):
+        value = 0.6931471805599453  # math.log(2) = ln(2)
     else:
-        raise NotImplementedError('Unsupported mnem: {}'.format(mnem))
+        raise NotImplementedError("Unsupported mnem: {}".format(mnem))
     logger.debug("{} 0x{:X} :: Loading: {} -> {} -> st0".format(mnem, ip, orig_value, value))
     cpu_context.registers.fpu.push(value)
 
@@ -261,7 +261,7 @@ def FLDCW(cpu_context, ip, mnem, operands):
 def FST(cpu_context, ip, mnem, operands):
     """Store (pop) real or integer number from stack into into memory"""
     value = orig_value = cpu_context.registers.st0
-    if 'i' in mnem:
+    if "i" in mnem:
         # Round integer.
         # TODO: Technically we are suppose to round the number according to the rounding mode of rc.
         value = int(value)
@@ -269,7 +269,7 @@ def FST(cpu_context, ip, mnem, operands):
         value = utils.float_to_int(value)
     operands[0].value = value
     logger.debug("{} 0x{:X} :: Storing: {} -> {} -> {}".format(mnem, ip, orig_value, value, operands[0].text))
-    if mnem.endswith('p'):
+    if mnem.endswith("p"):
         cpu_context.registers.fpu.pop()
 
 

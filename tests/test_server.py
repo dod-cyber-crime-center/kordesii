@@ -100,9 +100,7 @@ def test_homepage(client):
 def test_menu(client):
     """Test menu items can be added"""
     # Menu links can be created via adding to the config
-    client.application.config["MENU_LINKS"].append(
-        {"name": "Example", "url": "http://example.com"}
-    )
+    client.application.config["MENU_LINKS"].append({"name": "Example", "url": "http://example.com"})
     rv = client.get("/")
     assert b'<li><a href="/">Home</a></li>' in rv.data
     assert b'<li><a href="http://example.com">Example</a></li>' in rv.data
@@ -113,9 +111,7 @@ def test_log_endpoint(client):
 
     rv = client.get("/logs")
 
-    assert {
-        "error": ["No 'kordesii_server' handler defined on root logger."]
-    } == rv.json
+    assert {"error": ["No 'kordesii_server' handler defined on root logger."]} == rv.json
     assert rv.status_code == 500
 
     list_handler = logutil.ListHandler()
@@ -137,10 +133,7 @@ def test_log_endpoint(client):
 @pytest.mark.in_ida
 def test_decoder_strings(client, expected_results, sample_file_pointer):
     """Test decoder strings output"""
-    rv = client.post(
-        "/run_decoder",
-        data={"decoder": "sample", "input_file": (sample_file_pointer, "strings.exe")},
-    )
+    rv = client.post("/run_decoder", data={"decoder": "sample", "input_file": (sample_file_pointer, "strings.exe")})
     assert rv.json["strings"] == expected_results["strings"]
 
 
@@ -195,11 +188,7 @@ def test_decoders_json(client, decoders):
     assert len(decoders_json) == len(decoders)
 
     for decoder in decoders:
-        decoder_info = {
-            "name": decoder.name,
-            "source": decoder.source.name,
-            "description": decoder.description,
-        }
+        decoder_info = {"name": decoder.name, "source": decoder.source.name, "description": decoder.description}
         assert decoder_info in decoders_json
 
 

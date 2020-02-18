@@ -3,22 +3,25 @@ This file contains utility functions utilized throughout the function_tracing pa
 """
 
 import logging
-import parser
 import re
+import string
 import struct
 
-import idautils
-import idaapi
-import idc
 import ida_allins
 import ida_idp
 import ida_nalt
 import ida_typeinf
+import idaapi
+import idautils
+import idc
 
 from .exceptions import FunctionTracingError
 
-
 logger = logging.getLogger(__name__)
+
+
+class SetTypeException(Exception):
+    pass
 
 
 def signed(n, bit_width):
@@ -57,8 +60,8 @@ def sign_extend(value, orig_size, dest_size):
     orig_max = get_mask(orig_size)
     dest_max = get_mask(dest_size)
     # Calculate bit count to shift by
-    orig_shift = (8 * orig_size)
-    dest_shift = (8 * dest_size)
+    orig_shift = 8 * orig_size
+    dest_shift = 8 * dest_size
     # Create the bit mask
     masknumber = value & orig_max
     msb = masknumber >> (orig_shift - 1)
@@ -98,20 +101,19 @@ def get_byte_width(value):
 
 BIG_ENDIAN = idaapi.cvar.inf.is_be()
 
-
 # Table used by struct_unpack and struct_pack functions
 struct_unpack_table = {
-    1: 'B',
-    2: 'H',
-    4: 'L',
-    8: 'Q',
-    16: 'QQ',
+    1: "B",
+    2: "H",
+    4: "L",
+    8: "Q",
+    16: "QQ",
 }
 
 
 def _get_format_str(width, signed=False):
     if width not in struct_unpack_table:
-        raise FunctionTracingError('Invalid width to unpack: {}'.format(width))
+        raise FunctionTracingError("Invalid width to unpack: {}".format(width))
 
     format_char = struct_unpack_table[width]
     if signed:
@@ -190,9 +192,9 @@ def float_to_int(val, precision=2):
     :raises: ValueError
     """
     if precision == 1:
-        return struct.unpack('H', struct.pack('f', val))[0]
+        return struct.unpack("H", struct.pack("f", val))[0]
     elif precision == 2:
-        return struct.unpack('Q', struct.pack('d', val))[0]
+        return struct.unpack("Q", struct.pack("d", val))[0]
     else:
         raise FunctionTracingError("Precision {} is not valid.".format(precision))
 
@@ -210,9 +212,9 @@ def int_to_float(val, precision=2):
     :raises: ValueError
     """
     if precision == 1:
-        return struct.unpack('f', struct.pack('H', val))[0]
+        return struct.unpack("f", struct.pack("H", val))[0]
     elif precision == 2:
-        return struct.unpack('d', struct.pack('Q', val))[0]
+        return struct.unpack("d", struct.pack("Q", val))[0]
     else:
         raise FunctionTracingError("Precision {} is not valid.".format(precision))
 
@@ -265,7 +267,7 @@ def get_function_data(offset):
     try:
         func_type = idc.get_type(offset)
     except TypeError:
-        raise RuntimeError('Not a valid offset: {!r}'.format(offset))
+        raise RuntimeError("Not a valid offset: {!r}".format(offset))
 
     # First see if it's a type we already set before.
     if func_type and offset in _func_types:
@@ -274,12 +276,13 @@ def get_function_data(offset):
     else:
         # Otherwise, try to use the Hexrays decompiler to determine function signature.
         # (It's better than IDA's guess_type)
+
         try:
             # This requires Hexrays decompiler, load it and make sure it's available before continuing.
             if not idaapi.init_hexrays_plugin():
                 idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
             if not idaapi.init_hexrays_plugin():
-                raise RuntimeError('Unable to load Hexrays decompiler.')
+                raise RuntimeError("Unable to load Hexrays decompiler.")
 
             # Pull type from decompiled C code.
             try:
@@ -291,9 +294,12 @@ def get_function_data(offset):
             decompiled.get_func_type(tif)
 
             # Save type for next time.
-            format = decompiled.print_dcl()
+            fmt = decompiled.print_dcl()
+            fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
             # The 2's remove the unknown bytes always found at the start and end.
-            idc.SetType(offset, "{};".format(format[2:-2]))
+            set_type_result = idc.SetType(offset, "{};".format(fmt))
+            if not set_type_result:
+                logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
 
         # If we fail, resort to using guess_type+
         except RuntimeError:
@@ -311,9 +317,12 @@ def get_function_data(offset):
                     raise RuntimeError("failed to get function name for offset 0x{:X}".format(offset))
 
                 # Documentation states the type must be ';' terminated, also the function name must be inserted
-                guessed_type = re.sub(
-                    "\(", " {}(".format(func_name), "{};".format(guessed_type))
-                idc.SetType(offset, guessed_type)
+                guessed_type = re.sub(r"\(", " {}(".format(func_name), "{};".format(guessed_type))
+                set_type_result = idc.SetType(offset, guessed_type)
+                if not set_type_result:
+                    logger.warning(
+                        "Failed to SetType for function at 0x{:X} with guessed type {!r}".format(offset, guessed_type)
+                    )
                 # Try one more time to get the tinfo_t object
                 if not ida_nalt.get_tinfo(tif, offset):
                     raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
@@ -336,11 +345,11 @@ def get_function_name(func_ea):
     demangled_name = idc.demangle_name(func_name, idc.get_inf_attr(idc.INF_SHORT_DN))
     if demangled_name:
         # Strip off the extra junk: 'operator new(uint)' -> 'new'
-        match = re.search('([^ :]*)\(', demangled_name)
+        match = re.search("([^ :]*)\(", demangled_name)
         if not match:
-            logger.debug('Unable to demangle function name: {}'.format(demangled_name))
+            logger.debug("Unable to demangle function name: {}".format(demangled_name))
         else:
-            logger.debug('Demangled function name {} -> {}'.format(demangled_name, match.group(1)))
+            logger.debug("Demangled function name {} -> {}".format(demangled_name, match.group(1)))
             demangled_name = match.group(1)
         func_name = demangled_name
     return func_name
@@ -367,14 +376,13 @@ def is_func_ptr(offset):
         return False
     except Exception as e:
         # If we get any other type of exception raise a more friendly error message.
-        raise FunctionTracingError(
-            'Failed to retrieve function data from {!r}: {}'.format(offset, e))
+        raise FunctionTracingError("Failed to retrieve function data from {!r}: {}".format(offset, e))
 
 
 def convert_reg(reg_name, width):
     """Convert given register name to the register name for the provided width (eg: conver_reg(eax, 8) -> rax)"""
     reg_idx = ida_idp.str2reg(reg_name)
-    if reg_idx > 15:    # R15 is index 15.  8-bit registers have indexes above 15 but are 0 indexed, so sub 16
+    if reg_idx > 15:  # R15 is index 15.  8-bit registers have indexes above 15 but are 0 indexed, so sub 16
         reg_idx -= 16
 
     return ida_idp.get_reg_name(reg_idx, width)
@@ -391,15 +399,41 @@ def reg2str(register, width=None):
 ## incorrectly interpreted these functions and actually don't work properly.  Not entirely sure why the following
 ## isn't exposed to Python...
 
+
 def insn_jcc(insn):
     """Determine if an instruction is a Jcc (jump) instruction"""
-    return insn.itype in (ida_allins.NN_ja, ida_allins.NN_jae, ida_allins.NN_jb, ida_allins.NN_jbe, ida_allins.NN_jc,
-                          ida_allins.NN_je, ida_allins.NN_jg, ida_allins.NN_jge, ida_allins.NN_jl, ida_allins.NN_jle,
-                          ida_allins.NN_jna, ida_allins.NN_jnae, ida_allins.NN_jnb, ida_allins.NN_jnbe,
-                          ida_allins.NN_jnc, ida_allins.NN_jne, ida_allins.NN_jng, ida_allins.NN_jnge,
-                          ida_allins.NN_jnl, ida_allins.NN_jnle, ida_allins.NN_jno, ida_allins.NN_jnp,
-                          ida_allins.NN_jns, ida_allins.NN_jnz, ida_allins.NN_jo, ida_allins.NN_jp, ida_allins.NN_jpe,
-                          ida_allins.NN_jpo, ida_allins.NN_js, ida_allins.NN_jz)
+    return insn.itype in (
+        ida_allins.NN_ja,
+        ida_allins.NN_jae,
+        ida_allins.NN_jb,
+        ida_allins.NN_jbe,
+        ida_allins.NN_jc,
+        ida_allins.NN_je,
+        ida_allins.NN_jg,
+        ida_allins.NN_jge,
+        ida_allins.NN_jl,
+        ida_allins.NN_jle,
+        ida_allins.NN_jna,
+        ida_allins.NN_jnae,
+        ida_allins.NN_jnb,
+        ida_allins.NN_jnbe,
+        ida_allins.NN_jnc,
+        ida_allins.NN_jne,
+        ida_allins.NN_jng,
+        ida_allins.NN_jnge,
+        ida_allins.NN_jnl,
+        ida_allins.NN_jnle,
+        ida_allins.NN_jno,
+        ida_allins.NN_jnp,
+        ida_allins.NN_jns,
+        ida_allins.NN_jnz,
+        ida_allins.NN_jo,
+        ida_allins.NN_jp,
+        ida_allins.NN_jpe,
+        ida_allins.NN_jpo,
+        ida_allins.NN_js,
+        ida_allins.NN_jz,
+    )
 
 
 def insn_default_opsize_64(insn):
@@ -408,57 +442,56 @@ def insn_default_opsize_64(insn):
         return True
 
     return insn.itype in (
-                        # use ss
-                        ida_allins.NN_pop,
-                        ida_allins.NN_popf,
-                        ida_allins.NN_popfq,
-                        ida_allins.NN_push,
-                        ida_allins.NN_pushf,
-                        ida_allins.NN_pushfq,
-                        ida_allins.NN_retn,
-                        ida_allins.NN_retf,
-                        ida_allins.NN_retnq,
-                        ida_allins.NN_retfq,
-                        ida_allins.NN_call,
-                        ida_allins.NN_callfi,
-                        ida_allins.NN_callni,
-                        ida_allins.NN_enter,
-                        ida_allins.NN_enterq,
-                        ida_allins.NN_leave,
-                        ida_allins.NN_leaveq,
-
-                        # near branches
-                        ida_allins.NN_jcxz,
-                        ida_allins.NN_jecxz,
-                        ida_allins.NN_jrcxz,
-                        ida_allins.NN_jmp,
-                        ida_allins.NN_jmpni,
-                        ida_allins.NN_jmpshort,
-                        ida_allins.NN_loop,
-                        ida_allins.NN_loopq,
-                        ida_allins.NN_loope,
-                        ida_allins.NN_loopqe,
-                        ida_allins.NN_loopne,
-                        ida_allins.NN_loopqne
-                    )
+        # use ss
+        ida_allins.NN_pop,
+        ida_allins.NN_popf,
+        ida_allins.NN_popfq,
+        ida_allins.NN_push,
+        ida_allins.NN_pushf,
+        ida_allins.NN_pushfq,
+        ida_allins.NN_retn,
+        ida_allins.NN_retf,
+        ida_allins.NN_retnq,
+        ida_allins.NN_retfq,
+        ida_allins.NN_call,
+        ida_allins.NN_callfi,
+        ida_allins.NN_callni,
+        ida_allins.NN_enter,
+        ida_allins.NN_enterq,
+        ida_allins.NN_leave,
+        ida_allins.NN_leaveq,
+        # near branches
+        ida_allins.NN_jcxz,
+        ida_allins.NN_jecxz,
+        ida_allins.NN_jrcxz,
+        ida_allins.NN_jmp,
+        ida_allins.NN_jmpni,
+        ida_allins.NN_jmpshort,
+        ida_allins.NN_loop,
+        ida_allins.NN_loopq,
+        ida_allins.NN_loope,
+        ida_allins.NN_loopqe,
+        ida_allins.NN_loopne,
+        ida_allins.NN_loopqne,
+    )
 
 
 def ad16(insn):
     """Determine if the current addressing is 16-bit"""
-    p = insn.auxpref & (0x00000008|0x00000010|0x00001000)
+    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00001000)
     return p == 0x00001000 or p == 0x00000008
 
 
 def op16(insn):
     """Determine if the current operand size is 32-bit"""
-    p = insn.auxpref & (0x00000008|0x00000010|0x00000800)
-    return p == 0x00000800 or p == 0x00000008 or p == 0x00000010 and (ord(insn.insnpref) & 8) == 0
+    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00000800)
+    return p == 0x00000800 or p == 0x00000008 or p == 0x00000010 and (insn.insnpref & 8) == 0
 
 
 def op32(insn):
     """Determine if the current operand size is 32-bit"""
-    p = insn.auxpref & (0x00000008|0x00000010|0x00000800)
-    return p == 0 or p == (0x00000008|0x00000800) or p == (0x00000010|0x00000800) and (ord(insn.insnpref) & 8) == 0
+    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00000800)
+    return p == 0 or p == (0x00000008 | 0x00000800) or p == (0x00000010 | 0x00000800) and (insn.insnpref & 8) == 0
 
 
 def op64(insn):
@@ -466,12 +499,9 @@ def op64(insn):
     if not idc.__EA64__:
         return False
 
-    return (insn.auxpref & 0x00000010) != 0 and \
-           (
-                (ord(insn.insnpref) & 8) != 0 or
-                (insn.auxpref & 0x00000800) != 0 and
-                insn_default_opsize_64(insn)
-           )
+    return (insn.auxpref & 0x00000010) != 0 and (
+        (insn.insnpref & 8) != 0 or (insn.auxpref & 0x00000800) != 0 and insn_default_opsize_64(insn)
+    )
 
 
 def has_sib(op):
@@ -483,8 +513,8 @@ def sib_base(insn, op):
     """Calculate the base register number for a phrase/displacment"""
     sib = op.specflag2  # specflag2 holds the SIB if there is one
     base = sib & 7
-    if idc.__EA64__ and (ord(insn.insnpref) & 1):    # Do we need to convert the base to a 64-bit register number?
-        base |= 8   # Upconvert to 64-bit register number if not already
+    if idc.__EA64__ and (insn.insnpref & 1):  # Do we need to convert the base to a 64-bit register number?
+        base |= 8  # Upconvert to 64-bit register number if not already
 
     return base
 
@@ -493,7 +523,7 @@ def sib_index(insn, op):
     """Calculate the index register number for a phrase/displacement"""
     sib = op.specflag2  # specflag2 holds the SIB if there is one
     index = (sib >> 3) & 7
-    if idc.__EA64__ and (ord(insn.insnpref) & 2):    # Do we need to conver the index to a 64-bit register number?
+    if idc.__EA64__ and (insn.insnpref & 2):  # Do we need to conver the index to a 64-bit register number?
         index |= 8  # Upconvert to 64-bit register number if not already
 
     return index
@@ -507,19 +537,19 @@ def sib_scale(op):
 def x86_base_reg(insn, op):
     """Get the base register of the operand with a displacement (handle 16-bit as well for completeness)"""
     if has_sib(op):
-        return sib_base(insn, op)   # base register encoded in the SIB
+        return sib_base(insn, op)  # base register encoded in the SIB
 
     if not ad16(insn):
-        return op.phrase            # "phrase" contains the base register number
+        return op.phrase  # "phrase" contains the base register number
 
     if signed(op.phrase, get_bits()) == -1:
-        return idautils.procregs.sp.reg # return "*SP" register number (4)
+        return idautils.procregs.sp.reg  # return "*SP" register number (4)
 
     if op.phrase in (0, 1, 7):  # ([BX+SI], [BX+DI], [BX])
-        return ida_idp.str2reg("RBX")   # All versions of *BX return 3
+        return ida_idp.str2reg("RBX")  # All versions of *BX return 3
 
     if op.phrase in (2, 3, 6):  # ([BP+SI], [BP+DI], [BP])
-        return ida_idp.str2reg("RBP")   # All versions of *BP return 5
+        return ida_idp.str2reg("RBP")  # All versions of *BP return 5
 
     if op.phrase == 4:  # [SI]
         return ida_idp.str2reg("RSI")
@@ -527,7 +557,7 @@ def x86_base_reg(insn, op):
     if op.phrase == 5:  # [DI]
         return ida_idp.str2reg("RDI")
 
-    raise ValueError('Unable to parse x86 base register from instruction')
+    raise ValueError("Unable to parse x86 base register from instruction")
 
 
 def x86_index_reg(insn, op):
@@ -537,18 +567,18 @@ def x86_index_reg(insn, op):
         if idx != 4:
             return idx
 
-        return -1   # There is no index register
+        return -1  # There is no index register
 
     if not ad16(insn):
         return -1
 
-    if op.phrase in (0, 2): # ([BX+SI], [BP+SI])
+    if op.phrase in (0, 2):  # ([BX+SI], [BP+SI])
         return ida_idp.str2reg("RSI")
 
-    if op.phrase in (1, 3): # ([BX+DI], [BP+DI])
+    if op.phrase in (1, 3):  # ([BX+DI], [BP+DI])
         return ida_idp.str2reg("RDI")
 
-    if op.phrase in (4, 5, 6, 7): #([SI], [DI], [BP], [BX])
+    if op.phrase in (4, 5, 6, 7):  # ([SI], [DI], [BP], [BX])
         return -1
 
-    raise ValueError('Unable to parse x86 index register from instruction')
+    raise ValueError("Unable to parse x86 index register from instruction")

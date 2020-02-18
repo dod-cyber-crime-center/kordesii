@@ -5,13 +5,12 @@ Interface for function management.
 import logging
 import re
 
-import idc
 import ida_idp
 import ida_nalt
 import ida_typeinf
+import idc
 
 from . import utils
-
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class FunctionSignature(object):
         self._tif = tif
 
     def __repr__(self):
-        return '< FunctionSignature : {} >'.format(self.declaration)
+        return "< FunctionSignature : {} >".format(self.declaration)
 
     @property
     def name(self):
@@ -61,7 +60,7 @@ class FunctionSignature(object):
         # within a register), then we are just going to call it "no_name" so we can still get the
         # function typing to still work.
 
-        return re.sub('\(', ' {}('.format(self.name or 'no_name'), '{};'.format(str(self._tif)))
+        return re.sub("\(", " {}(".format(self.name or "no_name"), "{};".format(str(self._tif)))
 
     @declaration.setter
     def declaration(self, decl):
@@ -69,8 +68,8 @@ class FunctionSignature(object):
         Changes the declaration of the function internally.
         """
         # Ensure ends with ';'
-        if not decl.endswith(';'):
-            decl += ';'
+        if not decl.endswith(";"):
+            decl += ";"
 
         tif = ida_typeinf.tinfo_t()
         til = ida_typeinf.get_idati()
@@ -92,12 +91,11 @@ class FunctionSignature(object):
     @arg_types.setter
     def arg_types(self, arg_types):
         """Set tuple of argument types."""
-        self.declaration = re.sub('\(.*\)', '({})'.format(','.join(arg_types)), self.declaration)
+        self.declaration = re.sub("\(.*\)", "({})".format(",".join(arg_types)), self.declaration)
 
     @property
     def args(self):
-        return [FunctionArg(self._cpu_context, i, funcarg_obj)
-                for i, funcarg_obj in enumerate(self._func_type_data)]
+        return [FunctionArg(self._cpu_context, i, funcarg_obj) for i, funcarg_obj in enumerate(self._func_type_data)]
 
 
 class FunctionArg(object):
@@ -112,7 +110,7 @@ class FunctionArg(object):
         self.idx = idx
 
     def __repr__(self):
-        return '< FunctionArg : {} = {!r} >'.format(self.declaration, self.value)
+        return "< FunctionArg : {} = {!r} >".format(self.declaration, self.value)
 
     @property
     def width(self):
@@ -138,8 +136,8 @@ class FunctionArg(object):
 
         NOTE: Setting the type here has no affect on the FunctionSignature object this came from.
         """
-        is_ptr = value.endswith('*')
-        value = value.strip(' *')
+        is_ptr = value.endswith("*")
+        value = value.strip(" *")
 
         # Create new tinfo object of type.
         tif = ida_typeinf.tinfo_t()
@@ -156,7 +154,7 @@ class FunctionArg(object):
     @property
     def declaration(self):
         """Argument type declaration."""
-        return ' '.join([self.type, self.name])
+        return " ".join([self.type, self.name])
 
     @property
     def value(self):
@@ -167,7 +165,7 @@ class FunctionArg(object):
 
         # This type occurs when we have created an uninitialized argument.
         if loc_type == ida_typeinf.ALOC_NONE:
-            logger.warning('Argument {} location is of type ALOC_NONE'.format(self.idx))
+            logger.warning("Argument {} location is of type ALOC_NONE".format(self.idx))
             return None
 
         elif loc_type == ida_typeinf.ALOC_STACK:
@@ -188,9 +186,7 @@ class FunctionArg(object):
 
         elif loc_type == ida_typeinf.ALOC_REG2:  # register pair (eg: edx:eax [reg2:reg1])
             # TODO: CURRENTLY UNTESTED
-            logger.info(
-                "Argument {} of untested type ALOC_REG2.  "
-                "Verify results and report issues".format(self.idx))
+            logger.info("Argument {} of untested type ALOC_REG2.  " "Verify results and report issues".format(self.idx))
             # TODO: Assuming registers are the same width..
             #  need to determine if that is an accurate assumption.
             reg1_name = ida_idp.get_reg_name(argloc.reg1(), self.width)
@@ -201,8 +197,9 @@ class FunctionArg(object):
 
         elif loc_type == ida_typeinf.ALOC_RREL:  # register relative (displacement from address pointed by register
             # TODO: CURRENTLY UNTESTED
-            logger.info("Argument {} of untested type ALOC_RREL.  "
-                        "Verify results and report issues.".format(self.idx))
+            logger.info(
+                "Argument {} of untested type ALOC_RREL.  " "Verify results and report issues.".format(self.idx)
+            )
             # Obtain the register-relative argument location
             rrel = argloc.get_rrel()
             reg_name = ida_idp.get_reg_name(rrel.reg, self.width)
@@ -212,8 +209,8 @@ class FunctionArg(object):
         elif loc_type == ida_typeinf.ALOC_STATIC:  # global address
             # TODO: CURRENTLY UNTESTED
             logger.info(
-                "Argument {} of untested type ALOC_STATIC.  "
-                "Verify results and report issues.".format(self.idx))
+                "Argument {} of untested type ALOC_STATIC.  " "Verify results and report issues.".format(self.idx)
+            )
             return argloc.get_ea()
 
         elif loc_type >= ida_typeinf.ALOC_CUSTOM:  #  custom argloc

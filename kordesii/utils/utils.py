@@ -6,11 +6,11 @@ Extra utility functions for interfacing with ida.
 
 from __future__ import absolute_import
 
+from typing import Union, List
+
 import re
 import logging
 import warnings
-
-from six.moves import range
 
 import idaapi
 import ida_bytes
@@ -43,8 +43,9 @@ class IterApis(object):
     :param targeted: Boolean value indicating if there are targeted API names
     :param api_addrs: Dictionary of API names and offsets
     """
+
     def __init__(self, module_name, target_api_names=None):
-        warnings.warn('IterApis is deprecated. Please use iter_imports() instead.', DeprecationWarning)
+        warnings.warn("IterApis is deprecated. Please use iter_imports() instead.", DeprecationWarning)
         self.module_name = module_name
         if target_api_names:
             self.target_api_names = target_api_names[:]
@@ -60,7 +61,7 @@ class IterApis(object):
         """Returns an iterator yielding a tuple of (api_name, offset). """
         if not self._processed:
             self.iter_module()
-        return self.api_addrs.iteritems()
+        return iter(self.api_addrs.items())
 
     def obtain_api_addr(self, api_name):
         """
@@ -88,7 +89,7 @@ class IterApis(object):
             if addr != idc.BADADDR:
                 self.api_addrs[api_name] = addr
             else:
-                logger.warning('Address for %s was not located by name.' % api_name)
+                logger.warning("Address for %s was not located by name." % api_name)
 
     def _callback_func(self, ea, name, ord):
         """
@@ -127,7 +128,7 @@ class IterApis(object):
         :return:
         """
         num_imports = idaapi.get_import_module_qty()
-        for i in xrange(0, num_imports):
+        for i in range(0, num_imports):
             name = idaapi.get_import_module_name(i)
             if name == self.module_name:
                 idaapi.enum_import_names(i, self._callback_func)
@@ -189,12 +190,12 @@ def iter_imports(module_name=None, api_names=None):
 
                 # Collect name if matches filter or if no filter set.
                 if target_set and (
-                        name in target_set
-                        or name.strip('_') in target_set
-                        or any(re.match('_*{}_+[0-9]?'.format(name_), name) for name_ in target_set)
+                    name in target_set
+                    or name.strip("_") in target_set
+                    or any(re.match("_*{}_+[0-9]?".format(name_), name) for name_ in target_set)
                 ):
                     entries.append((ea, name))
-                    target_set.remove(name)
+                    target_set.difference_update({name, name.strip("_")})
                     if not target_set:
                         # Found all targeted function names. stop enumeration.
                         return False
@@ -231,7 +232,7 @@ def iter_exports():
         yield ea, name
 
 
-def iter_functions(func_names=None):
+def iter_functions(func_names: Union[None, str, List[str]] = None):
     """
     Iterate all defined functions and yield their address and name.
     (This includes imported functions)
@@ -249,8 +250,8 @@ def iter_functions(func_names=None):
         if (
             not func_names
             or name in func_names
-            or name.strip('_') in func_names
-            or any(re.match('_*{}_[0-9]?'.format(name_), name) for name_ in func_names)
+            or name.strip("_") in func_names
+            or any(re.match("_*{}_[0-9]?".format(name_), name) for name_ in func_names)
         ):
             yield ea, name
 
@@ -289,7 +290,7 @@ def get_export_addr(export_name):
             return ea
 
 
-def get_function_addr(func_name):
+def get_function_addr(func_name: str):
     """
     Obtain a function in the list of functions for the application by name.
     Supports using API resolved names if necessary.
@@ -340,7 +341,7 @@ def lines(start=None, end=None, reverse=False, max_steps=None):
             break
 
 
-def get_string(ea):
+def get_string(ea: int) -> bytes:
     """
     Returns a string from the given location.
 
@@ -356,14 +357,12 @@ def get_string(ea):
 
 
 def get_segment_bytes(name_or_ea):
-    warnings.warn(
-        'get_segment_bytes() has been moved to get_bytes() in kordesii.utils.segments', DeprecationWarning)
+    warnings.warn("get_segment_bytes() has been moved to get_bytes() in kordesii.utils.segments", DeprecationWarning)
     return segments.get_bytes(name_or_ea)
 
 
 def get_segment_start(name_or_ea):
-    warnings.warn(
-        'get_segment_start() has been moved to get_start() in kordesii.utils.segments', DeprecationWarning)
+    warnings.warn("get_segment_start() has been moved to get_start() in kordesii.utils.segments", DeprecationWarning)
     return segments.get_start(name_or_ea)
 
 
@@ -371,9 +370,11 @@ class IDA_MatchObject(ida_re.Match):
     """
     Class that performs some voodoo on MatchObjects.
     """
+
     def __init__(self, match, seg_start):
         warnings.warn(
-            'IDA_MatchObject has been moved and renamed to Match in kordesii.utils.ida_re', DeprecationWarning)
+            "IDA_MatchObject has been moved and renamed to Match in kordesii.utils.ida_re", DeprecationWarning
+        )
         super(IDA_MatchObject, self).__init__(match, seg_start)
 
 
@@ -381,9 +382,10 @@ class IDA_re(ida_re.Pattern):
     """
     Class to perform regex operations within IDA.
     """
+
     def __init__(self, ptn, flags=0):
-        warnings.warn(
-            'IDA_re has been moved and renamed to Pattern in kordesii.utils.ida_re', DeprecationWarning)
+        warnings.warn("IDA_re has been moved and renamed to Pattern in kordesii.utils.ida_re", DeprecationWarning)
         super(IDA_re, self).__init__(ptn, flags=flags)
+
 
 # =============================================================

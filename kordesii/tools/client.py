@@ -3,14 +3,15 @@ Example (and functional) interface (in this case CLI) that submits files to kord
 """
 
 import base64
-import httplib
 import json
 import optparse
 import os
 import sys
-import urllib2
 import uuid
 import warnings
+
+import httplib
+import urllib2
 
 USAGE = 'USAGE: kordesii-client [options] DECODER INPUT_FILE'
 

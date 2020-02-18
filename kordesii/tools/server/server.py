@@ -4,7 +4,6 @@ DC3-Kordesii server--simple REST API using bottle framework. Can be used as a st
 
 Requires bottle to be installed which can be done by putting bottle.py in the same directory as this file.
 """
-from __future__ import print_function
 
 import base64
 import copy

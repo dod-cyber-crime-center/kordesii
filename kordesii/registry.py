@@ -12,7 +12,7 @@ from .decoder import Decoder
 
 
 logger = logging.getLogger(__name__)
-Source = namedtuple('Source', ('name', 'path'))
+Source = namedtuple("Source", ("name", "path"))
 # Set of decoder source names mapped to a directory path.
 _sources = {}
 _default_source = None
@@ -52,7 +52,7 @@ def register_entry_points():
     """
     Registers decoders found in entry_point: "kordesii.decoders"
     """
-    for entry in pkg_resources.iter_entry_points('kordesii.decoders'):
+    for entry in pkg_resources.iter_entry_points("kordesii.decoders"):
         package = entry.load()
         register_decoder_package(package, source_name=entry.name)
 
@@ -70,7 +70,7 @@ def register_decoder_directory(directory, source_name=None):
     global _sources
 
     if not os.path.isdir(directory):
-        raise ValueError(u'Decoder directory not found or not a directory: {!r}'.format(directory))
+        raise ValueError(u"Decoder directory not found or not a directory: {!r}".format(directory))
 
     # # Ensure this directory can be converted to a package and pull config_file_path if available.
     # package = _create_package(directory)
@@ -90,7 +90,7 @@ def register_decoder_package(package, source_name=None):
               Please use register_decoder_directory() instead if that is not possible.
     :param source_name: Unique name to give to the source. (uses package name otherwise)
     """
-    if not hasattr(package, '__path__'):
+    if not hasattr(package, "__path__"):
         raise ValueError(u"{!r} is not a Python package".format(package))
 
     if not source_name:
@@ -119,8 +119,8 @@ def iter_decoders(name=None, source=None):
         # If name is using ":" notation, assume it is being organized by "source_name:decoder_name"
         # (os.path.basename is necessary in-case source is a file path containing ":"'s)
         orig_name = name
-        _, _, name = os.path.basename(name).rpartition(':')
-        source = orig_name[:-(len(name) + 1)]
+        _, _, name = os.path.basename(name).rpartition(":")
+        source = orig_name[: -(len(name) + 1)]
 
     # Use default source if one is not provided.
     source = source or _default_source or None
@@ -136,22 +136,22 @@ def iter_decoders(name=None, source=None):
         # Get script path for decoder.
         if name:
             # Pull script using a "." notation to indicate subpackages.
-            script_path = os.path.join(source.path, *name.split('.')) + '.py'
+            script_path = os.path.join(source.path, *name.split(".")) + ".py"
             # Also try with legacy postfix if it doesn't exists.
             if not os.path.exists(script_path):
-                script_path = script_path[:-3] + '_StringDecode.py'
+                script_path = script_path[:-3] + "_StringDecode.py"
             if os.path.exists(script_path):
                 yield Decoder(script_path, name=name, source=source)
             else:
-                logger.debug('Unable to find {}:{} decoder.'.format(source_name, name))
+                logger.debug("Unable to find {}:{} decoder.".format(source_name, name))
         else:
             # Extract all decoders within the directory
             for root, directories, filenames in os.walk(source.path):
                 for filename in filenames:
-                    if filename.endswith('.py') and not filename.startswith('_'):
+                    if filename.endswith(".py") and not filename.startswith("_"):
                         script_path = os.path.join(root, filename)
                         rel_path, _ = os.path.splitext(os.path.relpath(script_path, source.path))
-                        _name = rel_path.replace(os.path.sep, '.')
+                        _name = rel_path.replace(os.path.sep, ".")
                         yield Decoder(script_path, name=_name, source=source)
 
 

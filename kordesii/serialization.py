@@ -4,11 +4,10 @@ import logging
 import os
 from io import open
 
+from kordesii.core import DECODER_OUTPUT_DIR
 from ruamel.yaml import YAML
 
-from kordesii.core import DECODER_OUTPUT_DIR
-
-yaml = YAML(typ='safe')
+yaml = YAML(typ="safe")
 yaml.default_flow_style = False
 log = logging.getLogger(__name__)
 
@@ -22,12 +21,12 @@ class ROObject(object):
         self.__dict__.update(adict)
 
     def __repr__(self):
-        if 'repr' in self.__dict__:
-            return self.__dict__['repr']
+        if "repr" in self.__dict__:
+            return self.__dict__["repr"]
 
         repr_str = "<{}.{}<{}> at {:#8x}>".format(
-            self.__module__, self.__class__.__name__,
-            self.__dict__.get('__yaml_name__'), id(self))
+            self.__module__, self.__class__.__name__, self.__dict__.get("__yaml_name__"), id(self)
+        )
 
         return repr_str
 
@@ -39,7 +38,15 @@ class ROObject(object):
         return cls(dict(constructor.construct_pairs(node)))
 
 
-yaml.constructor.add_constructor(u'!ReadOnlyObject', ROObject.from_yaml)
+# def bstr_representer(representer, node: bytes):
+#     try:
+#         node.decode("ascii", errors="strict")
+#     except UnicodeDecodeError:
+#         return representer.represent_binary(representer, node)
+
+
+yaml.constructor.add_constructor(u"!ReadOnlyObject", ROObject.from_yaml)
+# yaml.representer.add_representer(bytes, bstr_representer)
 
 
 def obj_to_yaml(representer, node, yaml_name=None, skip_attrs=None):
@@ -60,7 +67,7 @@ def obj_to_yaml(representer, node, yaml_name=None, skip_attrs=None):
     members = {}
     # Adapted from inspect.getmembers()
     for key in dir(node):
-        if key.startswith('_') or key in skip_attrs:
+        if key.startswith("_") or key in skip_attrs:
             continue
         try:
             value = getattr(node, key)
@@ -69,11 +76,11 @@ def obj_to_yaml(representer, node, yaml_name=None, skip_attrs=None):
         if not inspect.isroutine(value):
             members[key] = value
 
-    if '__yaml_name__' not in members:
+    if "__yaml_name__" not in members:
         yaml_name = yaml_name or node.__class__.__name__
-        members['__yaml_name__'] = yaml_name
+        members["__yaml_name__"] = yaml_name
 
-    return representer.represent_mapping(u'!ReadOnlyObject', members)
+    return representer.represent_mapping(u"!ReadOnlyObject", members)
 
 
 def serializable_class(cls=None, yaml_name=None, skip_attrs=None, func=None):
@@ -92,7 +99,7 @@ def serializable_class(cls=None, yaml_name=None, skip_attrs=None, func=None):
     def _wrapper(klass):
         yaml_func = func  # separate variable to avoid strange wrapper reference issues
         if yaml_func is None:
-            if hasattr(klass, 'to_yaml'):
+            if hasattr(klass, "to_yaml"):
                 yaml_func = klass.to_yaml
             elif yaml_name is None and skip_attrs is None:
                 yaml_func = obj_to_yaml
@@ -159,7 +166,7 @@ class Serializer(object):
         return item in self._data
 
     def __repr__(self):
-        return '<Serializer with keys: {!r}>'.format(self._data.keys())
+        return "<Serializer with keys: {!r}>".format(self._data.keys())
 
     def __enter__(self):
         return self
@@ -217,14 +224,14 @@ class Serializer(object):
     def _open(self):
         """Opens the underlining file."""
         if self._file is None:
-            self._file = open(self._filepath, 'w', encoding='utf8', newline='\n')
+            self._file = open(self._filepath, "w", encoding="utf8", newline="\n")
 
     def _save(self, key, value):
         self._open()
         yaml.dump({key: value}, self._file)
 
 
-def get_serializer(name='other_data'):
+def get_serializer(name="other_data"):
     """
     Generally we want only one Serializer object per kordesii instance to avoid
     clobbering the serialized data each write.
@@ -236,7 +243,7 @@ def get_serializer(name='other_data'):
     global _serializers
     if name not in _serializers:
         # Stored serializer in DECODER_OUTPUT_FILES
-        file_path = os.path.join(DECODER_OUTPUT_DIR, name + '.yml')
+        file_path = os.path.join(DECODER_OUTPUT_DIR, name + ".yml")
         _serializers[name] = Serializer(file_path)
     return _serializers[name]
 

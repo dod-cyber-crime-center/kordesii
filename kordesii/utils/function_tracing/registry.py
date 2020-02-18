@@ -1,6 +1,4 @@
-
-
-def registrar(registry, name='entry'):
+def registrar(registry, name="entry"):
     """
     Creates and returns a register function that can be uses as a decorator
     for registering functions into the given registry dictionary.

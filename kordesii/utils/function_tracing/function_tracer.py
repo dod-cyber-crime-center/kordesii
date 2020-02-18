@@ -6,16 +6,14 @@ registers, etc.
 """
 
 import logging
+from builtins import object
+from typing import Tuple, List, Generator
 
 import idaapi
-import idautils
-import idc
 
-from .constants import *
-from .flowchart import FlowChart
 from . import builtin_funcs
 from .cpu_context import ProcessorContext
-
+from .flowchart import FlowChart
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +36,14 @@ class FunctionTracer(object):
     initialize the state of execution when a previously unanalyzed block is being inspected rather than having to
     completely reanalyze the entire function again.
     """
+
     def __init__(self, func_ea):
         """
         :param func_ea: any address in the function of interest
         """
         # FIXME: Importing here to prevent cyclic imports.
         from kordesii.utils import decoderutils
+
         self.func_obj = decoderutils.SuperFunc_t(func_ea)
         self.func_ea = self.func_obj.start_ea
         # Create the graph object of the function
@@ -53,7 +53,7 @@ class FunctionTracer(object):
     def __repr__(self):
         return "<FunctionTracer for function at 0x{:X}>".format(self.func_ea)
 
-    def iter_context_at(self, ea, depth=0, exhaustive=True):
+    def iter_context_at(self, ea, depth=0, exhaustive=True) -> Generator[ProcessorContext, None, None]:
         """
         Iterate over cpu context for instructions up to, but not including, a given ea.
 
@@ -72,11 +72,10 @@ class FunctionTracer(object):
         :yield: cpu_context or None (if ea is the function's first address)
         """
         if depth < 0:
-            raise ValueError('Depth must be a positive integer.')
+            raise ValueError("Depth must be a positive integer.")
 
         if ea not in self.func_obj:
-            raise ValueError('Address 0x{:08X} not within function at 0x{:08X}'.format(
-                ea, self.func_obj.start_ea))
+            raise ValueError("Address 0x{:08X} not within function at 0x{:08X}".format(ea, self.func_obj.start_ea))
 
         # Obtaining the context consists of tracing up to, but not including ea, unless ea is the first instruction.
 
@@ -90,7 +89,7 @@ class FunctionTracer(object):
                 yielded = False
                 for call_ea in self.func_obj.xrefs_to:
                     if call_ea in self.func_obj:
-                        logger.debug('Ignoring recursive function call at 0x{:08X}'.format(call_ea))
+                        logger.debug("Ignoring recursive function call at 0x{:08X}".format(call_ea))
                         continue
                     tracer = get_tracer(call_ea, None)
                     if tracer:
@@ -119,6 +118,7 @@ class FunctionTracer(object):
             (defaults to 0, meaning a empty context will be generate at the top of the current function.)
 
         :return: cpu_context or None
+        :rtype: ProcessorContext
         """
         for ctx in self.iter_context_at(ea, depth=depth):
             return ctx
@@ -230,6 +230,7 @@ class FunctionTracer(object):
             Extra arguments not defined by the disassembler are assumed to be 'int' type.
 
         :return tuple: (context at ea, list of function parameters passed to called function in order)
+        :rtype: Tuple[ProcessorContext, List]
         """
         for cpu_context, args in self.iter_function_args(ea, depth=depth, num_args=num_args):
             return cpu_context, args
@@ -262,11 +263,12 @@ class TracerCache(object):
     Class containing a cache of all tracer objects that are used within a decoder to avoid having to do all the
     reinitialization work on subsequent uses.
     """
+
     def __init__(self):
         self._tracers = {}
         self._hooks = {}
 
-    def get(self, ea, default='NOTSET'):
+    def get(self, ea, default="NOTSET"):
         # type: (int, object) -> FunctionTracer
         """
         Get either an existing tracer for a provided EA, or create a new one.
@@ -287,7 +289,7 @@ class TracerCache(object):
             return self._tracers[func.start_ea]
         except KeyError:
             tracer = FunctionTracer(ea)
-            for name_or_start_ea, func_hook in self._hooks.items():
+            for name_or_start_ea, func_hook in list(self._hooks.items()):
                 tracer.hook(name_or_start_ea, func_hook)
             self._tracers[func.start_ea] = tracer
             return tracer
@@ -308,7 +310,7 @@ class TracerCache(object):
             name_or_start_ea = name_or_start_ea.lower()
 
         # Hook already created tracers.
-        for tracer in self._tracers.values():
+        for tracer in list(self._tracers.values()):
             tracer.hook(name_or_start_ea, func)
 
         # Save hook for future tracers.
@@ -317,7 +319,7 @@ class TracerCache(object):
     def clear_hooks(self):
         """Clears all previously set hooks."""
         self._hooks = {}
-        for tracer in self._tracers.values():
+        for tracer in list(self._tracers.values()):
             tracer.clear_hooks()
 
 

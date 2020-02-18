@@ -2,8 +2,8 @@
 Test case support for DC3-Kordesii. Decoder output is stored in a json file per decoder. To run test cases,
 decoder is re-run and compared to previous results.
 """
-from __future__ import print_function
-from future.builtins import str
+
+import difflib
 
 from io import open
 
@@ -36,16 +36,13 @@ IDA_LOG = "ida_log"
 RUN_TIME = "run_time"
 
 
-DEFAULT_EXCLUDE_FIELDS = [
+DEFAULT_EXCLUDE_FIELDS = (
     kordesii.reporter.FIELD_DEBUG,
-    'idb',  # Legacy field that should no longer exists. TODO: remove in future version.
-    FIELD_LAST_UPDATE
-]
+    "idb",  # Legacy field that should no longer exists. TODO: remove in future version.
+    FIELD_LAST_UPDATE,
+)
 
-DEFAULT_INCLUDE_FIELDS = [
-    kordesii.reporter.FIELD_STRINGS,
-    kordesii.reporter.FIELD_FILES
-]
+DEFAULT_INCLUDE_FIELDS = (kordesii.reporter.FIELD_STRINGS, kordesii.reporter.FIELD_FILES)
 
 
 def multiproc_test_wrapper(args):
@@ -72,8 +69,15 @@ class Tester(object):
     DC3-Kordesii Tester class
     """
 
-    def __init__(self, reporter, results_dir=None, decoder_names=None, nprocs=None,
-                 field_names=None, ignore_field_names=DEFAULT_EXCLUDE_FIELDS):
+    def __init__(
+        self,
+        reporter,
+        results_dir=None,
+        decoder_names=None,
+        nprocs=None,
+        field_names=None,
+        ignore_field_names=DEFAULT_EXCLUDE_FIELDS,
+    ):
         """
         Run tests and compare produced results to expected results.
 
@@ -112,10 +116,11 @@ class Tester(object):
             self._processed = True
             log_level = logging.root.getEffectiveLevel()
             pool = mp.Pool(
-                processes=self._nprocs, initializer=multiproc_initializer,
-                initargs=(log_level, logutil.listen_port, registry._sources, registry._default_source))
-            test_iter = pool.imap_unordered(
-                multiproc_test_wrapper, [(test_case,) for test_case in self.test_cases])
+                processes=self._nprocs,
+                initializer=multiproc_initializer,
+                initargs=(log_level, logutil.listen_port, registry._sources, registry._default_source),
+            )
+            test_iter = pool.imap_unordered(multiproc_test_wrapper, [(test_case,) for test_case in self.test_cases])
             pool.close()
 
             try:
@@ -149,19 +154,21 @@ class Tester(object):
                         input_file_path = os.path.abspath(input_file_path)
                         expected_results[INPUT_FILE_PATH] = input_file_path
 
-                        self._test_cases.append(TestCase(
-                            self.reporter, decoder.full_name, expected_results,
-                            field_names=self.field_names, ignore_field_names=self.ignore_field_names))
+                        self._test_cases.append(
+                            TestCase(
+                                self.reporter,
+                                decoder.full_name,
+                                expected_results,
+                                field_names=self.field_names,
+                                ignore_field_names=self.ignore_field_names,
+                            )
+                        )
                 else:
-                    logger.warning('Test case file not found: {}'.format(results_file_path))
+                    logger.warning("Test case file not found: {}".format(results_file_path))
 
             if not found and decoder_name:
                 # Add a failed result if we have an orphan test.
-                self._results.append(TestResult(
-                    decoder_name=decoder_name,
-                    passed=False,
-                    errors=['Decoder not found.']
-                ))
+                self._results.append(TestResult(decoder_name=decoder_name, passed=False, errors=["Decoder not found."]))
         return self._test_cases
 
     @property
@@ -174,7 +181,7 @@ class Tester(object):
         Generate JSON results for the given file using the given decoder name.
         """
         # Read in data so we avoid placing idb files in the malware repo.
-        with open(input_file_path, 'rb') as f:
+        with open(input_file_path, "rb") as f:
             data = f.read()
         self.reporter.run_decoder(decoder_name, data=data, log=True)
         self.reporter.metadata[INPUT_FILE_PATH] = os.path.abspath(input_file_path)
@@ -192,22 +199,22 @@ class Tester(object):
                 return os.path.join(self.results_dir, file_name)
 
             # Assume there is a "tests" folder within the source path.
-            test_dir = os.path.join(decoder.source.path, 'tests')
+            test_dir = os.path.join(decoder.source.path, "tests")
             return os.path.normpath(os.path.join(test_dir, file_name))
 
-        raise ValueError('Invalid parser: {}'.format(decoder_name))
+        raise ValueError("Invalid parser: {}".format(decoder_name))
 
     def parse_results_file(self, results_file_path):
         """
         Parse the the JSON results file and return the parsed data.
         """
 
-        with open(results_file_path, 'r', encoding='utf8') as results_file:
+        with open(results_file_path, "r", encoding="utf8") as results_file:
             data = json.load(results_file)
 
         # The results file data is expected to be a list of metadata dictionaries
         if not isinstance(data, list) or not all(isinstance(a, dict) for a in data):
-            raise ValueError('Results file is invalid: {}'.format(results_file_path))
+            raise ValueError("Results file is invalid: {}".format(results_file_path))
 
         return data
 
@@ -224,15 +231,17 @@ class Tester(object):
                 for decoder in kordesii.iter_decoders(decoder_name):
                     results_file_path = self.get_results_filepath(decoder.full_name)
                     if not os.path.isfile(results_file_path):
-                        logger.warning('No test case file found for parser: {}')
+                        logger.warning("No test case file found for parser: {}")
                         continue
                     for results in self.parse_results_file(results_file_path):
                         input_file = results[INPUT_FILE_PATH]
                         metadata = self.gen_results(decoder.full_name, input_file)
                         if not metadata:
-                            logger.warning('Empty results for {} in {}, not updating.'.format(input_file, results_file_path))
+                            logger.warning(
+                                "Empty results for {} in {}, not updating.".format(input_file, results_file_path)
+                            )
                         if force or not self.reporter.errors:
-                            logger.info('Updating results for {} in {}'.format(input_file, results_file_path))
+                            logger.info("Updating results for {} in {}".format(input_file, results_file_path))
                             self._update_test_results(results_file_path, metadata, replace=True)
         finally:
             logging.root.setLevel(orig_level)
@@ -252,9 +261,9 @@ class Tester(object):
                     results_file_path = self.get_results_filepath(decoder.full_name)
                     metadata = self.gen_results(decoder.full_name, file_path)
                     if not metadata:
-                        logger.warning('Empty results for {} in {}, not adding.'.format(file_path, results_file_path))
+                        logger.warning("Empty results for {} in {}, not adding.".format(file_path, results_file_path))
                     if force or not self.reporter.errors:
-                        logger.info('Adding results for {} in {}'.format(file_path, results_file_path))
+                        logger.info("Adding results for {} in {}".format(file_path, results_file_path))
                         self._update_test_results(results_file_path, metadata, replace=True)
         finally:
             logging.root.setLevel(orig_level)
@@ -267,12 +276,12 @@ class Tester(object):
                 results_file_data = []
                 for metadata in self.parse_results_file(results_file_path):
                     if metadata[INPUT_FILE_PATH] == file_path:
-                        logger.info('Removed results for {} in {}'.format(file_path, results_file_path))
+                        logger.info("Removed results for {} in {}".format(file_path, results_file_path))
                     else:
                         results_file_data.append(metadata)
 
-                with open(results_file_path, 'w', encoding='utf8') as results_file:
-                    results_file.write(str(json.dumps(results_file_data, results_file, indent=4, sort_keys=True)))
+                with open(results_file_path, "w", encoding="utf8") as results_file:
+                    results_file.write(str(json.dumps(results_file_data, indent=4, sort_keys=True)))
 
     def _update_test_results(self, results_file_path, results_data, replace=True):
         """
@@ -305,17 +314,16 @@ class Tester(object):
 
         # Write updated data to results file
         # NOTE: We need to use dumps instead of dump to avoid TypeError.
-        with open(results_file_path, 'w', encoding='utf8') as results_file:
-            results_file.write(str(json.dumps(results_file_data, results_file, indent=4, sort_keys=True)))
+        with open(results_file_path, "w", encoding="utf8") as results_file:
+            json.dump(results_file_data, results_file, indent=4, sort_keys=True)
 
 
 class TestCase(object):
-
     def __init__(self, reporter, decoder_name, expected_results, field_names=None, ignore_field_names=None):
         self._reporter = reporter
         self.decoder_name = decoder_name
         self.expected_results = expected_results
-        self.input_file_path = expected_results['input_file']
+        self.input_file_path = expected_results["input_file"]
         self.filename = os.path.basename(self.input_file_path)
         self._field_names = field_names or []
         if ignore_field_names is None:
@@ -327,7 +335,7 @@ class TestCase(object):
         start_time = default_timer()
 
         # Read in data so we avoid placing idb files in the malware repo.
-        with open(self.input_file_path, 'rb') as f:
+        with open(self.input_file_path, "rb") as f:
             data = f.read()
         self._reporter.run_decoder(self.decoder_name, data=data, log=True)
         self._reporter.metadata[INPUT_FILE_PATH] = self.input_file_path
@@ -344,7 +352,7 @@ class TestCase(object):
             passed=passed,
             input_file_path=self.input_file_path,
             errors=self._reporter.errors,
-            debug=self._reporter.metadata.get('debug', None),
+            debug=self._reporter.metadata.get("debug", None),
             ida_log=self._reporter.ida_log,
             results=comparer_results,
             run_time=run_time,
@@ -381,7 +389,9 @@ class TestCase(object):
             for ignore_field in self._ignore_field_names:
                 results_a.pop(ignore_field, None)
                 results_b.pop(ignore_field, None)
-            all_field_names = set(results_a.keys()).union(list(results_b.keys()))
+            all_field_names = set(results_a.keys()) | set(results_b.keys())
+            if "other_data" not in set(results_a.keys()) & set(results_b.keys()):
+                all_field_names -= {"other_data"}
             for field_name in all_field_names:
                 try:
                     comparer = self._compare_results_field(results_a, results_b, field_name)
@@ -413,12 +423,20 @@ class TestCase(object):
 
 
 class TestResult(object):
-
-    def __init__(self, decoder_name, passed,
-                 input_file_path=None, errors=None, debug=None, ida_log=None, results=None, run_time=None):
+    def __init__(
+        self,
+        decoder_name,
+        passed,
+        input_file_path=None,
+        errors=None,
+        debug=None,
+        ida_log=None,
+        results=None,
+        run_time=None,
+    ):
         self.decoder_name = decoder_name
-        self.input_file_path = input_file_path or 'N/A'
-        self.filename = os.path.basename(input_file_path) if input_file_path else 'N/A'
+        self.input_file_path = input_file_path or "N/A"
+        self.filename = os.path.basename(input_file_path) if input_file_path else "N/A"
         self.passed = passed
         self.errors = errors or []
         self.debug = debug or []
@@ -430,44 +448,60 @@ class TestResult(object):
         """
         print test result based on provided parameters.
         """
-        filtered_output = u""
-        filtered_output += u"decoder: {}\n".format(self.decoder_name)
-        filtered_output += u"input_file: {}\n".format(self.input_file_path)
-        filtered_output += u"passed: {}\n".format(self.passed)
+        filtered_output = ""
+        filtered_output += "decoder: {}\n".format(self.decoder_name)
+        filtered_output += "input_file: {}\n".format(self.input_file_path)
+        filtered_output += "passed: {}\n".format(self.passed)
         # Add logs if failed.
         if not self.passed:
-            filtered_output += u"errors: {}".format("\n" if self.errors else "None\n")
+            filtered_output += "errors: {}".format("\n" if self.errors else "None\n")
             if self.errors:
                 for entry in self.errors:
-                    filtered_output += u"\t{}\n".format(entry)
-            filtered_output += u"debug: {}".format("\n" if self.debug else "None\n")
+                    filtered_output += "\t{}\n".format(entry)
+            filtered_output += "debug: {}".format("\n" if self.debug else "None\n")
             if self.debug:
                 for entry in self.debug:
-                    filtered_output += u"\t{}\n".format(entry)
+                    filtered_output += "\t{}\n".format(entry)
             if self.results:
-                filtered_output += u"results:\n"
+                filtered_output += "results:\n"
                 for result in self.results:
                     if not result.passed:
-                        filtered_output += u"{}\n".format(result)
+                        filtered_output += "{}\n".format(result)
             if self.errors:
-                filtered_output += u"ida_log:\n{}\n".format(self.ida_log)
-        filtered_output += u"\n"
+                filtered_output += "ida_log:\n{}\n".format(self.ida_log)
+        filtered_output += "\n"
 
-        print(filtered_output)
+        print(filtered_output.encode("ascii", "backslashreplace").decode())
 
 
 class ResultComparison(object):
-
     def __init__(self, field):
         self.field = field
         self.passed = False
         self.missing = []  # Entries found in test case but not new results
         self.unexpected = []  # Entries found in new results but not test case
+        self._diff_report = None
 
     def compare(self, test_case_results, new_results):
         """Compare two result sets and document any differences."""
+
+        if isinstance(test_case_results, str) and isinstance(new_results, str):
+            return self._diff(test_case_results, new_results)
+
         self.missing = []
         self.unexpected = []
+
+        # TODO This could be handled when the JSON test file is read
+        # The newly generated results are already unicode-escape'd while
+        # the strings from the test file are utf-8 encoded unicode-escape'd strings
+        # test_case_results = [tc.encode('unicode-escape').decode('utf8') for tc in test_case_results]
+        try:
+            test_case_results = [
+                tc.encode("utf8").decode("unicode-escape", errors="backslashreplace") for tc in test_case_results
+            ]
+            new_results = [nr.encode("utf8").decode("unicode-escape", errors="backslashreplace") for nr in new_results]
+        except AttributeError:
+            pass
 
         for item in test_case_results:
             if len(item) > 0 and item not in new_results:
@@ -484,8 +518,12 @@ class ResultComparison(object):
         If json parameter is False, get report as a string.
         If json parameter is True, get report as a dictionary.
         """
-        if json:
+        if json and not self._diff_report:
             return self.__dict__
+        elif json and self._diff_report:
+            return {"diff": self._diff_report}
+        elif self._diff_report:
+            return self._diff_report
         else:
             tab = tabs * "\t"
             tab_1 = tab + "\t"
@@ -502,6 +540,15 @@ class ResultComparison(object):
                     report += tab_2 + "{!r}\n".format(item)
 
             return report.rstrip()
+
+    def _diff(self, test_case_results: str, new_results: str):
+        diff = difflib.context_diff(
+            test_case_results.splitlines(True), new_results.splitlines(True), "Test Case", "New Results", n=0
+        )
+
+        self._diff_report = "".join(diff)
+
+        self.passed = test_case_results == new_results
 
     def __str__(self):
         return self.get_report()

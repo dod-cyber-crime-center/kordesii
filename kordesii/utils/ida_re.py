@@ -29,6 +29,7 @@ class Match(object):
     """
     Wraps the SRE_Match object returned by re.
     """
+
     def __init__(self, match, seg_start):
         self._match = match
         self._start = seg_start
@@ -74,6 +75,7 @@ class Pattern(object):
     """
     Wraps the SRE_Pattern object returned by re.
     """
+
     def __init__(self, ptn, flags=0):
         if isinstance(ptn, (str, bytes)):
             self._re = re.compile(ptn, flags=flags)

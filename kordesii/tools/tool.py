@@ -1,14 +1,13 @@
 
 from __future__ import print_function
 
+import json
 import logging
 import optparse
 import os
-import json
-import pkgutil
 import sys
-import traceback
 import tempfile
+import traceback
 
 import tabulate
 

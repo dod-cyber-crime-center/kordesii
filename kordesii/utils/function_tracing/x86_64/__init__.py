@@ -19,15 +19,15 @@ RBP_OFFSET = 0x400
 class x86_64ProcessorContext(ProcessorContext):
     """Processor context for x86/x64 architecture"""
 
-    ARCH_NAME = 'metapc'
+    ARCH_NAME = "metapc"
     OPCODES = OPCODES
 
     def __init__(self):
         super(x86_64ProcessorContext, self).__init__(
             x86_64_Registers(),
-            instruction_pointer='rip',
-            stack_pointer='rsp',
-            stack_registers=['rsp', 'esp', 'rbp', 'ebp']
+            instruction_pointer="rip",
+            stack_pointer="rsp",
+            stack_registers=["rsp", "esp", "rbp", "ebp"],
         )
         # Set up the stack before we go.
         self.registers.rsp = STACK_BASE - RSP_OFFSET

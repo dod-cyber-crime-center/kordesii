@@ -14,11 +14,18 @@ def test_basic(strings_exe):
     with kordesii.IDA(strings_exe):
         import idc
         from kordesii.utils import utils
+        from kordesii.utils import ida_re
 
         assert idc.get_input_file_path() == strings_exe
         assert idc.print_insn_mnem(0x00401525) == 'mov'
         assert utils.get_function_addr('GetProcAddress') == 0x40a028
-        assert utils.get_string(0x0040C000) == 'Idmmn!Vnsme '
+        assert utils.get_string(0x0040C000) == b'Idmmn!Vnsme '
+
+        regex = ida_re.Pattern(b'Idmmn!Vnsme')
+        match = regex.search()
+        assert match
+        assert match.start() == 0x0040C000
+        assert match.group() == b'Idmmn!Vnsme'
 
         # Ensure we can only start one at a time.
         with pytest.raises(ValueError):
@@ -82,24 +89,24 @@ def test_run_in_ida(strings_exe):
 
     with kordesii.IDA(strings_exe):
         assert trace_arguments(0x00401003) == [
-            'Idmmn!Vnsme ',
-            'Vgqv"qvpkle"ukvj"ig{"2z20',
-            'Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-',
-            'Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*',
-            'Dfla%gpwkv%mji`v%lk%rjji%fijqm+',
-            'Egru&ghb&biau&cgen&ngrc&rnc&irnct(',
-            '\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=',
-            'C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9',
-            '+()./,-"#*',
-            '`QFBWFsQL@FPPb',
-            'tSUdFS',
-            '\x01\x13\x10n\x0e\x05\x14',
-            '-",5 , v,tr4v,trv4t,v\x7f,ttt',
-            '@AKJDGBA@KJGDBJKAGDC',
-            '!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02[',
-            '4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y',
-            '.\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1fZ\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T',
-            'LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM'
+            b'Idmmn!Vnsme ',
+            b'Vgqv"qvpkle"ukvj"ig{"2z20',
+            b'Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-',
+            b'Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*',
+            b'Dfla%gpwkv%mji`v%lk%rjji%fijqm+',
+            b'Egru&ghb&biau&cgen&ngrc&rnc&irnct(',
+            b'\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=',
+            b'C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9',
+            b'+()./,-"#*',
+            b'`QFBWFsQL@FPPb',
+            b'tSUdFS',
+            b'\x01\x13\x10n\x0e\x05\x14',
+            b'-",5 , v,tr4v,trv4t,v\x7f,ttt',
+            b'@AKJDGBA@KJGDBJKAGDC',
+            b'!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02[',
+            b'4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y',
+            b'.\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1fZ\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T',
+            b'LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM'
         ]
 
     # Ensure we get an error, if we attempt to run the function outside of proxy instance.

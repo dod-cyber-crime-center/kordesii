@@ -7,7 +7,6 @@ WARNING:
     Do NOT rely on the flags registers being correct.  There are places were flags are NOT being updated when they
     should, and the very fact that CALL instructions are skipped could cause flags to be incorrect.
 """
-
 from copy import deepcopy
 import collections
 import logging
@@ -55,7 +54,7 @@ class JccContext(object):
         copy.condition_target_ea = self.condition_target_ea
         copy.alt_branch_data_dst = self.alt_branch_data_dst
         copy.alt_branch_data = self.alt_branch_data
-        copy.flag_opnds = {flag: list(operands) for flag, operands in self.flag_opnds.items()}
+        copy.flag_opnds = {flag: list(operands) for flag, operands in list(self.flag_opnds.items())}
         return copy
 
     def update_flag_opnds(self, flags, opnds):
@@ -119,7 +118,7 @@ class ProcessorContext(object):
         self.executed_instructions = []  # Keeps track of the instructions that have been executed.
         self.memory_copies = collections.defaultdict(list)  # Keeps track of memory moves.
         self.bitness = utils.get_bits()
-        self.byteness = self.bitness / 8
+        self.byteness = self.bitness // 8
         self.stack_registers = stack_registers or []
         self.variables = VariableMap(self)
         self._sp = stack_pointer
@@ -143,7 +142,7 @@ class ProcessorContext(object):
         for subclass in cls.__subclasses__():
             if subclass.ARCH_NAME == arch_name:
                 return subclass()  # Subclasses shouldn't have any initialization parameters.
-        raise NotImplementedError('Architecture not supported: {}'.format(arch_name))
+        raise NotImplementedError("Architecture not supported: {}".format(arch_name))
 
     def __deepcopy__(self, memo):
         """Implementing our own deepcopy to improve speed."""
@@ -212,13 +211,13 @@ class ProcessorContext(object):
 
         # Determine if a rep* instruction and add termination condition.
         term_condition = None
-        if idc.get_wide_byte(ip) in (0xf2, 0xf3):
+        if idc.get_wide_byte(ip) in (0xF2, 0xF3):
             insn = idc.GetDisasm(ip)  # IDA pro never has operands for rep opcodes.
-            if insn.startswith('rep '):
+            if insn.startswith("rep "):
                 term_condition = lambda: self.registers.ecx == 0
-            elif insn.startswith(('repe ', 'repz ')):
+            elif insn.startswith(("repe ", "repz ")):
                 term_condition = lambda: self.registers.ecx == 0 or self.registers.zf == 0
-            elif insn.startswith(('repne ', 'repnz ')):
+            elif insn.startswith(("repne ", "repnz ")):
                 term_condition = lambda: self.registers.ecx == 0 or self.registers.zf == 1
 
         # Emulate instruction.
@@ -232,19 +231,20 @@ class ProcessorContext(object):
                     # our max memory read limit.
                     if self.registers.ecx > self.memory.MAX_MEM_READ:
                         logger.warning(
-                            '0x{:08X} :: Emulation attempted to read {} instruction {} times. '
-                            'Ignoring instruction.'.format(ip, mnem, self.registers.ecx))
+                            "0x{:08X} :: Emulation attempted to read {} instruction {} times. "
+                            "Ignoring instruction.".format(ip, mnem, self.registers.ecx)
+                        )
                     else:
-                        logger.debug('Emulating {} instruction {} times.'.format(mnem, self.registers.ecx))
+                        logger.debug("Emulating {} instruction {} times.".format(mnem, self.registers.ecx))
                         while not term_condition():
                             instruction(self, ip, mnem, operands)
                             self.registers.ecx -= 1
                 else:
                     instruction(self, ip, mnem, operands)
             except Exception:
-                logger.exception('Failed to execute address 0x{:X}: {}'.format(ip, idc.GetDisasm(ip)))
+                logger.exception("Failed to execute address 0x{:X}: {}".format(ip, idc.GetDisasm(ip)))
         else:
-            logger.debug('{} instruction not implemented.'.format(mnem))
+            logger.debug("{} instruction not implemented.".format(mnem))
 
         # Record executed instruction.
         self.executed_instructions.append(ip)
@@ -260,7 +260,7 @@ class ProcessorContext(object):
 
         :returns: List of tulples containing: (ea of call, list of function arguments)
         """
-        return [(ea, args) for ea, (_func_name, args) in self.func_calls.items() if _func_name == func_name]
+        return [(ea, args) for ea, (_func_name, args) in list(self.func_calls.items()) if _func_name == func_name]
 
     def prep_for_branch(self, bb_start_ea):
         """
@@ -375,7 +375,7 @@ class ProcessorContext(object):
             - sorted by earliest to latest incarnation of the pointer. (not including itself)
         """
         history = []
-        for ip, copies in sorted(self.memory_copies.items(), reverse=True):
+        for ip, copies in sorted(list(self.memory_copies.items()), reverse=True):
             for src, dst, size in sorted(copies, reverse=True):
                 if dst == ea:
                     history.append((ip, src))
@@ -423,8 +423,7 @@ class ProcessorContext(object):
         :param ea_or_stack_tuple: ea address or tuple containing: (frame_id, stack_offset)
         :return: string of name or None
         """
-        warnings.warn(
-            'get_variable_name() is deprecated. Please use .variables attribute instead.', DeprecationWarning)
+        warnings.warn("get_variable_name() is deprecated. Please use .variables attribute instead.", DeprecationWarning)
 
         if isinstance(ea_or_stack_tuple, tuple):
             frame_id, stack_offset = ea_or_stack_tuple
@@ -483,7 +482,7 @@ class ProcessorContext(object):
             size = 0
 
         if data_type == STRING:
-            null_offset = self.memory.find(b'\0', start=addr)
+            null_offset = self.memory.find(b"\0", start=addr)
             # It should always eventually find a null since unmapped pages
             # are all null. If we get -1 we have a bug.
             assert null_offset != -1, "Unable to find a null character!"
@@ -493,7 +492,7 @@ class ProcessorContext(object):
             # Step by 2 bytes to find 2 nulls on an even alignment.
             # (This helps prevent the need to take endianness into account.)
             null_offset = addr
-            while self.memory.read(null_offset, 2) != b'\0\0':
+            while self.memory.read(null_offset, 2) != b"\0\0":
                 null_offset += 2
 
             return self.memory.read(addr, null_offset - addr)
@@ -513,9 +512,9 @@ class ProcessorContext(object):
         elif data_type == QWORD:
             return utils.struct_unpack(self.mem_read(addr, 8))
 
-        raise ValueError('Invalid data_type: {!r}'.format(data_type))
+        raise ValueError("Invalid data_type: {!r}".format(data_type))
 
-    def get_function_signature(self, func_ea=None, force=False):
+    def get_function_signature(self, func_ea=None, force=False) -> FunctionSignature:
         """
         Returns the function signature of the given func_ea with argument values pulled
         from this context.
@@ -542,9 +541,10 @@ class ProcessorContext(object):
             # cdecl with no arguments.
             if force:
                 logger.warning(
-                    'Failed to create function signature at 0x{:0X} with error: {}\n'
-                    'Forcing signature with assumed cdecl calling convention.'.format(func_ea, e))
-                idc.SetType(func_ea, 'int __cdecl no_name();')
+                    "Failed to create function signature at 0x{:0X} with error: {}\n"
+                    "Forcing signature with assumed cdecl calling convention.".format(func_ea, e)
+                )
+                idc.SetType(func_ea, "int __cdecl no_name();")
                 return FunctionSignature(self, func_ea)
             else:
                 raise
@@ -571,11 +571,11 @@ class ProcessorContext(object):
 
         if num_args is not None:
             if num_args < 0:
-                raise ValueError('num_args is negative')
+                raise ValueError("num_args is negative")
             arg_types = func_sig.arg_types
             if len(arg_types) > num_args:
                 func_sig.arg_types = arg_types[:num_args]
             elif len(arg_types) < num_args:
-                func_sig.arg_types = arg_types + ('int',) * (num_args - len(arg_types))
+                func_sig.arg_types = arg_types + ("int",) * (num_args - len(arg_types))
 
         return [arg.value for arg in func_sig.args]
