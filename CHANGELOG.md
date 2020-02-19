@@ -2,6 +2,32 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2.0.0] - 2020-02-20
+
+### Changed
+- Dropped support for Python 2 and IDA versions <= 7.3
+- Added support for Python 3 and IDA version 7.4 (in Python 3 mode)
+
+### Removed
+- Removed `requirements.txt` file.
+- Removed previously deprecated components:
+    - `iter_functions()` in `kordesii.utils.decoderutils`
+    - `ProcessorContext.get_variable_name()`
+    - `kordesii.utils.utils.IterApis()`
+    - `decoderutils.INVALID` and `decoderutils.UNUSED` enums
+    - `decoderutils.output_strings()`
+    - `as_bytes`, `byte_length`, `calc_size()`, `size`, `get_bytes()`, and `decoded_string` in `EncodedString` class
+    - `bfs_iter_heads()`, `bfs_iter_blocks()`, `dfs_iter_heads()`, and `dfs_iter_blocks()` in `function_tracing.Flowchart`
+    - `decoderdir`, `disabledebug`, `list_decoders()`, and `get_decoder_path()` in `Reporter` class
+    - `get_errors()`, `get_debug()`, `error()`, and `debug()` in `Reporter` class
+    - `kordesii-tool`, `kordesii-client`, `kordesii-server`, and `kordesii-test` command line tools
+    - `kordesii.tools.tool`, `kordesii.tools.test`, and `kordesii.tools.client` modules
+    - `decoderutils.generic_run_yara()`
+    - `kordesii.utils.idayara` module
+    - `patch_decoded()` and `define_string()` in `decoderutils`
+    - `get_segment_bytes()`, `get_segment_start()`, `IDA_MatchObject`, and `IDA_re` in `kordesii.utils.utils`
+
+
 ## [1.7.0] - 2020-01-15
 
 **NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
@@ -255,7 +281,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.0...HEAD
+[2.0.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...2.0.0
 [1.7.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...1.7.0
 [1.6.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.0...1.6.1
 [1.6.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.5.0...1.6.0
