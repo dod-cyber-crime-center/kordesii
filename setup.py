@@ -32,10 +32,6 @@ setup(
     entry_points={
         'console_scripts': [
             'kordesii = kordesii.cli:main',
-            'kordesii-tool = kordesii.tools.tool:main',       # DEPRECATED
-            'kordesii-client = kordesii.tools.client:main',   # DEPRECATED
-            'kordesii-server = kordesii.tools.server:main',   # DEPRECATED
-            'kordesii-test = kordesii.tools.test:main'        # DEPRECATED
         ],
         'kordesii.decoders': [
             'kordesii = kordesii.decoders',
@@ -45,7 +41,6 @@ setup(
     include_package_data=True,
     python_requires='>=3.6',
     install_requires=[
-        'bottle',
         'click',
         'dill',
         'numpy',

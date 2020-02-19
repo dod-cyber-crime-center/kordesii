@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import sys
-import warnings
 
 import ida_bytes
 import ida_name
@@ -24,11 +23,6 @@ from kordesii.utils import ida_re
 from kordesii.serialization import serializable_class
 
 logger = logging.getLogger(__name__)
-
-
-# WARNING: INVALID and UNUSED are deprecated. Please use None directly.
-INVALID = None
-UNUSED = None
 
 # fmt: off
 # Codecs used to detect encoding of strings.
@@ -243,21 +237,6 @@ class SuperFunc_t(object):
         return ida_bytes.get_bytes(self.start_ea, self.end_ea - self.start_ea)
 
 
-def iter_functions():
-    """Iterates all the functions in the sample."""
-    warnings.warn(
-        "kordesii.utils.decoderutils.iter_functions() is deprecated. "
-        "Please use kordesii.utils.utils.iter_functions() instead",
-        DeprecationWarning,
-    )
-    cache = set()
-    for func_ea in idautils.Functions():
-        func = SuperFunc_t(func_ea)
-        if func.name not in cache:
-            cache.add(func.name)
-            yield func
-
-
 @serializable_class
 @functools.total_ordering
 class EncodedString(object):
@@ -338,27 +317,6 @@ class EncodedString(object):
             )
 
         self.encoded_data = encoded_data
-
-    @property
-    def decoded_string(self):
-        warnings.warn("decoded_string attribute is deprecated, please use decoded_data", DeprecationWarning)
-        return self.decoded_data
-
-    @decoded_string.setter
-    def decoded_string(self, value):
-        warnings.warn("decoded_string attribute is deprecated, please use decoded_data", DeprecationWarning)
-        self.decoded_data = value
-
-    @property
-    def size(self):
-        warnings.warn("size attribute is deprecated, please use len() on encoded_data", DeprecationWarning)
-        return len(self.encoded_data)
-
-    @size.setter
-    def size(self, value):
-        warnings.warn(
-            "Setting the size attribute is deprecated, please directly set encoded_data instead.", DeprecationWarning
-        )
 
     @classmethod
     def factory(
@@ -622,18 +580,6 @@ class EncodedString(object):
         else:
             return start_ea + len(self.decoded_data)
 
-    # TODO: This property probably can be replace by __str__()
-    @property
-    def as_bytes(self):
-        warnings.warn("as_bytes attribute is deprecated. Use decoded_data attribute instead.", DeprecationWarning)
-        return self.decoded_data
-
-    # TODO: This attribute is not necessary.
-    @property
-    def byte_length(self):
-        warnings.warn("byte_length attribute is deprecated. Use len() on decoded_data instead.", DeprecationWarning)
-        return len(self.decoded_data)
-
     @property
     def string_type(self):
         if not self.decoded_data:
@@ -679,40 +625,6 @@ class EncodedString(object):
                 "Failed to extract {} bytes from 0x{:08X}".format(size, location)
             )
         return data
-
-    # TODO: Automatically do this when the user requests the encoded_data and it hasn't been set.
-    def calc_size(self, width=1):
-        """
-        Description:
-            Search for the next null to end the string and update.
-
-        Output:
-            Returns size if it is found, idc.BADADDR otherwise.
-            Updates encoded_data if self.size was None.
-        """
-        warnings.warn(
-            "calc_size() is deprecated. Please use len() on encoded_data if retrieving the size " "is needed.",
-            DeprecationWarning,
-        )
-        return len(self.encoded_data)
-
-    # TODO: Perhaps this should be part of a property for the "encoded_data" attribute?
-    def get_bytes(self):
-        """
-        Description:
-            Get self.size bytes at self.string_location.
-
-        Input:
-            Requires a valid self.size.
-
-        Output:
-            Returns self.size bytes at self.string_location
-
-        Throws:
-            ValueError - Size was not valid.
-        """
-        warnings.warn("get_bytes() is deprecated. Please use encoded_data attribute instead.", DeprecationWarning)
-        return self.encoded_data
 
     def _num_raw_bytes(self, string):
         """
@@ -1230,23 +1142,6 @@ def decode_strings(encoded_strings, decode):
     return decoded_strings
 
 
-def generic_run_yara(rule_text, callback_func=None):
-    """
-    Description:
-        Applies yara rule and returns raw results. Clear the matches each time to prevent
-        duplicates.
-
-    Input:
-        rule_text - A string containing a YARA rule
-        callback_func - A pointer to the callback function for YARA's matching to use
-
-    Output:
-        Returns a list of YARA's match results with items (location, description)
-    """
-    warnings.warn("generic_run_yara() is deprecated. Please use kordesii.utils.yara instead.", DeprecationWarning)
-    return yara.match_strings(rule_text)
-
-
 def yara_find_decode_functions(rule_text, func_name=None):
     """
     Description:
@@ -1336,72 +1231,6 @@ def re_find_functions(regex, flags=0, section=None, func_name=None):
         funcs.add(func)
 
     return list(funcs)
-
-
-def output_strings(decoded_strings, dedup=True, rename=True, patch=False):
-    """
-    1. Outputs the decoded string data to the console
-    2. Prints decoded string info to the console.
-    3. Comments and renames the variables if requested.
-    4. Patches encoded string with decoded string if requested.
-
-    :param decoded_strings: The list of decoded EncodedStrings
-    :param bool dedup: Whether to dedup strings.
-    :param bool rename: Whether to rename strings. (default True)
-    :param bool patch: Whether to patch strings. (default False)
-
-    :return: list of decoded string
-    """
-    warnings.warn(
-        "output_strings() is deprecated. Please use .publish() directly on the EncodedString objects.",
-        DeprecationWarning,
-    )
-
-    # TODO: Determine if deduping and sorting is necessary.
-    if dedup:
-        decoded_strings = set(decoded_strings)
-
-    string_list = []
-    for string in sorted(decoded_strings):
-        string.publish(rename=rename, patch=patch)
-
-    return string_list
-
-
-def patch_decoded(decoded_strings, define=True):
-    """
-    Description:
-        Patches the bytes at each encoded string location with the decoded string value.
-        Assumes null termination.
-
-    Input:
-        decoded_strings - A list of successfully decoded strings.
-        define - When True, defines a string in the IDB
-
-    Output:
-        Makes a string in IDA at the string's start_location
-    """
-    warnings.warn(
-        "patch_decoded() is deprecated. Please use .patch() directly on the EncodedString object.", DeprecationWarning
-    )
-    for decoded_string in sorted(
-        [string for string in decoded_strings if string.string_location is not None],
-        key=lambda string: string.string_location,
-    ):
-        decoded_string.patch(define=define)
-
-
-def define_string(decoded_string):
-    """
-    Defines a string object in the IDB for the provided string.
-
-    Input:
-        decoded_string - The EncodedString object to define in IDA
-    """
-    warnings.warn(
-        "define_string() is deprecated. Please use .define() directly on the EncodedString object.", DeprecationWarning
-    )
-    decoded_string.define()
 
 
 def find_input_file():
@@ -1498,10 +1327,10 @@ def string_decoder_main(
             decode_functions = yara_find_decode_functions(yara_rule, func_name)
             ENCODED_STRINGS = find_encoded_strings(decode_functions, Tracer)
         ENCODED_STRINGS = decode_strings(ENCODED_STRINGS, decode)
-        string_list = output_strings(ENCODED_STRINGS)
-        if patch:
-            patch_decoded(ENCODED_STRINGS)
-        return string_list
+        ENCODED_STRINGS = sorted(set(ENCODED_STRINGS))
+        for string in ENCODED_STRINGS:
+            string.publish(patch=patch)
+        return ENCODED_STRINGS
     except RuntimeError as e:
         logger.error(
             "The provided YARA rule failed to match. No strings can be decrypted for this YARA rule."

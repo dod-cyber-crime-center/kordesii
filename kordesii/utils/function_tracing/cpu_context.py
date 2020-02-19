@@ -10,7 +10,6 @@ WARNING:
 from copy import deepcopy
 import collections
 import logging
-import warnings
 
 import idaapi
 import idc
@@ -412,31 +411,6 @@ class ProcessorContext(object):
             return ip, (var.frame_id, var.stack_offset)
         else:
             return ip, None
-
-    # TODO: We should be recording local and global variables and their values.
-    #   This will most likely require us making a "Variable" object similar
-    #   to what we do with Operand.
-    def get_variable_name(self, ea_or_stack_tuple):
-        """
-        Returns the name of the variable for the given ea or stack tuple.
-
-        :param ea_or_stack_tuple: ea address or tuple containing: (frame_id, stack_offset)
-        :return: string of name or None
-        """
-        warnings.warn("get_variable_name() is deprecated. Please use .variables attribute instead.", DeprecationWarning)
-
-        if isinstance(ea_or_stack_tuple, tuple):
-            frame_id, stack_offset = ea_or_stack_tuple
-            member_id = idc.get_member_id(frame_id, stack_offset)
-            return ida_struct.get_member_fullname(member_id)
-        else:
-            ea = ea_or_stack_tuple
-            name = idc.get_name(ea)
-            if name:
-                return name
-            _, original_location = self.get_original_location(ea)
-            if original_location:
-                return self.get_variable_name(original_location)
 
     def mem_read(self, address, size):
         """

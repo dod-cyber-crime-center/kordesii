@@ -38,15 +38,7 @@ class ROObject(object):
         return cls(dict(constructor.construct_pairs(node)))
 
 
-# def bstr_representer(representer, node: bytes):
-#     try:
-#         node.decode("ascii", errors="strict")
-#     except UnicodeDecodeError:
-#         return representer.represent_binary(representer, node)
-
-
 yaml.constructor.add_constructor(u"!ReadOnlyObject", ROObject.from_yaml)
-# yaml.representer.add_representer(bytes, bstr_representer)
 
 
 def obj_to_yaml(representer, node, yaml_name=None, skip_attrs=None):

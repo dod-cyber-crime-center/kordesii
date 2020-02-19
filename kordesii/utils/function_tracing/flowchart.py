@@ -6,10 +6,8 @@ chart based on an EA, generating a list of all possible paths to a specified EA,
 
 import functools
 import logging
-import warnings
 from operator import attrgetter
 from copy import copy, deepcopy
-import collections
 
 import idaapi
 import idautils
@@ -350,54 +348,6 @@ class FlowChart(idaapi.FlowChart):
 
             for head in heads:
                 yield head
-
-    def dfs_iter_blocks(self, start_ea=None, reverse=False):
-        """
-        Iterate over idaapi.BasicBlocks in depth-first manner.
-
-        :param int start_ea: optional address to start iterating from.
-
-        :param bool reverse: iterate in reverse
-        """
-        warnings.warn("dfs_iter_blocks() is deprecated. Please use blocks(dfs=True) instead.", DeprecationWarning)
-        for block in self.blocks(start=start_ea, reverse=reverse, dfs=True):
-            yield block
-
-    def dfs_iter_heads(self, start_ea=None, reverse=False):
-        """
-        Iterate over instructions in idaapi.BasicBlocks in depth-first manner.
-
-        :param int start_ea: option address to start iterating from.
-
-        :param bool reverse: iterate in reverse
-        """
-        warnings.warn("dfs_iter_heads() is deprecated. Please use heads(dfs=True) instead.", DeprecationWarning)
-        for head in self.heads(start=start_ea, reverse=reverse, dfs=True):
-            yield head
-
-    def bfs_iter_blocks(self, start_ea=None, reverse=False):
-        """
-        Iterate over CustomBasicBlocks in breadth-first manner.
-
-        :param int start_ea: optional address to start iterating from
-
-        :param bool reverse: iterate in reverse
-        """
-        warnings.warn("bfs_iter_blocks() is deprecated. Please use blocks() instead.", DeprecationWarning)
-        for block in self.blocks(start=start_ea, reverse=reverse):
-            yield block
-
-    def bfs_iter_heads(self, start_ea=None, reverse=False):
-        """
-        Iterate over instructions in idaapi.BasicBlocks in breadth-first manner.
-
-        :param int start_ea: optional address to start iterating from.
-
-        :param bool reverse: iterate in reverse
-        """
-        warnings.warn("bfs_iter_heads() is deprecated. Please use heads() instead.", DeprecationWarning)
-        for head in self.heads(start=start_ea, reverse=reverse):
-            yield head
 
     def find_block(self, ea):
         """

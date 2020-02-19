@@ -10,7 +10,6 @@ from typing import Union, List
 
 import re
 import logging
-import warnings
 
 import idaapi
 import ida_bytes
@@ -20,121 +19,11 @@ import ida_nalt
 import idc
 import idautils
 
-from kordesii.utils import ida_re
-from kordesii.utils import segments
-
 
 logger = logging.getLogger(__name__)
 
 
 READ_LENGTH = 65536
-
-
-class IterApis(object):
-    """
-    Object designed to iterate the APIs of a specified module in order to obtain their addresses. By default, all the
-    APIs from an import module are obtained. If specified, targeted API names will be collected for the dictionary.
-
-    Input Parameters:
-    :param module_name: The import module name
-    :param target_api_names: None by default, list of API names to obtain addresses for in the module
-
-    Fields:
-    :param targeted: Boolean value indicating if there are targeted API names
-    :param api_addrs: Dictionary of API names and offsets
-    """
-
-    def __init__(self, module_name, target_api_names=None):
-        warnings.warn("IterApis is deprecated. Please use iter_imports() instead.", DeprecationWarning)
-        self.module_name = module_name
-        if target_api_names:
-            self.target_api_names = target_api_names[:]
-            self.targeted = True
-        else:
-            self.target_api_names = None
-            self.targeted = False
-
-        self.api_addrs = {}
-        self._processed = False
-
-    def __iter__(self):
-        """Returns an iterator yielding a tuple of (api_name, offset). """
-        if not self._processed:
-            self.iter_module()
-        return iter(self.api_addrs.items())
-
-    def obtain_api_addr(self, api_name):
-        """
-        Attempt to obtain the address for an API name in the self.api_addrs dictionary.
-
-        :param api_name: Name of API to acquire address for
-
-        :return: Address for specified API name, or idc.BADADDR
-        """
-        if not self._processed:
-            self.iter_module()
-        return self.api_addrs.get(api_name, idc.BADADDR)
-
-    def _obtain_targeted_apis_by_name(self, api_names):
-        """
-        Given a list of api_names attempt to locate them in the IDA database by name. If located add to the
-        self.api_addrs dictionary.
-
-        :param api_names: List of API names to locate by name
-
-        :return:
-        """
-        for api_name in api_names:
-            addr = get_function_addr(api_name)
-            if addr != idc.BADADDR:
-                self.api_addrs[api_name] = addr
-            else:
-                logger.warning("Address for %s was not located by name." % api_name)
-
-    def _callback_func(self, ea, name, ord):
-        """
-        Callback function for idaapi.enum_import_names.
-
-        If targeting specific API names for the library module only collect those apis to add to the api_addrs
-        dictionary. Remove an api_name after it is collected. If targeting and no targeted API names remain, stop
-        iteration.
-
-        If not targeting specific API names, add all named APIs in the module to the api_addrs dictionary.
-
-        :param ea: API function address
-        :param name: API function name (or None)
-        :param ord: Ordinal (unused, but required for invoking)
-
-        :return: Boolean value indicating if iteration should continue
-        """
-        if name:
-            if self.targeted:
-                if name in self.target_api_names:
-                    self.api_addrs[name] = ea
-                    self.target_api_names.remove(name)
-            else:
-                self.api_addrs[name] = ea
-
-        if self.targeted and not self.target_api_names:
-            return False
-        return True
-
-    def iter_module(self):
-        """
-        Iterate the import libraries to locate a specific import library and obtain the api addresses using the
-        callback func. If the api_names are targeted and they were not obtained using idaapi.enum_import_names then
-        attempt to obtain the targeted apis by function name.
-
-        :return:
-        """
-        num_imports = idaapi.get_import_module_qty()
-        for i in range(0, num_imports):
-            name = idaapi.get_import_module_name(i)
-            if name == self.module_name:
-                idaapi.enum_import_names(i, self._callback_func)
-        if self.targeted and self.target_api_names:
-            self._obtain_targeted_apis_by_name(self.target_api_names)
-        self._processed = True
 
 
 def iter_imports(module_name=None, api_names=None):
@@ -351,41 +240,3 @@ def get_string(ea: int) -> bytes:
     """
     stype = idc.get_str_type(ea)
     return idc.get_strlit_contents(ea, strtype=stype)
-
-
-# MOVED FUNCTIONS =========================================
-
-
-def get_segment_bytes(name_or_ea):
-    warnings.warn("get_segment_bytes() has been moved to get_bytes() in kordesii.utils.segments", DeprecationWarning)
-    return segments.get_bytes(name_or_ea)
-
-
-def get_segment_start(name_or_ea):
-    warnings.warn("get_segment_start() has been moved to get_start() in kordesii.utils.segments", DeprecationWarning)
-    return segments.get_start(name_or_ea)
-
-
-class IDA_MatchObject(ida_re.Match):
-    """
-    Class that performs some voodoo on MatchObjects.
-    """
-
-    def __init__(self, match, seg_start):
-        warnings.warn(
-            "IDA_MatchObject has been moved and renamed to Match in kordesii.utils.ida_re", DeprecationWarning
-        )
-        super(IDA_MatchObject, self).__init__(match, seg_start)
-
-
-class IDA_re(ida_re.Pattern):
-    """
-    Class to perform regex operations within IDA.
-    """
-
-    def __init__(self, ptn, flags=0):
-        warnings.warn("IDA_re has been moved and renamed to Pattern in kordesii.utils.ida_re", DeprecationWarning)
-        super(IDA_re, self).__init__(ptn, flags=flags)
-
-
-# =============================================================
