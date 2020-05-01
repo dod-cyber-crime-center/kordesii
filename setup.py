@@ -1,31 +1,21 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """This is the setup file for the kordesii project."""
-import os
 import sys
-
 from setuptools import setup, find_packages
 
 
 version_tuple = (sys.version_info[0], sys.version_info[1])
 
-
-def read(fname):
-    with open(os.path.join(os.path.dirname(__file__), fname), 'r') as fo:
-        return fo.read()
-
-
 setup(
     name='kordesii',
-    version='2.0.0',
     author='DC3',
-    description='A framework for decoding encoded strings and files in malware via IDA Pro IDAPython scripting.',
     url='https://github.com/Defense-Cyber-Crime-Center/kordesii',
-    long_description=read('README.md'),
     keywords=['malware', 'ida', 'idapro'],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
+        'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
     ],
@@ -39,6 +29,7 @@ setup(
     },
     packages=find_packages(),
     include_package_data=True,
+    license='MIT',
     python_requires='>=3.6',
     install_requires=[
         'click',

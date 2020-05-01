@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2020-05-01
+
+### Changed
+- Setup fixes for PyPi deployment
+
 
 ## [2.0.0] - 2020-02-20
 
@@ -281,7 +286,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.1...HEAD
+[2.0.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...2.0.0
 [1.7.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...1.7.0
 [1.6.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.0...1.6.1
