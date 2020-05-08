@@ -7,6 +7,8 @@ import logging
 from copy import deepcopy
 
 import ida_frame
+import ida_nalt
+import ida_typeinf
 import ida_ua
 import idaapi
 import idc
@@ -73,6 +75,12 @@ class Operand(object):
         copy = deepcopy(self, memo)
         self.__deepcopy__ = deepcopy_method
         return copy
+
+    @property
+    def _tif(self):
+        tif = ida_typeinf.tinfo_t()
+        ida_nalt.get_op_tinfo(tif, self.ip, self.idx)
+        return tif
 
     @property
     def _insn(self):

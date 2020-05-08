@@ -507,9 +507,11 @@ class ProcessorContext(object):
             operand = self.operands[0]
             # function pointer can be a memory reference or immediate.
             func_ea = operand.addr or operand.value
+        else:
+            operand = None
 
         try:
-            return FunctionSignature(self, func_ea)
+            return FunctionSignature(self, func_ea, operand=operand)
         except RuntimeError as e:
             # If we fail to get a function signature but force is set, set the type to
             # cdecl with no arguments.

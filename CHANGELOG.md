@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Changed
+- Allow call operand type to be taken into account when pulling a function signature. This provides better support for dynamically resolved function calls.
+
 ## [2.0.1] - 2020-05-01
 
 ### Changed
