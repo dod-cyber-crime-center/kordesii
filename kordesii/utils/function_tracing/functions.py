@@ -11,6 +11,7 @@ import ida_typeinf
 import idc
 
 from . import utils
+from .operands import Operand
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +27,24 @@ class FunctionSignature(object):
     the apply() function is called.
     """
 
-    def __init__(self, cpu_context, start_ea):
+    def __init__(self, cpu_context, start_ea, operand: Operand = None):
         """
         :param cpu_context: ProcessorContext to use for pulling argument values.
         :param start_ea: Starting address of function to create function signature from.
+        :param operand: Optional Operand object containing the address of the function in it's value.
+            This is used for dynamically resolved functions. (e.g. call eax)
 
         :raises RuntimeError: If a function type could not be created from given ea.
         """
         self._cpu_context = cpu_context
         self.start_ea = start_ea
         # TODO: Possibly move the get_function_data work into this class?
-        self._func_type_data = utils.get_function_data(self.start_ea)
-        tif = ida_typeinf.tinfo_t()
-        ida_nalt.get_tinfo(tif, self.start_ea)
+        self._func_type_data = utils.get_function_data(self.start_ea, operand=operand)
+        if operand:
+            tif = operand._tif
+        else:
+            tif = ida_typeinf.tinfo_t()
+            ida_nalt.get_tinfo(tif, self.start_ea)
         self._tif = tif
 
     def __repr__(self):

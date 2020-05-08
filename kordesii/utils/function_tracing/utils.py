@@ -16,6 +16,7 @@ import idautils
 import idc
 
 from .exceptions import FunctionTracingError
+from .operands import Operand
 
 logger = logging.getLogger(__name__)
 
@@ -250,11 +251,13 @@ def get_bits():
 _func_types = set()
 
 
-def get_function_data(offset):
+def get_function_data(offset, operand: Operand = None):
     """
     Obtain a idaapi.func_type_data_t object for the function with the provided start EA.
 
     :param int offset: start EA of function
+    :param operand: operand containing function address in it's value.
+        This can be provided when function is dynamically generated at runtime. (e.g. call eax)
 
     :return: idaapi.func_type_data_t object
 
@@ -328,13 +331,22 @@ def get_function_data(offset):
                     raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
 
     funcdata = ida_typeinf.func_type_data_t()
-    if not tif.get_func_details(funcdata):
-        raise RuntimeError("failed to obtain func_type_data_t object for offset 0x{:X}".format(offset))
+    success = tif.get_func_details(funcdata)
+    if success:
+        # record that we have processed this function before. (and that we can grab it from the offset)
+        _func_types.add(offset)
+        return funcdata
 
-    # record that we have processed this function before.
-    _func_types.add(offset)
+    # If we have still failed, we have one more trick under our sleeve.
+    # Try to pull the type information from the operand of the call instruction.
+    # This could be set if the function has been dynamically created.
+    if operand:
+        tif = operand._tif
+        success = tif.get_func_details(funcdata)
+        if success:
+            return funcdata
 
-    return funcdata
+    raise RuntimeError("failed to obtain func_type_data_t object for offset 0x{:X}".format(offset))
 
 
 def get_function_name(func_ea):

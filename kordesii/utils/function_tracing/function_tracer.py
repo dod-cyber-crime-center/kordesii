@@ -210,8 +210,7 @@ class FunctionTracer(object):
         """
         # Iterate all the paths leading up to ea
         for cpu_context in self.iter_context_at(ea, depth=depth, exhaustive=exhaustive):
-            func_ea = cpu_context.operands[0].value
-            yield cpu_context, cpu_context.get_function_args(func_ea, num_args=num_args)
+            yield cpu_context, cpu_context.get_function_args(num_args=num_args)
 
     def get_function_args(self, ea, depth=0, num_args=None):
         """
