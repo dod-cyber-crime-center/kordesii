@@ -247,6 +247,74 @@ def get_bits():
     return result
 
 
+def _get_function_tif_with_hex_rays(offset):
+    """
+    Attempt to get the tinfo_t object of a function using the Hex-Rays decompiler plugin.
+
+    :param offset: Offset of function.
+    :raises: RuntimeError on failure.
+    :returns: tinfo_t object on success.
+    """
+    tif = ida_typeinf.tinfo_t()
+
+    # This requires Hexrays decompiler, load it and make sure it's available before continuing.
+    if not idaapi.init_hexrays_plugin():
+        idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
+    if not idaapi.init_hexrays_plugin():
+        raise RuntimeError("Unable to load Hexrays decompiler.")
+
+    # Pull type from decompiled C code.
+    try:
+        decompiled = idaapi.decompile(offset)
+    except idaapi.DecompilationFailure:
+        decompiled = None
+    if decompiled is None:
+        raise RuntimeError("Cannot decompile function at 0x{:X}".format(offset))
+    decompiled.get_func_type(tif)
+
+    # Save type for next time.
+    fmt = decompiled.print_dcl()
+    fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
+    # The 2's remove the unknown bytes always found at the start and end.
+    set_type_result = idc.SetType(offset, "{};".format(fmt))
+    if not set_type_result:
+        logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
+
+    return tif
+
+
+def _get_function_tif_with_guess_type(offset):
+    """
+    Attempt to get the tinfo_t object of a function using the "guess_type" function.
+
+    :param offset: Offset of function.
+    :raises: RuntimeError on failure.
+    :returns: tinfo_t object on success.
+    """
+    tif = ida_typeinf.tinfo_t()
+
+    guessed_type = idc.guess_type(offset)
+    if guessed_type is None:
+        raise RuntimeError("failed to guess function type for offset 0x{:X}".format(offset))
+
+    func_name = idc.get_func_name(offset)
+    if func_name is None:
+        raise RuntimeError("failed to get function name for offset 0x{:X}".format(offset))
+
+    # Documentation states the type must be ';' terminated, also the function name must be inserted
+    guessed_type = re.sub(r"\(", " {}(".format(func_name), "{};".format(guessed_type))
+    set_type_result = idc.SetType(offset, guessed_type)
+    if not set_type_result:
+        logger.warning(
+            "Failed to SetType for function at 0x{:X} with guessed type {!r}".format(offset, guessed_type)
+        )
+    # Try one more time to get the tinfo_t object
+    if not ida_nalt.get_tinfo(tif, offset):
+        raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
+
+    return tif
+
+
 # Cache of function types we have computed.
 _func_types = set()
 
@@ -265,7 +333,7 @@ def get_function_data(offset, operand: Operand = None):
     """
     global _func_types
 
-    tif = ida_typeinf.tinfo_t()
+    tif = None
 
     try:
         func_type = idc.get_type(offset)
@@ -274,74 +342,42 @@ def get_function_data(offset, operand: Operand = None):
 
     # First see if it's a type we already set before.
     if func_type and offset in _func_types:
+        tif = ida_typeinf.tinfo_t()
         ida_nalt.get_tinfo(tif, offset)
 
     else:
         # Otherwise, try to use the Hexrays decompiler to determine function signature.
         # (It's better than IDA's guess_type)
-
         try:
-            # This requires Hexrays decompiler, load it and make sure it's available before continuing.
-            if not idaapi.init_hexrays_plugin():
-                idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
-            if not idaapi.init_hexrays_plugin():
-                raise RuntimeError("Unable to load Hexrays decompiler.")
-
-            # Pull type from decompiled C code.
-            try:
-                decompiled = idaapi.decompile(offset)
-            except idaapi.DecompilationFailure:
-                decompiled = None
-            if decompiled is None:
-                raise RuntimeError("Cannot decompile function at 0x{:X}".format(offset))
-            decompiled.get_func_type(tif)
-
-            # Save type for next time.
-            fmt = decompiled.print_dcl()
-            fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
-            # The 2's remove the unknown bytes always found at the start and end.
-            set_type_result = idc.SetType(offset, "{};".format(fmt))
-            if not set_type_result:
-                logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
+            tif = _get_function_tif_with_hex_rays(offset)
 
         # If we fail, resort to using guess_type+
         except RuntimeError:
             if func_type:
                 # If IDA's disassembler set it already, go with that.
+                tif = ida_typeinf.tinfo_t()
                 ida_nalt.get_tinfo(tif, offset)
             else:
-                # Otherwise try to pull it from guess_type()
-                guessed_type = idc.guess_type(offset)
-                if guessed_type is None:
-                    raise RuntimeError("failed to guess function type for offset 0x{:X}".format(offset))
+                try:
+                    tif = _get_function_tif_with_guess_type(offset)
+                except RuntimeError:
+                    # Don't allow to fail if we could pull from operand.
+                    pass
 
-                func_name = idc.get_func_name(offset)
-                if func_name is None:
-                    raise RuntimeError("failed to get function name for offset 0x{:X}".format(offset))
-
-                # Documentation states the type must be ';' terminated, also the function name must be inserted
-                guessed_type = re.sub(r"\(", " {}(".format(func_name), "{};".format(guessed_type))
-                set_type_result = idc.SetType(offset, guessed_type)
-                if not set_type_result:
-                    logger.warning(
-                        "Failed to SetType for function at 0x{:X} with guessed type {!r}".format(offset, guessed_type)
-                    )
-                # Try one more time to get the tinfo_t object
-                if not ida_nalt.get_tinfo(tif, offset):
-                    raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
-
-    funcdata = ida_typeinf.func_type_data_t()
-    success = tif.get_func_details(funcdata)
-    if success:
-        # record that we have processed this function before. (and that we can grab it from the offset)
-        _func_types.add(offset)
-        return funcdata
+    if tif:
+        funcdata = ida_typeinf.func_type_data_t()
+        success = tif.get_func_details(funcdata)
+        if success:
+            # record that we have processed this function before. (and that we can grab it from the offset)
+            _func_types.add(offset)
+            return funcdata
 
     # If we have still failed, we have one more trick under our sleeve.
     # Try to pull the type information from the operand of the call instruction.
     # This could be set if the function has been dynamically created.
     if operand:
         tif = operand._tif
+        funcdata = ida_typeinf.func_type_data_t()
         success = tif.get_func_details(funcdata)
         if success:
             return funcdata
