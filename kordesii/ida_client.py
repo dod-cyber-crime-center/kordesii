@@ -22,15 +22,21 @@ from kordesii import logutil
 logger = logging.getLogger(__name__)
 
 Pyro4.config.SERIALIZER = "dill"
-Pyro4.config.PICKLE_PROTOCOL_VERSION = 2  # Allows for Py2/3 compatibility
 
-_open_proxies = {}  # Maps package full name to Proxy object.
-_port = None  # Port currently used to access Proxies
-_instance_running = False  # Whether a current IDA instance is running.
+_open_proxies = {}           # Maps package full name to Proxy object.
+_port = None                 # Port currently used to access Proxies
+_instance_running = False    # Whether a current IDA instance is running.
+_run_in_ida_funcs = {}       # Registration of functions decorated as run_in_ida.
 
 
 def run_in_ida(func):
-    """Decorates a functions to make available within the IDA proxy."""
+    """Decorates a function to make available within the IDA proxy."""
+    # Keep track of decorated functions, so we can allow decorated
+    # functions to call each other.
+    # But only allow for functions that are within the same module to
+    # limit the amount that gets serialized.
+    _run_in_ida_funcs.setdefault(func.__module__, {})
+    _run_in_ida_funcs[func.__module__][func.__name__] = func
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -43,10 +49,21 @@ def run_in_ida(func):
         # We get a pickling error if we allow Pyro4 to serialize the function.
         # But doing it ourselves seems to work fine.
         main_proxy = _open_proxies["main"]
-        ret, stdout, stderr = main_proxy.run_func(sys.path, dill.dumps(func), *args, **kwargs)
+        _globals = dill.dumps(_run_in_ida_funcs[func.__module__])
+        _func = dill.dumps(func)
+        ret, stdout, stderr = main_proxy.run_func(sys.path, _globals, _func, *args, **kwargs)
         sys.stdout.write(stdout)
+        sys.stdout.flush()
         sys.stderr.write(stderr)
+        sys.stderr.flush()
         if isinstance(ret, Exception):
+            # Print out the stacktrace in IDA in a way that simulates a chained exception.
+            for line in ret.ida_traceback:
+                print(line, file=sys.stderr, end="")
+            print(
+                "\nThe above exception occurred in IDA and was the direct cause of the following exception:\n\n",
+                file=sys.stderr, end=""
+            )
             raise ret  # Exception occurred in IDA
         return ret
 
@@ -107,6 +124,18 @@ class IDAModule(object):
             item = "priv" + item
 
         value = getattr(self._proxy, item)
+
+        # Convert values that are ida_server.IDAClass or ida_server.IDAModule objects
+        # to our ida_client counterpart.
+        # NOTE: We can't just check if it's an instance of ida_server.IDAClass, because
+        # the class was viewed as "__main__.IDAClass" on the IDA side.
+        if isinstance(value, object):
+            name = type(value).__name__
+            if name == "IDAClass":
+                value = IDAClass(value.object_id)
+            elif name == "IDAModule":
+                value = IDAModule(value.object_id)
+
         return value
 
     def __setattr__(self, key, value):
@@ -143,6 +172,16 @@ class IDAModule(object):
                 return proxy
             except Exception as e:
                 raise RuntimeError("Cannot connect to IDA: {}".format(e))
+
+
+class IDAClass(IDAModule):
+
+    def __repr__(self):
+        status = "open" if _instance_running else "closed"
+        return "<kordesii.ida_client.IDAClass for {} : {}>".format(self.fullname, status)
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError(f"Initializing the class {self.fullname} is not supported.")
 
 
 class IDALoader(object):
@@ -277,7 +316,8 @@ class IDA(object):
         command = [
             ida_exe,
             "-A",
-            '-S""{}" {} {} {}"'.format(script_path, logging.root.getEffectiveLevel(), logutil.listen_port, port_path),
+            '-S"\"{}\" {} {} {} exit"'.format(
+                script_path, logging.root.getEffectiveLevel(), logutil.listen_port, port_path),
             # '-L"{}.log"'.format(self.input_path),   # Uncomment if debugging ida_server.py
             '"{}"'.format(self.input_path),
         ]

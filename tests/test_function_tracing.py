@@ -7,8 +7,10 @@ import pytest
 def test_flowchart():
     from kordesii.utils import function_tracing
 
+    emulator = function_tracing.Emulator()
+
     # Test on simple 1 block function.
-    flowchart = function_tracing.FlowChart(0x004011AA)
+    flowchart = function_tracing.Flowchart(0x004011AA)
     blocks = list(flowchart.blocks())
     assert len(blocks) == 1
     block = blocks[0]
@@ -34,16 +36,21 @@ def test_flowchart():
     path_block = path_blocks[0]
     assert path_block.path() == [path_block]
     # Ensure cpu context gets created correctly.
-    cpu_context = path_block.cpu_context()
+    cpu_context = path_block.cpu_context(init_context=emulator.new_context())
     assert cpu_context.ip == block.end_ea
-    cpu_context = path_block.cpu_context(0x0040115D)
+    cpu_context = path_block.cpu_context(0x0040115D, init_context=emulator.new_context())
     assert cpu_context.ip == 0x0040115D
-    # TODO: Move to testing cpu_context.
+
+    # Test read_data()
     data_ptr = cpu_context.read_data(cpu_context.registers.esp, data_type=function_tracing.DWORD)
     assert cpu_context.read_data(data_ptr) == b"Idmmn!Vnsme "
+    # Test write_data()
+    cpu_context.write_data(cpu_context.registers.esp, data_ptr + 3, data_type=function_tracing.DWORD)
+    data_ptr = cpu_context.read_data(cpu_context.registers.esp, data_type=function_tracing.DWORD)
+    assert cpu_context.read_data(data_ptr) == b"mn!Vnsme "
 
     # Test on slightly more complex function with 5 blocks
-    flowchart = function_tracing.FlowChart(0x004035BB)
+    flowchart = function_tracing.Flowchart(0x004035BB)
 
     found_block = flowchart.find_block(0x004035AD)
     assert found_block
@@ -72,7 +79,6 @@ def test_flowchart():
         (0x004035B3, 0x004035BA),
     ]
     blocks = list(flowchart.blocks(reverse=True))
-    print(blocks)
     assert len(blocks) == 5
     assert [(block.start_ea, block.end_ea) for block in blocks] == [
         (0x004035BA, 0x004035BD),
@@ -114,18 +120,55 @@ def test_flowchart():
 
 
 @pytest.mark.in_ida
+def test_basic_blocks():
+    """Tests functionality of our custom BasicBlock"""
+    from kordesii.utils import function_tracing
+
+    flowchart = function_tracing.Flowchart(0x004035BB)
+
+    # region Test getting ancestors
+
+    # test first block
+    block = flowchart.find_block(0x403597)
+    ancestors = block.ancestors()
+    assert sorted(b.start_ea for b in ancestors) == []
+
+    # test block in the middle with a loop
+    block = flowchart.find_block(0x004035B1)
+    ancestors = block.ancestors()
+    assert sorted(b.start_ea for b in ancestors) == [
+        0x403597,
+        0x4035ab,
+        0x4035b3,  # loop back
+    ]
+
+    # test very last block
+    block = flowchart.find_block(0x004035BB)
+    ancestors = block.ancestors()
+    assert sorted(b.start_ea for b in ancestors) == [
+        0x403597,
+        0x4035ab,
+        0x4035b1,
+        0x4035b3,
+    ]
+
+    # endregion
+
+
+@pytest.mark.in_ida
 def test_cpu_context():
     """Tests function_tracer and and cpu_context."""
 
     from kordesii.utils import function_tracing
 
+    emulator = function_tracing.Emulator()
+
     # Test on encryption function.
-    tracer = function_tracing.get_tracer(0x00401024)
-    context = tracer.context_at(0x00401024)
+    context = emulator.context_at(0x00401024)
 
     operands = context.operands
     assert len(operands) == 2
-    assert operands[0].text == "[ebp+arg_0]"
+    assert operands[0].text == "[ebp+a1]"
     assert operands[0].value == 0
     # arg_0 should be 8 bytes from stack pointer.
     assert operands[0].addr == context.registers.esp + 8 == 0x117F804
@@ -133,23 +176,31 @@ def test_cpu_context():
     assert operands[1].value == context.registers.eax == 1
 
     # Test variables
-    # context = tracer.context_at(0x00401017)
-    # data_ptr = context.registers.edx
     data_ptr = operands[0].addr
-    assert sorted(context.variables.names) == ["arg_0", "arg_4", "loc_401029"]
+    assert sorted(context.variables.names) == ["a1", "a2", "loc_401029"]
     assert data_ptr in context.variables
     var = context.variables[data_ptr]
-    assert var.name == "arg_0"
+    assert var.name == "a1"
     assert not var.history
     assert var.size == 4
+    assert var.data_type == "dword"
+    assert var.data_type_size == 4
+    assert var.count == 1
+    # test changing the variable
+    assert var.data == b"\x00\x00\x00\x00"
+    assert var.value == context.operands[0].value == 0
+    var.value = 21
+    assert var.value == context.operands[0].value == 21
+    assert var.data == b"\x15\x00\x00\x00"
+    assert context.mem_read(var.addr, 4) == b"\x15\x00\x00\x00"
 
-    # Now execute this instruction and see if arg_0 has be set with the 1 from eax.
+    # Now execute this instruction and see if a1 has be set with the 1 from eax.
     context.execute(context.ip)
     assert operands[0].value == 1
 
-    # Test getting all possible values passed into arg_0 using using depth.
+    # Test getting all possible values passed into arg_0 using depth.
     strings = []
-    for context in tracer.iter_context_at(0x00401003, depth=1):
+    for context in emulator.iter_context_at(0x00401003, depth=1):
         assert context.ip == 0x00401003
         # mov     eax, [ebp+arg_0]
         strings.append(context.read_data(context.operands[1].value))
@@ -184,9 +235,7 @@ def test_cpu_context():
     ]
 
     # Test pulling arguments from a call.
-    tracer = function_tracing.get_tracer(0x0040103A)
-
-    context = tracer.context_at(0x0040103A)
+    context = emulator.context_at(0x0040103A)
     operands = context.operands
     assert len(operands) == 1
     assert operands[0].is_func_ptr
@@ -203,6 +252,60 @@ def test_cpu_context():
     assert args[1] == 1
 
     assert sorted(context.variables.names) == ["aIdmmnVnsme", "sub_401000"]
+
+    # Test getting context with follow_loops by pulling context at end of xor algorithm.
+
+    # first without follow_loops off to show we get non-decrypted data
+    context = emulator.context_at(0x00401029, follow_loops=False, depth=1)
+    assert context.passed_in_args[1].value == 0x1  # key
+    assert context.read_data(context.passed_in_args[0].value) == b"Idmmn!Vnsme "  # data
+
+    # now with follow_loops on to show we get decrypted data
+    context = emulator.context_at(0x00401029, follow_loops=True, depth=1)
+    assert context.passed_in_args[1].value == 0x1
+    # The way the xor function works is that it takes and MODIFIES the
+    # pointer argument passed in, unhelpfully returning a pointer to the end of the
+    # decrypted data, not the start, with no way knowing the size...
+    # This is obviously a typo on my part when creating strings.exe, but let's just say
+    # this is good practice for dealing with some narly malware sample :)
+    # Therefore, we are going to iteratively decrease the pointer until we find a
+    # valid address in the variable map. This variable was the variable used by the caller.
+    result = context.registers.eax
+    result -= 1
+    while result not in context.variables:
+        result -= 1
+    assert context.read_data(result) == b"Hello World!"
+
+    # Alright, one more time, but with ALL strings.
+    # Testing we can successfully decrypt the strings and get the key used.
+    strings = []
+    for context in emulator.iter_context_at(0x00401029, follow_loops=True, depth=1):
+        result = context.registers.eax
+        result -= 1
+        while result not in context.variables:
+            result -= 1
+        strings.append((context.read_data(result), context.passed_in_args[1].value))
+    assert strings == [
+        (b'Hello World!', 0x01),
+        (b'Test string with key 0x02', 0x02),
+        (b'The quick brown fox jumps over the lazy dog.', 0x03),
+        (b'Oak is strong and also gives shade.', 0x04),
+        (b'Acid burns holes in wool cloth.', 0x05),
+        (b'Cats and dogs each hate the other.', 0x06),
+        (b"Open the crate but don't break the glass.", 0x13),
+        (b'There the flood mark is ten inches.', 0x17),
+        (b'1234567890', 0x1a),
+        (b'CreateProcessA', 0x23),
+        (b'StrCat', 0x27),
+        (b'ASP.NET', 0x40),
+        (b'kdjsfjf0j24r0j240r2j09j222', 0x46),
+        (b'32897412389471982470', 0x73),
+        (b'The past will look brighter tomorrow.', 0x75),
+        (b'Cars and busses stalled in sand drifts.', 0x77),
+        (b'The jacket hung on the back of the wide chair.', 0x7a),
+        (b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
+    ]
+
 
 
 @pytest.mark.in_ida
@@ -277,6 +380,7 @@ def test_memory():
 @pytest.mark.in_ida
 def test_registers():
     """Tests registers"""
+    from kordesii.utils import function_tracing
     from kordesii.utils.function_tracing.cpu_context import ProcessorContext
     from kordesii.utils.function_tracing.registers import Register
 
@@ -297,7 +401,8 @@ def test_registers():
     assert reg.al == 0x23
     assert reg.rax == 0x0000000000000123
 
-    context = ProcessorContext.from_arch()
+    emulator = function_tracing.Emulator()
+    context = emulator.new_context()
     registers = context.registers
 
     # fmt: off
@@ -356,104 +461,107 @@ def test_builtin_funcs():
     """Tests the emulated builtin_funcs."""
     from kordesii.utils import function_tracing
     from kordesii.utils.function_tracing.cpu_context import ProcessorContext
-    from kordesii.utils.function_tracing import builtin_funcs
+    from kordesii.utils.function_tracing.call_hooks import stdlib
+
+    emulator = function_tracing.Emulator()
 
     src = 0x123000
     dst = 0x124000
 
     # test strcat
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     assert context.ARCH_NAME == "metapc"
     context.memory.write(src, b"world")
     context.memory.write(dst, b"hello")
-    assert builtin_funcs.strcat(context, "strcat", [dst, src]) == dst
+    assert stdlib.builtin_funcs.strcat(context, "strcat", [dst, src]) == dst
     assert context.read_data(dst) == b"helloworld"
     for encoding in ["utf-16-le", "utf-16-be"]:
-        context = ProcessorContext.from_arch()
+        context = emulator.new_context()
         context.memory.write(src, u"world".encode(encoding))
         context.memory.write(dst, u"hello".encode(encoding))
-        assert builtin_funcs.strcat(context, "wcscat", [dst, src]) == dst
+        assert stdlib.builtin_funcs.strcat(context, "wcscat", [dst, src]) == dst
         assert context.read_data(dst, data_type=function_tracing.WIDE_STRING) == u"helloworld".encode(encoding)
 
     # test strncat
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"world")
     context.memory.write(dst, b"hello")
-    assert builtin_funcs.strncat(context, "strncat", [dst, src, 10]) == dst
+    assert stdlib.builtin_funcs.strncat(context, "strncat", [dst, src, 10]) == dst
     assert context.read_data(dst) == b"helloworld"
-    assert builtin_funcs.strncat(context, "strncat", [dst, src, 2]) == dst
+    assert stdlib.builtin_funcs.strncat(context, "strncat", [dst, src, 2]) == dst
     assert context.read_data(dst) == b"helloworldwo"
     for encoding in ["utf-16-le", "utf-16-be"]:
-        context = ProcessorContext.from_arch()
+        context = emulator.new_context()
         context.memory.write(src, u"world".encode(encoding))
         context.memory.write(dst, u"hello".encode(encoding))
-        assert builtin_funcs.strncat(context, "wcsncat", [dst, src, 10]) == dst
+        assert stdlib.builtin_funcs.strncat(context, "wcsncat", [dst, src, 10]) == dst
         assert context.read_data(dst, data_type=function_tracing.WIDE_STRING) == u"helloworld".encode(encoding)
-        assert builtin_funcs.strncat(context, "wcsncat", [dst, src, 2]) == dst
+        assert stdlib.builtin_funcs.strncat(context, "wcsncat", [dst, src, 2]) == dst
         assert context.read_data(dst, data_type=function_tracing.WIDE_STRING) == u"helloworldwo".encode(encoding)
 
     # test strcpy
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"world")
     context.memory.write(dst, b"hello!!!")
-    assert builtin_funcs.strcpy(context, "strcpy", [dst, src]) == dst
+    assert stdlib.builtin_funcs.strcpy(context, "strcpy", [dst, src]) == dst
     assert context.read_data(dst) == b"world"
     for encoding in ["utf-16-le", "utf-16-be"]:
-        context = ProcessorContext.from_arch()
+        context = emulator.new_context()
         context.memory.write(src, u"world".encode(encoding))
         context.memory.write(dst, u"hello!!!".encode(encoding))
-        assert builtin_funcs.strcpy(context, "wcscpy", [dst, src]) == dst
+        assert stdlib.builtin_funcs.strcpy(context, "wcscpy", [dst, src]) == dst
         assert context.read_data(dst, data_type=function_tracing.WIDE_STRING) == u"world".encode(encoding)
 
     # test strncpy
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"world")
     context.memory.write(dst, b"hello!!!")
-    assert builtin_funcs.strncpy(context, "strncpy", [dst, src, 2]) == dst
+    assert stdlib.builtin_funcs.strncpy(context, "strncpy", [dst, src, 2]) == dst
     # Since we are only copying 2 characters over, the null doesn't get sent over and therefore get
     # some of the original string in the copy.
     assert context.read_data(dst) == b"wollo!!!"
     for encoding in ["utf-16-le", "utf-16-be"]:
-        context = ProcessorContext.from_arch()
+        context = emulator.new_context()
         context.memory.write(src, u"world".encode(encoding))
         context.memory.write(dst, u"hello!!!".encode(encoding))
-        assert builtin_funcs.strncpy(context, "wcsncpy", [dst, src, 2]) == dst
+        assert stdlib.builtin_funcs.strncpy(context, "wcsncpy", [dst, src, 2]) == dst
         assert context.read_data(dst, data_type=function_tracing.WIDE_STRING) == u"wollo!!!".encode(encoding)
 
     # test strdup/strndup
     heap_ptr = context.memory.HEAP_BASE
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"hello")
     # should return a newly allocated string
-    assert builtin_funcs.strdup(context, "strdup", [src]) == heap_ptr
+    assert stdlib.builtin_funcs.strdup(context, "strdup", [src]) == heap_ptr
     assert context.read_data(heap_ptr) == b"hello"
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"hello")
-    assert builtin_funcs.strndup(context, "strndup", [src, 2]) == heap_ptr
+    assert stdlib.builtin_funcs.strndup(context, "strndup", [src, 2]) == heap_ptr
     assert context.read_data(heap_ptr) == b"he"
 
     # test strlen
-    context = ProcessorContext.from_arch()
+    context = emulator.new_context()
     context.memory.write(src, b"hello")
-    assert builtin_funcs.strlen(context, "strlen", [src]) == 5
+    assert stdlib.builtin_funcs.strlen(context, "strlen", [src]) == 5
     for encoding in ["utf-16-le", "utf-16-be"]:
-        context = ProcessorContext.from_arch()
+        context = emulator.new_context()
         context.memory.write(src, u"hello".encode(encoding))
-        assert builtin_funcs.strlen(context, "wcslen", [src]) == 5
+        assert stdlib.builtin_funcs.strlen(context, "wcslen", [src]) == 5
 
 
 @pytest.mark.in_ida
 def test_function_signature():
     """Tests FunctionSignature object."""
     import idc
+    from kordesii import utils
     from kordesii.utils import function_tracing
-    from kordesii.utils import decoderutils
+
+    emulator = function_tracing.Emulator()
 
     xor_func_ea = 0x00401000
-    tracer = function_tracing.get_tracer(xor_func_ea)
 
     # Basic tests.
-    context = tracer.context_at(xor_func_ea)
+    context = emulator.context_at(xor_func_ea)
     func_sig = context.get_function_signature(func_ea=xor_func_ea)
     assert func_sig.declaration == "_BYTE *__cdecl sub_401000(_BYTE *a1, char a2);"
     assert func_sig.arg_types == ("_BYTE * a1", "char a2")
@@ -479,13 +587,12 @@ def test_function_signature():
 
     # First force an incorrect number of arguments.
     idc.SetType(xor_func_ea, " _BYTE *__cdecl sub_401000(_BYTE *a1)")
-    func = decoderutils.SuperFunc_t(xor_func_ea)
+    func = utils.Function(xor_func_ea)
 
     # Then test we can force 2 arguments anyway.
     results = []
     for ea in func.calls_to:
-        tracer = function_tracing.get_tracer(ea)
-        for context in tracer.iter_context_at(ea):
+        for context in emulator.iter_context_at(ea):
             # The function signature only gives 1 argument now.
             func_sig = context.get_function_signature()
             assert len(func_sig.args) == 1
@@ -520,5 +627,219 @@ def test_function_signature():
     with pytest.raises(RuntimeError):
         context.get_function_signature(0xFFF)
     assert len(context.get_function_args(0xFFF, num_args=3)) == 3
-    func_sig = context.get_function_signature(0xFFF, force=3)
-    assert func_sig.declaration == "int __cdecl no_name();"
+    func_sig = context.get_function_signature(0xFFF, force=True)
+    assert func_sig.declaration == 'int __cdecl no_name();'
+
+
+@pytest.mark.in_ida
+def test_function_arg():
+    """Tests FunctionArg object."""
+    from kordesii.utils import function_tracing
+
+    emulator = function_tracing.Emulator()
+
+    xor_func_ea = 0x00401000
+    xor_func_call = 0x0040103A
+
+    # Basic tests.
+    context = emulator.context_at(xor_func_call)
+    args = context.get_function_arg_objects()
+    assert len(args) == 2
+    assert args[0].name == "a1"
+    assert args[0].type == "_BYTE *"
+    assert args[0].value == 0x0040C000  # pointer to b'Idmmn!Vnsme '
+    assert args[0].addr == context.sp + 0
+    assert args[1].name == "a2"
+    assert args[1].type == "char"
+    assert args[1].value == 1  # key
+    assert args[1].addr == context.sp + 4
+    # Test that we can change the values.
+    args[0].value = 0xffff
+    assert args[0].value == 0xffff
+    assert args[0].addr == context.sp + 0
+    assert context.read_data(args[0].addr, 4) == b'\xff\xff\x00\x00'
+
+    # Test pulling in passed in arguments.
+    context = emulator.context_at(0x00401011)  # somewhere randomly in the xor function
+    args = context.passed_in_args
+    assert args[0].name == "a1"
+    assert args[0].type == "_BYTE *"
+    assert args[0].value == 0
+    assert args[0].addr == context.sp + 0x08  # +8 to account for pushed in return address and ebp
+    assert args[1].name == "a2"
+    assert args[1].type == "char"
+    assert args[1].value == 0
+    assert args[1].addr == context.sp + 0x0C
+
+
+@pytest.mark.in_ida
+def test_func_emulate():
+    """Tests full function emulation in Emulator.create_emulated."""
+    from kordesii.utils import function_tracing
+
+    emulator = function_tracing.Emulator()
+
+    xor_func_ea = 0x00401000
+    enc_data_ptr = 0x0040C000  # pointer to b'Idmmn!Vnsme '
+    xor_decrypt = emulator.create_emulated(xor_func_ea)
+
+    # Test decrypting a string in memory.
+    context = emulator.new_context()
+    ret = xor_decrypt(enc_data_ptr, 1, context=context)
+    assert ret == enc_data_ptr + len(b'Idmmn!Vnsme ')  # function returns pointer after decryption.
+    assert context.read_data(enc_data_ptr) == b'Hello World!'
+
+    # Test decrypting a string that was never in the sample.
+    enc_data = b"!; '0607!)"
+    context = emulator.new_context()
+    ptr = context.mem_alloc(len(enc_data))
+    context.mem_write(ptr, enc_data)
+    xor_decrypt(ptr, 0x42, context=context)
+    assert context.read_data(ptr) == b'cybertruck'
+
+
+@pytest.mark.in_ida
+def test_function_hooking():
+    """Tests function hooking mechanism."""
+    from kordesii.utils import function_tracing
+
+    emulator = function_tracing.Emulator()
+
+    xor_func_ea = 0x00401000
+    end_ea = 0x00401141  # address in caller after all xor functions have been called.
+
+    args = []
+    # First test hooking with standard function.
+    def xor_hook(context, func_name, func_args):
+        args.append(func_args)
+    emulator.hook_call(xor_func_ea, xor_hook)
+    context = emulator.context_at(end_ea)
+    expected_args = [
+        [0x40c000, 0x1],
+        [0x40c010, 0x2],
+        [0x40c02c, 0x3],
+        [0x40c05c, 0x4],
+        [0x40c080, 0x5],
+        [0x40c0a0, 0x6],
+        [0x40c0c4, 0x13],
+        [0x40c0f0, 0x17],
+        [0x40c114, 0x1a],
+        [0x40c120, 0x23],
+        [0x40c130, 0x27],
+        [0x40c138, 0x40],
+        [0x40c140, 0x46],
+        [0x40c15c, 0x73],
+        [0x40c174, 0x75],
+        [0x40c19c, 0x77],
+        [0x40c1c4, 0x7a],
+        [0x40c1f8, 0x7f],
+    ]
+    assert args == expected_args
+    assert [_args for _, _args in context.get_call_history(xor_func_ea)] == expected_args
+
+    # Now test with the function emulated to see our data getting decrypted.
+    emulator.reset_hooks()
+    emulator.emulate_call(xor_func_ea)
+    context = emulator.context_at(end_ea)
+    assert [_args for _, _args in context.get_call_history(xor_func_ea)] == expected_args
+    strings = [(context.read_data(args[0]), args[1]) for _, args in context.get_call_history(xor_func_ea)]
+    assert strings == [
+        (b'Hello World!', 0x01),
+        (b'Test string with key 0x02', 0x02),
+        (b'The quick brown fox jumps over the lazy dog.', 0x03),
+        (b'Oak is strong and also gives shade.', 0x04),
+        (b'Acid burns holes in wool cloth.', 0x05),
+        (b'Cats and dogs each hate the other.', 0x06),
+        (b"Open the crate but don't break the glass.", 0x13),
+        (b'There the flood mark is ten inches.', 0x17),
+        (b'1234567890', 0x1a),
+        (b'CreateProcessA', 0x23),
+        (b'StrCat', 0x27),
+        (b'ASP.NET', 0x40),
+        (b'kdjsfjf0j24r0j240r2j09j222', 0x46),
+        (b'32897412389471982470', 0x73),
+        (b'The past will look brighter tomorrow.', 0x75),
+        (b'Cars and busses stalled in sand drifts.', 0x77),
+        (b'The jacket hung on the back of the wide chair.', 0x7a),
+        (b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
+    ]
+
+
+@pytest.mark.in_ida
+def test_instruction_hooking():
+    """Test instruction hooking mechanism"""
+    from kordesii.utils import function_tracing
+
+    emulator = function_tracing.Emulator()
+
+    # Test hooking all "push" instructions, which will be the parameters to the xor decryption.
+    pushes = []
+    def push_hook(context, ip, mnem, operands):
+        pushes.append(operands[0].value)
+    emulator.hook_instruction("push", push_hook)
+    context = emulator.context_at(0x00401142)
+    # fmt: off
+    assert pushes == [
+        0x117fc00,  # ebp pushed
+        # key, enc_data_ptr
+        0x1, 0x40c000,
+        0x2, 0x40c010,
+        0x3, 0x40c02c,
+        0x4, 0x40c05c,
+        0x5, 0x40c080,
+        0x6, 0x40c0a0,
+        0x13, 0x40c0c4,
+        0x17, 0x40c0f0,
+        0x1a, 0x40c114,
+        0x23, 0x40c120,
+        0x27, 0x40c130,
+        0x40, 0x40c138,
+        0x46, 0x40c140,
+        0x73, 0x40c15c,
+        0x75, 0x40c174,
+        0x77, 0x40c19c,
+        0x7a, 0x40c1c4,
+        0x7f, 0x40c1f8,
+    ]
+    # fmt: on
+
+
+@pytest.mark.in_ida
+def test_context_depth():
+    """Tests depth feature in iter_context_at()"""
+    from kordesii import utils
+    from kordesii.utils import function_tracing
+
+    emulator = function_tracing.Emulator()
+
+    ea = 0x00405901  # Address in function that contains multiple paths.
+    num_paths_first_depth = 3
+    num_paths_second_depth = 25
+
+    # First ensure paths are calculated correctly.
+    flowchart = utils.Flowchart(ea)
+    block = flowchart.find_block(ea)
+    assert len(list(block.paths())) == num_paths_first_depth
+
+    func = utils.Function(ea)
+    call_eas = list(func.calls_to)
+    assert len(call_eas) == 1
+    call_ea = call_eas[0]
+    flowchart = utils.Flowchart(call_ea)
+    block = flowchart.find_block(call_ea)
+    assert len(list(block.paths())) == num_paths_second_depth
+
+    # Now show that we get the correct number of contexts based on depth and other parameters.
+
+    # Test getting contexts for only the first depth.
+    ctxs = list(emulator.iter_context_at(ea))
+    assert len(ctxs) == num_paths_first_depth
+    # (exhaustive has no affect on final call level)
+    ctxs = list(emulator.iter_context_at(ea, exhaustive=False))
+    assert len(ctxs) == num_paths_first_depth
+
+    # Test getting contexts with 2 depths.
+    ctxs = list(emulator.iter_context_at(ea, depth=1))
+    assert len(ctxs) == num_paths_first_depth * num_paths_second_depth
+    ctxs = list(emulator.iter_context_at(ea, depth=1, exhaustive=False))
+    assert len(ctxs) == num_paths_first_depth

@@ -318,7 +318,7 @@ def _add_to_malware_repo(file_path, malware_repo):
 @click.option(
     "-m",
     "--malware-repo",
-    type=click.Path(exists=True, file_okay=False),
+    type=click.Path(file_okay=False),
     help="Directory containing malware samples used for testing.",
     envvar="KORDESII_MALWARE_REPO",
     show_envvar=True,
@@ -384,7 +384,13 @@ def test(
     """
     # Configure test object
     reporter = kordesii.Reporter()
-    tester = Tester(reporter, results_dir=testcase_dir, decoder_names=decoder or [None], nprocs=nprocs,)
+    tester = Tester(
+        reporter,
+        results_dir=testcase_dir,
+        decoder_names=decoder or [None],
+        nprocs=nprocs,
+        malware_repo=malware_repo,
+    )
 
     # Add/Delete
     if add or add_filelist or delete:

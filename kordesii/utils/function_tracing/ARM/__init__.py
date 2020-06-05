@@ -18,11 +18,14 @@ class ARMProcessorContext(ProcessorContext):
     """Processor context for ARM architecture"""
 
     ARCH_NAME = "ARM"
-    OPCODES = OPCODES
+    OPCODES = OPCODES.copy()
 
-    def __init__(self):
+    def __init__(self, emulator):
         super(ARMProcessorContext, self).__init__(
-            ARM_Registers(), instruction_pointer="pc", stack_pointer="sp", stack_registers=["sp", "wsp"],
+            emulator,
+            registers=ARM_Registers(),
+            instruction_pointer="pc",
+            stack_pointer="sp",
         )
         # TODO: Set up stack correctly for ARM
         # # Set up the stack before we go.

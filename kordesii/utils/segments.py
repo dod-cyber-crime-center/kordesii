@@ -56,6 +56,18 @@ def get_bytes(name_or_addr):
     seg_bytes = _cache.get(seg_start)
     if seg_bytes is None:
         seg_end = idc.get_segm_attr(seg_start, idc.SEGATTR_END)
+
+        # This check will make an adjustment to seg_end based on whether the previous address has a value
+        # or not.  In some instances, seg_end will throw us into an adjacent section which has data and
+        # we'll end up getting bad values here.
+        if idc.is_loaded(seg_end) and not idc.is_loaded(seg_end - 1):
+            seg_end -= 1
+
+        # Need to find the actual end address of the section data since IDA returns addresses that have
+        # no data...
+        while not idc.is_loaded(seg_end):
+            seg_end -= 1
+
         seg_bytes = _obtain_bytes(seg_start, seg_end)
         _cache[seg_start] = seg_bytes
 

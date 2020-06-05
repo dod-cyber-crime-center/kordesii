@@ -4,9 +4,7 @@ Extra utility functions for interfacing with ida.
 
 # TODO: For lack of a better name, this is called "utils". Change this.
 
-from __future__ import absolute_import
-
-from typing import Union, List
+from typing import Union, List, Iterable, Tuple, Optional
 
 import re
 import logging
@@ -16,8 +14,13 @@ import ida_bytes
 import ida_entry
 import ida_funcs
 import ida_nalt
+import ida_name
+import ida_segment
+import ida_typeinf
 import idc
 import idautils
+
+from kordesii.utils import functions
 
 
 logger = logging.getLogger(__name__)
@@ -25,8 +28,24 @@ logger = logging.getLogger(__name__)
 
 READ_LENGTH = 65536
 
+# NOTE: Using this is necessary for ida proxy to work correctly.
+__all__ = [
+    "iter_imports",
+    "iter_exports",
+    "iter_dynamic_functions",
+    "iter_functions",
+    "iter_calls_to",
+    "iter_callers",
+    "get_import_addr",
+    "get_export_addr",
+    "get_function_addr",
+    "lines",
+    "get_string",
+    "find_destination",
+]
 
-def iter_imports(module_name=None, api_names=None):
+
+def iter_imports(module_name=None, api_names=None) -> Iterable[Tuple[int, str, str]]:
     """
     Iterate the thunk function wrappers for API imports.
     Yields the module name, function name, and reference to function.
@@ -108,7 +127,7 @@ def iter_imports(module_name=None, api_names=None):
             yield ea, name, _module_name
 
 
-def iter_exports():
+def iter_exports() -> Iterable[Tuple[int, str]]:
     """
     Iterate API exports.
 
@@ -121,10 +140,37 @@ def iter_exports():
         yield ea, name
 
 
-def iter_functions(func_names: Union[None, str, List[str]] = None):
+def _is_func_type(ea):
+    """Determines if data item at address is a function type."""
+    try:
+        idc.get_type(ea)
+    except TypeError:
+        return False
+    tif = ida_typeinf.tinfo_t()
+    ida_nalt.get_tinfo(tif, ea)
+    func_type_data = ida_typeinf.func_type_data_t()
+    return bool(tif.get_func_details(func_type_data))
+
+
+def iter_dynamic_functions() -> Iterable[Tuple[int, str]]:
+    """
+    Iterates the dynamically resolved function signatures.
+
+    :yield: (ea, name)
+    """
+    # Look for data elements in the .data segment in which IDA has placed
+    # a function signature element on.
+    data_segment = ida_segment.get_segm_by_name(".data")
+    for ea in idautils.Heads(start=data_segment.start_ea, end=data_segment.end_ea):
+        flags = ida_bytes.get_flags(ea)
+        if idc.is_data(flags) and not idc.is_strlit(flags) and _is_func_type(ea):
+            yield ea, ida_name.get_name(ea)
+
+
+def iter_functions(func_names: Union[None, str, List[str]] = None) -> Iterable[Tuple[int, str]]:
     """
     Iterate all defined functions and yield their address and name.
-    (This includes imported functions)
+    (This includes imported and dynamically generated functions)
 
     :param func_names: Filter based on specific function names.
 
@@ -148,8 +194,49 @@ def iter_functions(func_names: Union[None, str, List[str]] = None):
     for ea, name, _ in iter_imports(api_names=func_names):
         yield ea, name
 
+    # Yield dynamically resolved functions.
+    for ea, name in iter_dynamic_functions():
+        if (
+            not func_names
+            or name in func_names
+            or name.strip("_") in func_names
+            or any(re.match("_*{}_[0-9]?".format(name_), name) for name_ in func_names)
+        ):
+            yield ea, name
 
-def get_import_addr(api_name, module_name=None):
+
+def iter_calls_to(func_ea) -> Iterable[int]:
+    """
+    Iterates the calls to the given address.
+
+    :param func_ea: Address of a function call.
+    :return:
+    """
+    for xref in idautils.XrefsTo(func_ea):
+        ea = xref.frm
+        if idc.print_insn_mnem(ea) == "call":
+            yield ea
+
+
+def iter_callers(func_ea) -> Iterable[functions.Function]:
+    """
+    Iterates Function objects that call the given address.
+
+    :param func_ea: Address of a function call.
+    :return:
+    """
+    cache = set()
+    for ea in iter_calls_to(func_ea):
+        try:
+            func = functions.Function(ea)
+        except AttributeError:
+            continue
+        if func.name not in cache:
+            yield func
+            cache.add(func.name)
+
+
+def get_import_addr(api_name, module_name=None) -> Optional[int]:
     """
     Returns the first instance of a function that wraps the given API name.
 
@@ -166,7 +253,7 @@ def get_import_addr(api_name, module_name=None):
         return ea
 
 
-def get_export_addr(export_name):
+def get_export_addr(export_name) -> Optional[int]:
     """
     Return the location of an export by name
 
@@ -179,7 +266,7 @@ def get_export_addr(export_name):
             return ea
 
 
-def get_function_addr(func_name: str):
+def get_function_addr(func_name: str) -> Optional[int]:
     """
     Obtain a function in the list of functions for the application by name.
     Supports using API resolved names if necessary.
@@ -240,3 +327,31 @@ def get_string(ea: int) -> bytes:
     """
     stype = idc.get_str_type(ea)
     return idc.get_strlit_contents(ea, strtype=stype)
+
+
+RAX_FAM = ["rax", "eax", "ax", "ah", "al"]
+
+
+def find_destination(start, instruction_limit=None) -> Optional[int]:
+    """
+    Finds the destination address for returned eax register.
+
+    :param int start: Starting address to start looking
+    :param int instruction_limit: Limit the number of instructions to traverse before giving up.
+        Defaults to searching until the end of the function.
+
+    :return: destination address or None if address couldn't be found or is not a loaded address.
+    """
+    count = 0
+    func = functions.Function(start)
+    for ea in func.heads(start):
+        count += 1
+        if instruction_limit is not None and count > instruction_limit:
+            return None
+
+        if idc.print_insn_mnem(ea) == "mov" and idc.print_operand(ea, 1) in RAX_FAM:
+            if idc.get_operand_type(ea, 0) == idc.o_mem:
+                return idc.get_operand_value(ea, 0)
+            else:
+                return None
+    return None

@@ -8,6 +8,7 @@ import string
 import struct
 
 import ida_allins
+import ida_ida
 import ida_idp
 import ida_nalt
 import ida_typeinf
@@ -100,7 +101,7 @@ def get_byte_width(value):
         return 8
 
 
-BIG_ENDIAN = idaapi.cvar.inf.is_be()
+BIG_ENDIAN = ida_ida.inf_is_be()
 
 # Table used by struct_unpack and struct_pack functions
 struct_unpack_table = {
@@ -259,7 +260,7 @@ def get_function_data(offset, operand: Operand = None):
     :param operand: operand containing function address in it's value.
         This can be provided when function is dynamically generated at runtime. (e.g. call eax)
 
-    :return: idaapi.func_type_data_t object
+    :return: ida_typeinf.func_type_data_t object, ida_typeinf.tinfo_t object
 
     :raise RuntimeError: if func_type_data_t object cannot be obtained
     """
@@ -335,7 +336,7 @@ def get_function_data(offset, operand: Operand = None):
     if success:
         # record that we have processed this function before. (and that we can grab it from the offset)
         _func_types.add(offset)
-        return funcdata
+        return funcdata, tif
 
     # If we have still failed, we have one more trick under our sleeve.
     # Try to pull the type information from the operand of the call instruction.
@@ -344,7 +345,7 @@ def get_function_data(offset, operand: Operand = None):
         tif = operand._tif
         success = tif.get_func_details(funcdata)
         if success:
-            return funcdata
+            return funcdata, tif
 
     raise RuntimeError("failed to obtain func_type_data_t object for offset 0x{:X}".format(offset))
 

@@ -45,15 +45,17 @@ class Operand(object):
         18: 64,  # dt_byte64 -> 512 bit
     }
 
-    def __init__(self, cpu_context, ip, idx):
+    def __init__(self, cpu_context, ip, idx, _type=None):
         """
         :param cpu_context: CPU context to pull operand value
         :param ip: instruction pointer
         :param idx: operand number (0 = first operand, 1 = second operand, ...)
+        :param _type: Type of operand
+            (Sometimes provided to help avoid recomputation.)
         """
         self.ip = ip
         self.idx = idx
-        self.type = idc.get_operand_type(ip, idx)
+        self.type = _type if _type is not None else idc.get_operand_type(ip, idx)
         self.text = idc.print_operand(ip, idx)
         self._cpu_context = cpu_context
         self._width = None
@@ -200,12 +202,18 @@ class Operand(object):
         """
         addr = self.base + self.index * self.scale + self.offset
         logger.debug(
-            "calc_displacement :: Displacement {} -> {} + {}*{} + {} = {}".format(
-                self.text, self.base, self.index, self.scale, self.offset, addr
+            "Calculating operand: %s -> 0x%X + 0x%X*0x%X %s 0x%X = 0x%X" % (
+                self.text,
+                self.base,
+                self.index,
+                self.scale,
+                "-" if self.offset < 0 else "+",
+                abs(self.offset),
+                addr
             )
         )
         if addr < 0:
-            logger.debug("calc_displacement :: Address is negative, resorting to address of 0.")
+            logger.debug("Address is negative, resorting to address of 0.")
             addr = 0
 
         # Before returning, record the stack variable that we have encountered.
@@ -237,7 +245,7 @@ class Operand(object):
             # These need to be handled in the same way even if they don't contain the same types of data...
             addr = self._calc_displacement()
         elif self.type == idc.o_mem:
-            addr = idc.get_operand_value(self.ip, self.idx)
+            addr = self._op.addr
             # Record the global variable before we return.
             self._cpu_context.variables.add(addr, reference=self.ip)
         return addr
@@ -273,7 +281,7 @@ class Operand(object):
             return None
 
         if self.is_immediate:
-            value = idc.get_operand_value(self.ip, self.idx)
+            value = self._op.value if self.type == idc.o_imm else self._op.addr
             # Create variable/reference if global.
             if idc.is_loaded(value):
                 self._cpu_context.variables.add(value, reference=self.ip)
@@ -313,7 +321,7 @@ class Operand(object):
 
             # Return empty
             if not self.width:
-                logger.debug("Width is zero for {}, returning empty string.".format(self.text))
+                logger.debug("Width is zero for %s, returning empty string.", self.text)
                 return b""
 
             # Otherwise, dereference the address.

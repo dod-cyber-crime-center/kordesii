@@ -2,8 +2,6 @@
 Components for emulating an x86/x64 architecture.
 """
 
-from copy import deepcopy
-
 from ..cpu_context import ProcessorContext
 from .registers import x86_64_Registers
 from .opcodes import OPCODES
@@ -20,14 +18,14 @@ class x86_64ProcessorContext(ProcessorContext):
     """Processor context for x86/x64 architecture"""
 
     ARCH_NAME = "metapc"
-    OPCODES = OPCODES
+    OPCODES = OPCODES.copy()
 
-    def __init__(self):
+    def __init__(self, emulator):
         super(x86_64ProcessorContext, self).__init__(
-            x86_64_Registers(),
+            emulator,
+            registers=x86_64_Registers(),
             instruction_pointer="rip",
             stack_pointer="rsp",
-            stack_registers=["rsp", "esp", "rbp", "ebp"],
         )
         # Set up the stack before we go.
         self.registers.rsp = STACK_BASE - RSP_OFFSET

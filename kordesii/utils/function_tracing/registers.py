@@ -55,15 +55,16 @@ class Register(object):
         self_dict["_masks"] = _masks
 
     def __deepcopy__(self, memo):
-        copy = Register(self.size)
+        copy = self.__new__(self.__class__)
         memo[id(self)] = copy
         copy_dict = copy.__dict__
-        copy_dict["_masks"] = dict(self._masks)
+        copy_dict["size"] = self.size
+        copy_dict["_size_mask"] = self._size_mask
         copy_dict["_value"] = self._value
+        copy_dict["_masks"] = dict(self._masks)
         return copy
 
     def __getattr__(self, reg_name):
-        reg_name = reg_name.lower()
         try:
             mask, shift = self._masks[reg_name]
         except KeyError:
@@ -74,7 +75,6 @@ class Register(object):
         return self.__getattr__(reg_name)
 
     def __setattr__(self, reg_name, value):
-        reg_name = reg_name.lower()
         try:
             mask, shift = self._masks[reg_name]
         except KeyError:
@@ -87,7 +87,7 @@ class Register(object):
         self.__setattr__(reg_name, value)
 
     def __contains__(self, reg_name):
-        return reg_name.lower() in self._masks
+        return reg_name in self._masks
 
     @property
     def names(self):
@@ -134,7 +134,6 @@ class RegisterMap(object):
         return copy
 
     def __getattr__(self, reg_name):
-        reg_name = reg_name.lower()
         try:
             register = self._reg_map[reg_name]
         except KeyError:
@@ -145,7 +144,6 @@ class RegisterMap(object):
         return self.__getattr__(reg_name)
 
     def __setattr__(self, reg_name, value):
-        reg_name = reg_name.lower()
         try:
             register = self._reg_map[reg_name]
         except KeyError:

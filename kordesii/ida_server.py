@@ -1,7 +1,7 @@
 """
 IDA Pyro4 server used to run IDAPython remotely.
 """
-
+import functools
 import inspect
 import importlib
 import io
@@ -9,6 +9,7 @@ import logging
 import pickle
 import sys
 import threading
+import traceback
 import types
 import warnings
 
@@ -72,6 +73,7 @@ proxied_modules = [
     "ida_ua",
     "ida_xref",
     # Add kordesii modules that will work proxied.
+    # (ie. modules that have functions only and no exposed classes)
     "kordesii.utils.utils",
     "kordesii.utils.segments",
 ]
@@ -93,6 +95,19 @@ class IDAProxy(object):
         return "HI!!"
 
 
+class IDAModule(object):
+    """
+    This is a simple carrier class to pass the object id over to ida_client.
+    When ida_client sees this class, it will replace it wih a proxy of the specified object id.
+    """
+    def __init__(self, object_id):
+        self.object_id = object_id
+
+
+class IDAClass(IDAModule):
+    pass
+
+
 def build_proxy_property(prop):
     """
     Builds a very simple proxy for a property.
@@ -104,10 +119,40 @@ def build_proxy_property(prop):
     def _proxy(self):
         return prop
 
-    return _proxy
+    return property(_proxy)
 
 
-def add_module(mod, klass):
+def build_proxy_submodule(module):
+    """
+    Creates a simple dummy class (IDAModule) containing the object id so ida_client
+    can pick this up and initialize the proxy on its side.
+    """
+    def _proxy(self):
+        if module.__name__ in proxied_modules:
+            return IDAModule(module.__name__)
+        return None
+    return property(_proxy)
+
+
+def build_proxy_class(klass, klass_name):
+    """
+    Creates a simple dummy class (IDAClass) containing the object id so ida_client can
+    pick this up and initialize the proxy on its side.
+    This is necessary since Pyro4's autoproxy feature causes too many issues.
+    """
+    object_id = ".".join([klass.__module__, klass_name])
+    ida_class = IDAClass(object_id)
+
+    def _proxy(self):
+        if object_id not in self._pyroDaemon.objectsById:
+            proxied_klass = _generate_proxy_class(klass, klass_name, ignore_classes=True)
+            self._pyroDaemon.register(proxied_klass, objectId=object_id)
+        return ida_class
+
+    return property(_proxy)
+
+
+def add_module(mod, klass, ignore_classes=False):
     """
     Adds as much of a module as possible to the given class.
 
@@ -132,10 +177,15 @@ def add_module(mod, klass):
         # Wrap functions and class initializations.
         if inspect.isroutine(member):
             setattr(klass, member_name, staticmethod(member))
-        elif isinstance(member, (type, types.ModuleType)):
-            continue
+        elif isinstance(member, type):
+            # Ignore setting classes ontop classes.
+            if isinstance(mod, type) or ignore_classes:
+                continue
+            setattr(klass, member_name, build_proxy_class(member, member_name))
+        elif isinstance(member, types.ModuleType):
+            setattr(klass, member_name, build_proxy_submodule(member))
         else:
-            setattr(klass, member_name, property(build_proxy_property(member)))
+            setattr(klass, member_name, build_proxy_property(member))
 
 
 class MainProxy(object):
@@ -161,13 +211,14 @@ class MainProxy(object):
             _close_ida = False
 
     @staticmethod
-    def run_func(path, func, *args, **kwargs):
+    def run_func(path, _globals, func, *args, **kwargs):
         """
         Runs any generic function.
 
         :param path: The sys.path from the caller.
             This helps to discover functions not in a package (ala, scripts)
         :param func: The pickled function to run
+        :param _globals: Exposed global functions marked as run_in_ida.
         :param args: positional arguments
         :param kwargs: keyword arguments.
         :return: Return value of function.
@@ -184,13 +235,21 @@ class MainProxy(object):
             sys.stderr = io.StringIO()
 
             func = dill.loads(func)
+            _globals = dill.loads(_globals)
 
             try:
+                # Apply exposed global functions.
+                globals().update(_globals)
+
+                # Now run the function.
                 ret = func(*args, **kwargs)
             except Exception as e:
                 # Pass any exceptions thrown as the return value
                 # so we can reraise it externally.
+                # Attach the traceback, so it can be printed out externally.
+                e.ida_traceback = traceback.format_exception(None, e, e.__traceback__)
                 ret = e
+
             return ret, sys.stdout.getvalue(), sys.stderr.getvalue()
         finally:
             sys.path = orig_path
@@ -203,6 +262,22 @@ class MainProxy(object):
         return True
 
 
+memo = {}
+
+
+def _generate_proxy_class(module_or_class, name, ignore_classes=False):
+    """Generates a safe proxyable class from given module or class."""
+    if module_or_class not in memo:
+        # Pyro4 doesn't allow private module names to be exposed, so a little hackery is in order.
+        klass = type(name.strip("_"), (IDAProxy,), {})
+        add_module(module_or_class, klass, ignore_classes=ignore_classes)
+        Pyro4.expose(klass)
+        memo[module_or_class] = klass
+        return klass
+    else:
+        return memo[module_or_class]
+
+
 def _register(daemon):
     """
     Sets up IDA/kordesii modules to be expose to given Pyro4 daemon.
@@ -213,10 +288,7 @@ def _register(daemon):
     for module_name in proxied_modules:
         logging.debug("registering {}".format(module_name))
         module = importlib.import_module(module_name)
-        # Pyro4 doesn't allow private module names to be exposed, so a little hackery is in order.
-        klass = type(module_name.strip("_"), (IDAProxy,), {})
-        add_module(module, klass)
-        Pyro4.expose(klass)
+        klass = _generate_proxy_class(module, module_name)
         daemon.register(klass, objectId=module_name)
 
     # Now expose the main Proxy controller.
@@ -232,8 +304,7 @@ def _send_result(result):
     (this also doubles as a way for the client to know we are ready)
     """
     import idc
-
-    with open(idc.ARGV[-1], "wb") as f:
+    with open(idc.ARGV[3], "wb") as f:
         f.write(dill.dumps(result))
 
 

@@ -108,7 +108,7 @@ class PageMap(collections.defaultdict):
         # If page was set for delayed retrieval it is coming from segment data, so pull from IDB.
         # Update this check if ever use delayed retrieval for non-segment data.
         if self._is_delayed(page_index):
-            logger.debug("Reading segment data 0x{:X} -> 0x{:X} from IDB".format(start_ea, end_ea))
+            logger.debug("Reading segment data 0x%X -> 0x%X from IDB", start_ea, end_ea)
             page = self._obtain_bytes(start_ea, end_ea)
             self._segment_cache[page_index] = page[:]  # cache page first
             return page
@@ -248,7 +248,7 @@ class Memory(object):
         # This helps to prevent us from wasting (real) memory if someone allocates
         # a huge amount of memory but only uses a small amount.
         self._heap_allocations[address] = size
-        logger.debug("[alloc] :: Allocated {} bytes at 0x{:X}".format(size, address))
+        logger.debug("Allocated %d bytes at 0x%08X", size, address)
         return address
 
     def realloc(self, address, size):
@@ -278,15 +278,14 @@ class Memory(object):
                     self.write(new_address, self.read(address, previous_size))
 
                     # Don't free the old, because the user may want to search it.
-                    logger.debug("[realloc] :: Relocated 0x{:X} -> 0x{:X}".format(address, new_address))
+                    logger.debug("Relocated 0x%08X -> 0x%08X", address, new_address)
                     return new_address
 
         # Otherwise we just need to adjust the size.
         if previous_size != size:
             logger.debug(
-                "[realloc] :: Reallocating heap size at 0x{:X} from {} to {} bytes.".format(
-                    address, previous_size, size
-                )
+                "Reallocating heap size at 0x%08X from %d to %d bytes.",
+                address, previous_size, size
             )
             self._heap_allocations[address] = size
         return address
@@ -306,12 +305,13 @@ class Memory(object):
             raise ValueError("Size must be a positive integer.")
         if size > self.MAX_MEM_READ:
             logger.error(
-                "[mem_read] :: Attempted to read {} bytes from 0x{:08X}. "
-                "Ignoring request and reading {} bytes instead.".format(size, address, self.MAX_MEM_READ)
+                "Attempted to read %d bytes from 0x%08X. "
+                "Ignoring request and reading the first %d bytes instead.",
+                size, address, self.MAX_MEM_READ
             )
             size = self.MAX_MEM_READ
 
-        logger.debug("[mem_read] :: Reading {} bytes from 0x{:08X}".format(size, address))
+        logger.debug("Reading %d bytes from 0x%08X", size, address)
 
         page_index = address >> 12
         page_offset = address & 0xFFF
@@ -342,12 +342,13 @@ class Memory(object):
         size = len(data)
         if size > self.MAX_MEM_WRITE:
             logger.error(
-                "[mem_read] :: Attempted to write {} bytes to 0x{:08X}. "
-                "Ignoring request and using first {} bytes instead.".format(size, address, self.MAX_MEM_WRITE)
+                "Attempted to write %d bytes from 0x%08X. "
+                "Ignoring request and writing the first %d bytes instead.",
+                size, address, self.MAX_MEM_WRITE
             )
             data = data[: self.MAX_MEM_WRITE]
 
-        logger.debug("[mem_write] :: Writing {} bytes to 0x{:08X}".format(len(data), address))
+        logger.debug("Writing %d bytes to 0x%08X", len(data), address)
 
         page_index = address >> 12
         page_offset = address & 0xFFF

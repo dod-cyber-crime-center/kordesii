@@ -32,6 +32,17 @@ def test_basic(strings_exe):
             kordesii.IDA(r'C:\dummy.exe').start()
         pass
 
+        # Test that we can also use submodules (the utils in utils)
+        from kordesii import utils
+        assert utils.get_function_addr('GetProcAddress') == 0x40a028
+        assert utils.get_string(0x0040C000) == b'Idmmn!Vnsme '
+
+        # Test that importing a class doesn't cause things to explode.
+        from ida_gdl import BasicBlock
+        with pytest.raises(NotImplementedError) as exec_info:
+            BasicBlock(1, 2, 3)
+        assert str(exec_info.value) == "Initializing the class ida_gdl.BasicBlock is not supported."
+
     # Ensure we can't use modules after closing.
     with pytest.raises(AttributeError):
         idc.print_insn_mnem(0x00401525)
@@ -64,6 +75,16 @@ def test_basic(strings_exe):
         assert idc.print_insn_mnem(0x00401525) == ''
 
 
+def ida_assert(value, expected):
+    """
+    Workaround to test values inside run_in_ida decorated functions.
+    This is necessary because pytest's assert rewriting is messing with our ability
+    to use assert in these functions.
+    """
+    if value != expected:
+        raise AssertionError(f'{value} != {expected}')
+
+
 @kordesii.run_in_ida
 def trace_arguments(ea):
     """
@@ -72,15 +93,24 @@ def trace_arguments(ea):
     """
     from kordesii.utils import function_tracing
 
-    tracer = function_tracing.get_tracer(ea)
+    emulator = function_tracing.Emulator()
+
+    # Test that we can call other decorated functions.
+    ida_assert(get_mnem(ea), 'mov')
 
     strings = []
-    for context in tracer.iter_context_at(ea, depth=1):
-        assert context.ip == ea
+    for context in emulator.iter_context_at(ea, depth=1):
+        ida_assert(context.ip, ea)
         # mov     eax, [ebp+arg_0]
         strings.append(context.read_data(context.operands[1].value))
 
     return strings
+
+
+@kordesii.run_in_ida
+def get_mnem(ea):
+    import idc
+    return idc.print_insn_mnem(ea)
 
 
 def test_run_in_ida(strings_exe):
@@ -108,6 +138,10 @@ def test_run_in_ida(strings_exe):
             b'.\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1fZ\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T',
             b'LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM'
         ]
+
+        # Also test that we can catch exceptions.
+        with pytest.raises(TypeError, match="argument 2 of type 'ea_t'"):
+            get_mnem('not an address')
 
     # Ensure we get an error, if we attempt to run the function outside of proxy instance.
     with pytest.raises(RuntimeError):

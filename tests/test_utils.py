@@ -7,6 +7,7 @@ import pytest
 
 @pytest.mark.in_ida
 def test_iter_functions():
+    import idc
     from kordesii.utils import utils
 
     assert list(utils.iter_exports()) == [(0x4014e0, 'start')]
@@ -84,3 +85,25 @@ def test_iter_functions():
     assert list(utils.iter_functions('memcpy')) == [(0x405c00, '_memcpy'), (0x408d50, '_memcpy_0')]
     assert list(utils.iter_functions('_memcpy')) == [(0x405c00, '_memcpy'), (0x408d50, '_memcpy_0')]
     assert list(utils.iter_functions('_memcpy_0')) == [(0x408d50, '_memcpy_0')]
+
+    # There are no dynamically resolved functions in this sample, so we are just going to fake
+    # it by naming a piece of data as if it was a function.
+    assert list(utils.iter_dynamic_functions()) == []
+    idc.SetType(0x40cdfc, "BOOL __stdcall WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite, LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped)")
+    assert list(utils.iter_dynamic_functions()) == [(0x40cdfc, 'dword_40CDFC')]
+
+
+@pytest.mark.in_ida
+def test_iter_callers():
+    """Tests utilities to pull callers."""
+    from kordesii import utils
+
+    assert list(utils.iter_calls_to(0x00401000)) == [
+        0x40103a, 0x401049, 0x401058, 0x401067, 0x401076, 0x401085, 0x401094,
+        0x4010a3, 0x4010b2, 0x4010c1, 0x4010d0, 0x4010df, 0x4010ee, 0x4010fd,
+        0x40110c, 0x40111b, 0x40112a, 0x401139,
+    ]
+    callers = list(utils.iter_callers(0x00401000))
+    assert len(callers) == 1
+    caller = callers[0]
+    assert caller.start_ea == 0x401030

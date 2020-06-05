@@ -15,14 +15,14 @@ usage::
         print('found marker at 0x{:0x}'.format(match.start()))
 """
 
-from __future__ import absolute_import
-
 import re
+from typing import Iterable
 
 import idautils
 import ida_segment
 
 from kordesii.utils import segments
+from kordesii.utils.functions import Function
 
 
 class Match(object):
@@ -81,6 +81,10 @@ class Pattern(object):
             self._re = re.compile(ptn, flags=flags)
         else:
             self._re = ptn
+
+    @property
+    def pattern(self):
+        return self._re.pattern
 
     def _get_segments(self, segname=None):
         """
@@ -155,3 +159,27 @@ def finditer(pattern, segname=None, flags=0):
 def findall(pattern, segname=None, flags=0):
     """Returns a list of non-overlapping matches."""
     return Pattern(pattern, flags=flags).findall(segname=segname)
+
+
+def find_functions(pattern, flags=0, segname=None) -> Iterable[Function]:
+    """
+    Uses finditer() to search for functions that contains a match for the given
+    regular expression pattern.
+
+    Yields kordesii.utils.Function object for each function.
+    """
+    if isinstance(pattern, Pattern):
+        _regex = pattern
+    else:
+        _regex = Pattern(pattern, flags)
+
+    cache = set()
+    for match in _regex.finditer(segname):
+        try:
+            func = Function(match.start())
+        except AttributeError:
+            continue
+
+        if func not in cache:
+            cache.add(func)
+            yield func

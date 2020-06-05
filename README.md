@@ -26,8 +26,8 @@ DC3-Kordesii is authored by the Department of Defense Cyber Crime Center (DC3).
 
 ## Dependencies
 DC3-Kordesii requires the following:
-- python 2.7 (32 bit)
-- IDA Pro 7.* (tested with 7.0)
+- Python 3.7+ (64 bit)
+- IDA Pro 7.* (tested and developed with 7.4)
 - *(optional)* Hex Ray's Decompiler for x86/x64 architectures
     - (Used to improve accuracy of getting function arguments in `function_tracing`)
 
@@ -170,7 +170,7 @@ To install, you'll need Pyro4 and dill installed in IDA's python folder.
 However, these can be installed somewhere else, as long as it is discoverable within IDA's interpreter.
 
 ```console
-> pip install Pyro4 dill --target=%IDA_DIR%\python
+> pip install Pyro4 dill --target=%IDA_DIR%\python\3
 ```
 
 

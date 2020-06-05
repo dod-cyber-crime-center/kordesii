@@ -7,12 +7,15 @@ import io
 import idc
 
 import kordesii
+from kordesii.utils import EncodedStackString
+from kordesii.utils import Function
 from kordesii.utils import decoderutils
 from kordesii.utils import function_tracing
 from kordesii.utils import utils
 
 
 logger = kordesii.get_logger()
+emulator = function_tracing.Emulator(branch_tracking=False)
 
 
 ENCODINGS = [("utf-8", 1), ("utf-16-le", 2)]
@@ -73,7 +76,7 @@ class StackStringExtractor(object):
         string, encoding = read_string(stack_data)
         if string:
             data = string.encode(encoding)
-            encoded_string = decoderutils.EncodedStackString(
+            encoded_string = EncodedStackString(
                 data, frame_id=var.frame_id, stack_offset=var.stack_offset, string_reference=ip, code_page=encoding
             )
             encoded_string.decoded_data = data
@@ -82,13 +85,12 @@ class StackStringExtractor(object):
     def parse_stack_strings(self, func):
 
         logger.debug("Processing function: 0x{:X}".format(func.start_ea))
-        tracer = function_tracing.get_tracer(func.start_ea)
 
         waiting_for_call = []
 
         context = None
         for ea in func.heads():
-            context = tracer.context_at(ea)
+            context = emulator.context_at(ea)
             if not context:
                 continue
             context.execute()  # also include instruction we are looking at.
@@ -160,15 +162,14 @@ class StackStringExtractor(object):
 @kordesii.decoder_entry
 def main():
 
-    # NOP memset, its emulation is not needed and it's slowing things down.
-    def memset(context, func_name, func_args):
-        return
-
-    function_tracing.hook_tracers("memset", memset)
+    # Disable opcodes and call hooks that are not needed to get
+    # basic stack strings and just slows down processing.
+    emulator.disable("memset")
+    emulator.disable("rep")
 
     for ea, name in utils.iter_functions():
         try:
-            func = decoderutils.SuperFunc_t(ea)
+            func = Function(ea)
         except AttributeError:
             continue
         if not func.is_library:

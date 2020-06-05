@@ -3,14 +3,20 @@
 DC3-Kordesii includes an experimental tracing utility called `function_tracing` that can be used to statically emulate
 and trace instructions within a function.
 
-- [Creating a FunctionTracer](#creating-a-functiontracer)
+- [Creating an Emulator](#creating-an-emulator)
 - [Creating a ProcessorContext](#creating-a-processorcontext)
 - [Iterating Multiple Paths](#iterating-multiple-paths)
 - [Emulating Call Stack](#emulating-call-stack)
+- [Emulating Loops](#emulating-loops)
+- [Retrieving Function Arguments](#retrieving-function-arguments)
 - [Modifying Function Signature](#modifying-function-signature)
+- [Emulating Subroutines](#emulating-subroutines)
 - [Hooking Functions](#hooking-functions)
+- [Hooking Instructions](#hooking-instructions)
 - [Pointer History](#pointer-history)
 - [Variables](#variables)
+- [Objects](#objects)
+- [Actions](#actions)
 
 ### Guides
 - [CPU Emulation](CPUEmulation.md)
@@ -19,23 +25,18 @@ and trace instructions within a function.
 - [Decoder Testing](DecoderTesting.md)
 
 
-## Creating a FunctionTracer
+## Creating an Emulator
 
-To start, we first need to create a `FunctionTracer` object for the function
-that we would like to emulate/trace. This object holds a cache of all
-the possible code paths and emulated contexts as they are generated.
-While you can initialize your own using the `FunctionTracer` object, it
-is recommended to use the `get_tracer()` function to use a previously created
-one if it is available.
+To start, first create an `Emulator` object.
+Usually this can be created at the module level.
 
-The address passed in can be any address within the function you would like to emulate.
+This object can accept options to control how emulation is processed, such as setting `max_instructions` for the `follow_loops` feature or to turn off the branch tracking feature.
 
 ```python
 from kordesii.utils import function_tracing
 
-# First create a tracer for the function at addr.
-addr = 0x401839
-tracer = function_tracing.get_tracer(addr)
+# First create an Emulator object.
+emulator = function_tracing.Emulator()
 ```
 
 ## Creating a ProcessorContext
@@ -52,7 +53,11 @@ If the given instruction is a `call` operation, the passed in arguments can also
 - Memory can be retrieved with the `read_data()` function.
 
 ```python
-context = tracer.context_at(addr)
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
+
+context = emulator.context_at(addr)
 
 # extract the first operand at addr
 operand = context.operands[0]  # equivalent to context.get_operands(addr)[0]
@@ -85,15 +90,15 @@ You are more likely to get an incorrect number of arguments if it's not availabl
 
 
 As a shortcut, extracting the operand value or function arguments can be done directly
-from the `FunctionTracer` object with a single call.
+from the `Emulator` object with a single call.
 Both the extracted value and the context are returned.
 
 ```python
 # (automatically pulls operand.addr or operand.value as appropriate)
-context, value = tracer.get_operand_value(addr, 0)
+context, value = emulator.get_operand_value(addr, 0)
 
 # Get function arguments for a call instruction.
-for context, args in tracer.get_function_args(addr):
+for context, args in emulator.get_function_args(addr):
     for i, arg in enumerate(args):
         print("Arg {} -> 0x{:X}".format(i, arg))
         # If arg is a pointer, you can use the context to dereference it.
@@ -104,22 +109,22 @@ for context, args in tracer.get_function_args(addr):
 
 If you would like to retrieve the context, operands, or function arguments for all possible code paths we can
 use the `iter_context_at()`, `iter_operand_value()` or `iter_function_args()` functions within the
-`FunctionTracer` object.
+`Emulator` object.
 
 *WARNING: It is possible to retrieve an unmanageable amount of possible code paths. It is recommended to break
 out of the for loop as soon as you extracted the data you need.*
 
 ```python
 # Get context for each possible path.
-for context in tracer.iter_context_at(addr):
+for context in emulator.iter_context_at(addr):
     # ...
     
 # Get operand for each possible path.
-for context, value in tracer.iter_operand_value(addr):
+for context, value in emulator.iter_operand_value(addr):
     # ...
     
 # Get function args for each possible path.
-for context, args in tracer.iter_function_args(addr):
+for context, args in emulator.iter_function_args(addr):
     # ...    
 ```
 
@@ -136,7 +141,7 @@ to be `False`.
 
 ```python
 # Get context for each possible path allowing a call stack of 2 previous callers.
-for context in tracer.iter_context_at(addr, depth=2, exhaustive=False):
+for context in emulator.iter_context_at(addr, depth=2, exhaustive=False):
     # ...
 ```
 
@@ -145,13 +150,98 @@ This can be useful if you are trying to pull all possible values for a passed in
 ```python
 # Extract all possible null terminated strings passed in as the first argument.
 strings = []
-for context in tracer.iter_context_at(addr, depth=1):
+for context in emulator.iter_context_at(addr, depth=1):
     # mov     eax, [ebp+arg_0]
     strings.append(context.read_data(context.operands[1].value))
     
 # Extract the function arguments for a call, but add depth of 1 to account for a possible wrapper.
-context, args = tracer.context_at(addr, depth=1)
+context, args = emulator.context_at(addr, depth=1)
 ```
+
+
+## Emulating Loops
+
+By default, when a context, operand, or function argument is requested, the emulator
+forces itself down a path of basic blocks and emulates each block only once, ignoring
+any loops. This is fine for most cases when all we care about is retrieving
+a stack string. However, if we would like to ensure some type of inline routine
+is successfully run we can enable the `follow_loops` flag on any of the following
+functions: `context_at()`, `iter_context_at()`, `get_function_args()`, `iter_function_args()`, `get_operand_value()`, `iter_operand_value()`
+
+```python
+context = emulator.context_at(addr, follow_loops=True)
+```
+
+When `follow_loops` is enabled, the `exhaustive` flag takes on a new meaning.
+If `exhaustive` is also enabled, the emulator follows loops for all call stack levels.
+If `exhaustive` is disabled, only call stack level 0 follows loops. 
+
+WARNING: When emulating loops, there is a chance that the desired end instruction
+never gets reached due to an infinite loop.
+Therefore, there is a limit on the maximum number of instructions allowed before raising a RuntimeError.
+This number is adjustable when initializing the emulator.
+
+```python
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator(max_instructions=10000)
+```
+
+
+
+## Retrieving Function Arguments
+
+The function arguments within a CPU context can be retrieved and set for any `call` instruction
+or on the passed in arguments of the current subroutine that is being traced.
+
+Use the `get_function_arg_objects()` function to retrieve the current arguments relative to the given
+function. Then use the returned objects to retrieve and set the name, type, and value of the argument. As well, the memory address can also be retrieved for stack arguments.
+
+```python
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
+
+
+call_ea = 0x401049
+context = emulator.context_at(call_ea)
+
+args = context.get_function_arg_objects(call_ea)
+print(args[0].name)
+print(args[0].type)
+print(args[0].value)
+print(args[0].declaration)
+
+# Set the value to something new.
+args[0].value = 0xff
+```
+
+As a shortcut, the function arguments for the subroutine currently being traced can be retrieved
+using `passed_in_args`.
+
+This can be useful for allocating the arguments before tracing.
+
+```python
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
+
+func_start = 0x401000
+call_ea = 0x401049
+
+# Create a context with passed in argument allocated before tracing.
+context = emulator.new_context()
+context.ip = func_start
+args = context.passed_in_args
+ptr = context.mem_alloc(10)
+context.mem_write(ptr, b'custom data')
+args[0].value = ptr
+
+# Pull a new context with instructions emulated up to call_ea (not following loops)
+context = emulator.context_at(call_ea, init_context=context)
+print(context.passed_in_args[0].value)
+```
+
 
 
 ## Modifying Function Signature
@@ -163,11 +253,12 @@ can adjust the function signature beforehand through a variety of methods:
 import idc
 from kordesii.utils import function_tracing
 
+emulator = function_tracing.Emulator()
+
 call_ea = 0x401049
-tracer = function_tracing.get_tracer(call_ea)
 
 # Disassember incorrectly determines the number of arguments, we need to modify the function signature.
-context = tracer.context_at(call_ea)
+context = emulator.context_at(call_ea)
 args = context.get_function_args()  # len(args) == 1
 ```
 
@@ -210,25 +301,109 @@ args = context.get_function_args()  # len(args) == 1
                      
     args = [arg.value for arg in func_sig.args]  # len(args) == 2
     ```
-   
+
+
+## Emulating Subroutines
+
+`function_tracing` can statically emulate a full subroutine within the dissasembler as if it was a
+Python function through the use of the `create_emulated()` function. 
+This function accepts an address within a subroutine and returns a Python
+function that emulates the subroutine when executed.
+
+The emulated function accepts the same number of positional arguments as detected by the disassembler
+and returns the rax register.
+
+The emulated function can also accept a `ProcessorContext` as the keyword argument `context`.
+This can be used to allow for modifying the context beforehand or retrieving values afterwards.
+
+```python
+from kordesii.utils import function_tracing
+
+
+emulator = function_tracing.Emulator()
+
+
+# Emulate the XOR decryption function at 0x401000 of strings.exe
+xor_decrypt = emulator.create_emulated(0x401000)
+
+# Create a context that we can fill with our encrypted data before emulating.
+context = emulator.new_context()
+
+# First argument holds a pointer to the encrypted string which gets decrypted in-place.
+enc_data = b'Idmmn!Vnsme '
+key = 1
+ptr = context.mem_alloc(len(enc_data))
+context.mem_write(ptr, enc_data)
+# Pass in arguments and context to fill.
+xor_decrypt(ptr, key, context=context)
+
+print(context.read_data(ptr))
+# b'Hello World!'
+```
+
+The `create_emulated()` function can also accept `return_type` or `return_size` keyword arguments
+to define how to handle the returned pointer. 
+This may help to avoid needing to pass in a context beforehand if only the return value is important.
+
+```python
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
+
+# Emulate the XOR decryption function at 0x401000 of strings.exe
+# The xor decryption function returns a pointer to the decrypted string.
+xor_decrypt = emulator.create_emulated(0x401000, return_type=function_tracing.STRING)
+
+print(xor_decrypt(b'Idmmn!Vnsme ', 1))
+# b'Hello World!'
+```
+
+By default, the number of positional arguments passed into the emulated function does not matter. 
+If too few arguments are provided, the remaining arguments are pulled from the context based on the calling convention of the emulated function. 
+If more arguments than required are provided, they will be ignored. 
+However, if the `enforce_args` keyword argument is set to True, a `TypeError` will be raised.  
+
+```python
+from kordesii.utils import function_tracing
+
+
+emulator = function_tracing.Emulator()
+
+xor_decrypt = emulator.create_emulated(0x401000)
+
+xor_decrypt(b'Idmmn!Vnsme ')
+# Success: Assumes key of 0.
+xor_decrypt(b'Idmmn!Vnsme ', context=ctx)
+# Success: Pulls key from stack in ctx.
+
+xor_decrypt = emulator.create_emulated(0x401000, enforce_args=True)
+
+xor_decrypt(b'Idmmn!Vnsme ')
+# TypeError: Function takes 2 positional arguments, but 1 were given.
+```
+
+A subroutine can also hook to function calls as described in [Hook Emulated Functions](#hook-emulated-functions).
+
 
 ## Hooking Functions
 
-`function_tracing` emulates the calls to a few common C/C++ library functions (`memmove`, `memcpy`, `strcpy`, etc) to help ensure data moves get emulated correctly. These can be found in [builtin_funcs.py](../kordesii/utils/function_tracing/builtin_funcs.py).
+`function_tracing` emulates the calls to a few common C/C++ library functions (`memmove`, `memcpy`, `strcpy`, etc) to help ensure data moves get emulated correctly. These can be found in [call_hooks](../kordesii/utils/function_tracing/call_hooks).
 
 You can also provide your own hooked functions to emulate results and/or report information
-for calls to a specific function. To hook a function, either use the `hook()` function directly
-on your `FunctionTracer` object or with `function_tracing.hook_tracers()` to hook all
-current and future tracers pulled from `get_tracer()`.
+for calls to a specific function. To hook a function, call the `hook_call()` function on
+the `Emulator`. 
 
 The hook function accepts 2 parameters:
 
 1. The name or starting address of the function to hook.
 2. A Python function to be called to emulate the function. This function must accept 3 parameters: the current cpu context, the function name, and the passed in function arguments. This function should then return an appropriate return value that will be then set to the `eax` register or `None` if the register should not be changed.
-    
+   
     
 ```python
 import base64
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
 
 # Using function hooking to emulate a base64 algorithm and collect results for reporting.
 decoded_strings = []
@@ -251,8 +426,47 @@ def func_hook(context, func_name, func_args):
     # emulate returned results
     return len(dst)
 
-function_tracing.hook_tracers('Base64Decode', func_hook)  # function start_ea can also be used instead of a name
+emulator.hook_call('Base64Decode', func_hook)  # function start_ea can also be used instead of a name
 ```
+
+### Hook Emulated Functions
+
+Fully emulated functions that you would get from `create_emulated()` can also hook to a function call by calling the `emulate_call()` function with the function start address or name.
+
+```python
+from kordesii.utils import function_tracing
+
+
+emulator = function_tracing.Emulator()
+xor_func_ea = 0x401000
+
+emulator.emulate_call(xor_func_ea)
+
+# Now all calls to the xor function will be emulated when retrieving a context.
+```
+
+
+## Hooking Instructions
+
+Callback functions can be executed before or after an instruction is emulated through the use of the
+`hook_instruction()` function of the `Emulator` object.
+
+```python
+from kordesii.utils import function_tracing
+
+emulator = function_tracing.Emulator()
+
+
+pushes = []
+def push_hook(context, ip, mnem, operands):
+    pushes.append(operands[0].value)
+
+
+# Hook instructions with "push" opcode to be run before instruction is emulated.
+# pre boolean is used to determine if the hook should run before or after the instruction is emulated.
+emulator.hook_instruction("push", push_hook, pre=True) 
+```
+
 
 ## Pointer History
 
@@ -287,8 +501,14 @@ for var in context.variables:
     print('location = {}'.format('stack' if var.is_stack else 'global'))  # stack vs global variable
     print('size = {}'.format(var.size))    # size of data variable is pointing to.
     print('data = {}'.format(var.data))    # dereferenced raw data
+    print('type = {}'.format(var.data_type))  # the data type of the variable
     print('value = {}'.format(var.value))  # dereferenced variable unpacked based on data type
     print('references = {}'.format(sorted(var.references)))   # instruction addresses that reference this variable
+    
+    # Variable values can also be set.
+    if var.data_type == 'dword':
+        var.value = 21    
+
 
 # variables can also be queried just like a dictionary by either name or address
 if 'arg_0' in context.variables:
@@ -297,4 +517,46 @@ if 'arg_0' in context.variables:
 var = context.variables.get(context.sp + 8, None)
 if var:
     print(var)
+```
+
+
+## Objects
+
+As emulation occurs, some high level objects are recorded in the cpu context which can then be 
+extracted by the user.
+
+Currently files and registry keys are supported.
+
+```python
+print(context.objects)  # Returns ObjectMap class that can be iterated for all instantiated objects.
+
+for obj in context.objects:
+    if isinstance(obj, function_tracing.File):
+        print(obj.name)
+    elif isinstance(obj, function_tracing.RegKey):
+        print(obj.sub_key)
+
+# context.files or context.regkeys can also be used for filtering.
+print(context.files)
+print(context.regkeys)
+
+# Files in particular can be used to write out files using the kordesii framework.
+for file in context.files:
+    if file.data:
+        kordesii.write_unique_file(file.name, file.data)
+```
+
+
+## Actions
+
+As emulation occurs, interesting actions such as registry, file or process activity will be recorded
+in the `actions` attribute. A full list of supported actions can be found in 
+[kordesii.utils.function_tracing.actions](../kordesii/utils/function_tracing/actions.py)
+
+```python
+print(context.actions)
+
+for action in context.actions:
+    if isinstance(action, function_tracing.CommandExecuted):
+        print(f"Executed {action.command} at address {hex(action.ip)}")
 ```

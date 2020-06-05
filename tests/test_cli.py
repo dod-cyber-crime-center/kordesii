@@ -4,6 +4,7 @@ Tests the CLI tools.
 
 import hashlib
 import json
+import os
 import sys
 
 import pytest
@@ -191,7 +192,7 @@ def test_add_testcase(tmpdir, script_runner, strings_exe):
     assert json.loads(test_case_file.read_text("utf8")) == [
         {
             u"debug": [u"[+] Found XOR encrypt function at: 0x401000", u"[+] IDA return code = 0"],
-            u"input_file": str(test_sample),
+            u"input_file": u"{MALWARE_REPO}\\e1b6\\e1b6be6c0c2db8b3d4dca56062ca6301",
             u"strings": [
                 u"Hello World!",
                 u"Test string with key 0x02",
@@ -285,4 +286,4 @@ def test_add_filelist_testcase(tmpdir, script_runner):
         test_sample = malware_repo / md5[:4] / md5
         assert test_sample.exists()
         assert hashlib.md5(test_sample.read_binary()).hexdigest() == md5
-        assert str(test_sample) in input_files
+        assert '{{MALWARE_REPO}}\\{}\\{}'.format(md5[:4], md5) in input_files

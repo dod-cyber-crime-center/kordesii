@@ -48,7 +48,7 @@ def _compute(cpu_context, ip, mnem, operands):
     elif "mul" in mnem:
         op, op_str = operator.mul, "*"
     else:
-        raise RuntimeError("Invalid mnem: {}".format(mnem))
+        raise RuntimeError("Invalid mnem: %s", mnem)
 
     # Collect terms.
     if not operands:
@@ -61,7 +61,7 @@ def _compute(cpu_context, ip, mnem, operands):
         term1 = operands[0].value
         term2 = operands[1].value
     else:
-        logger.debug("{} 0x{:X} :: Unexpected number of operands: {}".format(mnem, ip, len(operands)))
+        logger.debug("Unexpected number of operands: %d", len(operands))
         return
 
     # "r" means to reverse terms.
@@ -89,7 +89,7 @@ def _compute(cpu_context, ip, mnem, operands):
         cpu_context.registers.st0 = result
     else:
         operands[0].value = result
-    logger.debug("{} 0x{:X} :: {} {} {} = {}".format(mnem, ip, term1, op_str, term2, result))
+    logger.debug("%f %s %f = %f", term1, op_str, term2, result)
 
     # Pop if mnem ends with "p"
     if mnem.endswith("p"):
@@ -102,7 +102,7 @@ def FABS(cpu_context, ip, mnem, operands):
     term = cpu_context.registers.st0
     result = abs(term)
     cpu_context.registers.st0 = result
-    logger.debug("{} 0x{:X} :: abs({}) = {}".format(mnem, ip, term, result))
+    logger.debug("abs(%f) = %f", term, result)
 
 
 @opcode
@@ -111,7 +111,7 @@ def FCHS(cpu_context, ip, mnem, operands):
     term = cpu_context.registers.st0
     result = -term
     cpu_context.registers.st0 = result
-    logger.debug("{} 0x{:X} :: -({}) = {}".format(mnem, ip, term, result))
+    logger.debug("-(%f) = %f", term, result)
 
 
 @opcode("fcom")
@@ -139,7 +139,7 @@ def FCOM(cpu_context, ip, mnem, operands):
         term1 = operands[0].value
         term2 = operands[1].value
     else:
-        logger.debug("{} 0x{:X} :: Unexpected number of operands: {}".format(mnem, ip, len(operands)))
+        logger.debug("Unexpected number of operands: %d", len(operands))
         return
 
     # TODO: If either value is empty (ie. None) we must set C3, C2, and C0 to None
@@ -174,7 +174,7 @@ def FCOM(cpu_context, ip, mnem, operands):
     if mnem.endswith("pp"):
         cpu_context.registers.fpu.pop()
 
-    logger.debug("{} 0x{:X} :: Comparing: {} <-> {}".format(mnem, ip, term1, term2))
+    logger.debug("Comparing: %f <-> %f", term1, term2)
 
 
 @opcode("fcmovb")
@@ -205,9 +205,9 @@ def FCMOV(cpu_context, ip, mnem, operands):
     value = operands[1].value
     if condition:
         operands[0].value = value
-        logger.debug("{} 0x{:X} :: Moving: {} -> st0".format(mnem, ip, value))
+        logger.debug("Moving: %f -> st0", value)
     else:
-        logger.debug("{} 0x{:X} :: Not moving: {} -> st0. Condition failed.".format(mnem, ip, value))
+        logger.debug("Not moving: %f -> st0. Condition failed.", value)
 
 
 @opcode("fld")
@@ -242,7 +242,10 @@ def FLD(cpu_context, ip, mnem, operands):
         value = 0.6931471805599453  # math.log(2) = ln(2)
     else:
         raise NotImplementedError("Unsupported mnem: {}".format(mnem))
-    logger.debug("{} 0x{:X} :: Loading: {} -> {} -> st0".format(mnem, ip, orig_value, value))
+    if orig_value is None:
+        logger.debug("Loading: %f -> st0", value)
+    else:
+        logger.debug("Loading: %d -> %f -> st0", orig_value, value)
     cpu_context.registers.fpu.push(value)
 
 
@@ -251,7 +254,7 @@ def FLDCW(cpu_context, ip, mnem, operands):
     """Load control word from memory."""
     value = operands[0].value
     cpu_context.registers.fpu.control_word = value
-    logger.debug("{} 0x{:X} :: Load control word: {}".format(mnem, ip, value))
+    logger.debug("Load control word: %x", value)
 
 
 @opcode("fst")
@@ -268,7 +271,7 @@ def FST(cpu_context, ip, mnem, operands):
     else:
         value = utils.float_to_int(value)
     operands[0].value = value
-    logger.debug("{} 0x{:X} :: Storing: {} -> {} -> {}".format(mnem, ip, orig_value, value, operands[0].text))
+    logger.debug("Storing: %f -> %d -> %s", orig_value, value, operands[0].text)
     if mnem.endswith("p"):
         cpu_context.registers.fpu.pop()
 
@@ -279,7 +282,7 @@ def FSTCW(cpu_context, ip, mnem, operands):
     """Store control word into memory."""
     value = cpu_context.registers.fpu.control_word
     operands[0].value = value
-    logger.debug("{} 0x{:X} :: Store control word: {} -> {}".format(mnem, ip, value, operands[0].text))
+    logger.debug("Store control word: %x -> %s", value, operands[0].text)
 
 
 @opcode
@@ -314,7 +317,7 @@ def FXAM(cpu_context, ip, mnem, operands):
         cpu_context.registers.c2 = 0
         cpu_context.registers.c0 = 0
 
-    logger.debug("{} 0x{:X} :: Examining: {}".format(mnem, ip, st0))
+    logger.debug("Examining: %r", st0)
 
 
 # TODO: This is suppose to exception if st0 is empty.
@@ -326,11 +329,11 @@ def FXCH(cpu_context, ip, mnem, operands):
     if operands:
         opvalue = operands[0].value
         cpu_context.registers.st0, operands[0].value = opvalue, st0
-        logger.debug("{} 0x{:X} :: exchange {} <-> {}".format(mnem, ip, st0, opvalue))
+        logger.debug("exchange %f <-> %f", st0, opvalue)
     else:
         st1 = cpu_context.registers.st1
         cpu_context.registers.st0, cpu_context.registers.st1 = st1, st0
-        logger.debug("{} 0x{:X} :: exchange {} <-> {}".format(mnem, ip, st0, st1))
+        logger.debug("exchange %f <-> %f", st0, st1)
 
 
 @opcode

@@ -8,7 +8,7 @@ filters:
 
 formatters:
   simple:
-    format: "[%(level_char)s] (%(name)s): %(message)s"
+    format: "[%(level_char)s] %(module)-15s : %(message)s"
   error:
     format: "<PID %(process)d:%(processName)s> [%(name)s:%(funcName)s():%(lineno)d]: %(message)s"
 

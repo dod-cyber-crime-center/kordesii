@@ -213,11 +213,12 @@ def start_listener():
 _setup_logging = False
 
 
-def setup_logging(default_level=logging.INFO):
+def setup_logging(level=None):
     """
     Sets up logging using default log config file or log config file set by 'KORDESII_LOG_CFG'
 
-    :param default_level: Default log level to set to if config file fails.
+    :param level: Log level to set.
+        If not provided, level will be based on what is currently set in the root logger.
     """
     if kordesii.in_ida:
         if kordesii.called_from_framework:
@@ -239,10 +240,12 @@ def setup_logging(default_level=logging.INFO):
                 stream_handler = logging.StreamHandler()  # IDA redirects sys.stderr to output window.
                 logging.root.addHandler(stream_handler)
                 stream_handler.addFilter(LevelCharFilter())
-                stream_handler.setFormatter(logging.Formatter("[%(level_char)s] %(message)s"))
+                stream_handler.setFormatter(logging.Formatter("[%(level_char)s] %(module)-15s : %(message)s"))
 
+                if level:
+                    logging.root.setLevel(level)
                 # Use INFO level if log level wasn't set by user.
-                if logging.root.getEffectiveLevel() == logging.NOTSET:
+                elif logging.root.getEffectiveLevel() == logging.NOTSET:
                     logging.root.setLevel(logging.INFO)
 
             # Make sure we only setup once to avoid duplicate log messages.
@@ -256,7 +259,7 @@ def setup_logging(default_level=logging.INFO):
             logging.config.dictConfig(config)
         except IOError as e:
             warnings.warn("Unable to set log config file: {} with error: {}".format(log_config, e))
-            logging.basicConfig(level=default_level)
+            logging.basicConfig(level=level or logging.INFO)
 
         # Receive decoder logs passed though the socket.
         start_listener()

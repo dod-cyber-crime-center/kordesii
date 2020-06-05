@@ -1,10 +1,72 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+
+## [Unreleased]
+
+### Added
+- *function_tracing*
+    - Added ability to follow loops during emulation by enabling the `follow_loops` flag.
+        (See [documenation](docs/CPUEmulation.md#emulating-loops) for more information.)
+    - Full subroutines can be emulated using `create_emulated()` or `emulate_call()`
+        (See [documenation](docs/CPUEmulation.md#emulating-subroutines) for more information.)
+    - Added ability to modify the function arguments using the `FunctionArg` objects returned by the `get_function_arg_objects()` function in the CPU context.
+        (See [documentation](docs/CPUEmulation.md#retrieving-function-arguments) for more information.)
+    - Added `passed_in_args` property in the CPU context which returns a list of `Functionarg` objects for the arguments of the function the context is currently in.
+    - Added `function_args` property in the CPU context which is a shortcut for `get_function_arg_objects()` for the current call instruction.
+    - Added `disable()` function in `Emulator` which allows disabling unnecessary opcodes or function hooks.
+    - Added WinAPI function hooks
+    - Added ability to set variable values retrieved from `ProcessorContext.variables`
+    - Added support for instruction hooks.
+        (See [documentation](docs/CPUEmulation.md#hooking-instructions) for more information.)
+    - Added support for more x86/64 opcodes: STD, SCAS*
+    - Created `kordesii.utils.iter_dynamic_functions()` which iterates dynamically resolved function signatures.
+    - Added recording of interesting actions and high level objects: Files and Registry Keys
+        (See [documentation](docs/CPUEmulation.md#objects) for more information.)
 
 ### Changed
-- Allow call operand type to be taken into account when pulling a function signature. This provides better support for dynamically resolved function calls.
+- Input file paths in test cases now support environment variable expansion. 
+- Input file paths in test cases can include `{MALWARE_REPO}` which will be replaced
+by the currently set malware repository path.
+- *IDA Proxy*
+    - The stack trace in IDA is now locally printed to stderr when an exception occurs in a 
+`run_in_ida` decorated function.
+    - `run_in_ida` decorated functions can now execute other `run_in_ida` decorated functions within the same module.
+- *function_tracing*
+    - Getting and retrieving registers from `ProcessorContext.registers` is no longer case insensitive. Register names must be all lower case. This was done in order to improve emulation speed. 
+        - However, `reg_read()` and `reg_write()` are not affected by this. 
+    - Renamed `CustomBasicBlocks` to `BasicBlocks` to be more consistent with other objects.
+    - Passed in arguments that come from memory or the stack are now added to the `ProcessorContext.variables`
+        attribute after the first instruction of the function is emulated.
+    - Updated `kordesii.utils.iter_functions()` to include dynamically resolved function signatures.
+    - Allow call operand type to be taken into account when pulling a function signature. This provides better support for dynamically resolved function calls. (@ddash-ct)
+- Moved functions and classes:
+    - `kordesii.utils.decoderutils.SuperFunc_t` -> `kordesii.utils.Function`
+    - `kordesii.utils.decoderutils.EncodedString` -> `kordesii.utils.EncodedString`
+    - `kordesii.utils.decoderutils.EncodedStackString` -> `kordesii.utils.EncodedStackString`
+    - `kordesii.utils.decoderutils.find_destination` -> `kordesii.utils.find_destination`
+    - `kordesii.utils.decoderutils.re_find_functions` -> `kordesii.utils.ida_re.find_functions`
+    - `kordesii.utils.decoderutils.yara_find_decode_functions` -> `kordesii.utils.yara.find_functions`
+    - `kordesii.utils.utils.*` -> `kordesii.utils.*`
+    - `kordesii.utils.function_tracing.flowchart.FlowChart` -> `kordesii.utils.Flowchart`
+
+### Fixed
+- Remote logs using IDA proxy are now displayed.
+- If a log level is passed into `kordesii.setup_logging()` it will now be used set to the root logger for you.
+- *function_tracing*
+    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode. 
+
+### Deprecated
+- Old locations for moved functions and classes mentioned above are deprecated and will be removed in a 
+future version.
+- Deprecated `FunctionTracer` and `get_tracer()` in exchange for creating a global instance of an `Emulator` object. This object just needs to be instantiated once on the top of your modules and is used in the same way as a function tracer but for any function.  It is also used to apply call hooks.
+  - See [documentation](docs/CPUEmulation.md) for more information.
+- `kordesii.utils.decoderutils.make_superfunc_t_from_matches()`
+
+### Removed
+- *function_tracing*
+    - Removed broken and unused `path_to_ea()` function in `Flowchart`
+
 
 ## [2.0.1] - 2020-05-01
 
@@ -42,7 +104,7 @@ All notable changes to this project will be documented in this file.
 
 **NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
 The next release will only support Python 3 and IDA >= 7.4.**
-
+f
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 - *function_tracing:*
@@ -160,7 +222,7 @@ The next release will only support Python 3 and IDA >= 7.4.**
    context to read out the data they need.
    - `read_data()` function in `ProcessorContext` will now default to a C string if size isn't provided.
 - Calling `calc_size()` from the `EncodedString` object is no longer necessary. Encoded data will automatically be extracted during initialization.
-   
+  
 ### Deprecated
 - `decoderutils.INVALID` and `decoderutils.UNUSED` enums are deprecated in exchange for using `None` directly.
 - `decoderutils.output_strings()` is deprecated in exchange for calling `.publish()` on the `EncodedString` object.
@@ -168,18 +230,18 @@ The next release will only support Python 3 and IDA >= 7.4.**
 - *function_tracing:*
     - `bfs_iter_heads()`, `bfs_iter_blocks()`, `dfs_iter_heads()`, and `dfs_iter_blocks()` in `FlowChart` are all deprecated in 
     favor of using the `heads()` and `blocks()` functions with the optional `dfs` parameter.
-   
+
 ### Fixed
 - Fixed issue with logs not being displayed if the log port was still bound to a previous process.
 - *function_tracing:*
     - Fixed bug with `shr` opcode
     - Fixed issue with missing trailing null byte when extracting a little endian wide byte with `read_data()` (#7)
     - Refactored memory controller to eliminate unexpected mapping errors.
-     
+    
 
 ### Removed
 - Removed `find_unrefd_encoded_strings()` function in `decoderutils`
-   
+  
    
 ## [1.4.1] - 2019-04-10
 ### Fixed
@@ -204,7 +266,7 @@ The next release will only support Python 3 and IDA >= 7.4.**
     - This tool simplifies and cleans up the old CLI flags and uses subcommands for better organization.
 - Ability to set a parser source with `--parser-source` flag.
 - `FunctionTracer` caching with `function_tracing.TracerCache`
- 
+
 ### Changed
 - "decodertests" folder has been moved to within the "decoders" folder and renamed "tests".
 - Improved CPU emulation results by modifying necessary registers to satisfy jump conditions.

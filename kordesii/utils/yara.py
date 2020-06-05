@@ -20,6 +20,7 @@ usage::
 """
 
 import logging
+from typing import Iterable, List, Tuple
 
 import idc
 import idaapi
@@ -28,6 +29,7 @@ import yara
 from yara import *
 
 from kordesii.utils import segments
+from kordesii.utils.functions import Function
 
 
 logger = logging.getLogger(__name__)
@@ -108,12 +110,12 @@ class Rules(object):
         return self._infos
 
     @property
-    def names(self):
+    def names(self) -> List[str]:
         """Returns names of all the rules contained within."""
         infos = self._extract_info()
         return [info["rule"] for info in infos]
 
-    def match(self, *args, **kwargs):
+    def match(self, *args, **kwargs) -> List[Match]:
         """
         Patched to use our patched Match() object and allow for automatically running
         on IDB input file.
@@ -138,7 +140,7 @@ class Rules(object):
 
         return [Match(match, offset=offset, file_offset=input_offset) for match in self._rules.match(*args, **kwargs)]
 
-    def match_strings(self, *args, **kwargs):
+    def match_strings(self, *args, **kwargs) -> List[Tuple[int, str]]:
         """
         Runs match() but then returns tuples containing matched strings instead of Match objects.
 
@@ -166,14 +168,34 @@ def load(*args, **kwargs):
 # Convenience functions ==============
 
 
-def match(rule_text, *args, **kwargs):
+def match(rule_text: str, *args, **kwargs) -> List[Match]:
+    """Returns list of Match objects"""
     rule = compile(source=rule_text)
     return rule.match(*args, **kwargs)
 
 
-def match_strings(rule_text, *args, **kwargs):
+def match_strings(rule_text: str, *args, **kwargs) -> List[Tuple[int, str]]:
+    """Returns list of (offset, string identifier)"""
     rule = compile(source=rule_text)
     return rule.match_strings(*args, **kwargs)
 
+
+def find_functions(rule_text: str, *args, **kwargs) -> Iterable[Function]:
+    """
+    Iterates functions that match the given rule text.
+    """
+    rule = compile(source=rule_text)
+
+    cache = set()
+    for match in rule.match(*args, **kwargs):
+        for ea, identifier, _ in match.strings:
+            try:
+                func = Function(ea, identifier)
+            except AttributeError:
+                continue
+
+            if func not in cache:
+                cache.add(func)
+                yield func
 
 # ====================================

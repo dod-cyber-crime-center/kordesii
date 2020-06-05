@@ -6,6 +6,7 @@ decoder is re-run and compared to previous results.
 import difflib
 
 from io import open
+import textwrap
 
 import json
 import multiprocessing as mp
@@ -77,6 +78,7 @@ class Tester(object):
         nprocs=None,
         field_names=None,
         ignore_field_names=DEFAULT_EXCLUDE_FIELDS,
+        malware_repo=None,
     ):
         """
         Run tests and compare produced results to expected results.
@@ -98,6 +100,7 @@ class Tester(object):
         self.decoder_names = decoder_names or [None]
         self.field_names = field_names or []
         self.ignore_field_names = ignore_field_names
+        self.malware_repo = malware_repo
         self._test_cases = None
         self._results = []  # Cached results.
         self._processed = False
@@ -146,14 +149,7 @@ class Tester(object):
                 found = True
                 results_file_path = self.get_results_filepath(decoder.full_name)
                 if os.path.isfile(results_file_path):
-                    for expected_results in self.parse_results_file(results_file_path):
-                        # Add results_file_path for relative paths.
-                        # NOTE: os.path.join will ignore the prefix we add if the second is not relative.
-                        input_file_path = expected_results[INPUT_FILE_PATH]
-                        input_file_path = os.path.join(os.path.dirname(results_file_path), input_file_path)
-                        input_file_path = os.path.abspath(input_file_path)
-                        expected_results[INPUT_FILE_PATH] = input_file_path
-
+                    for expected_results in self.read_results_file(results_file_path):
                         self._test_cases.append(
                             TestCase(
                                 self.reporter,
@@ -187,6 +183,12 @@ class Tester(object):
         self.reporter.metadata[INPUT_FILE_PATH] = os.path.abspath(input_file_path)
         return self.reporter.metadata
 
+    def _list_test_files(self, results_list):
+        """
+        Returns a list of the input file paths for the given results_list.
+        """
+        return [results[INPUT_FILE_PATH] for results in results_list]
+
     def get_results_filepath(self, decoder_name):
         """
         Get a results file path based on the decoder name provided and the
@@ -204,19 +206,55 @@ class Tester(object):
 
         raise ValueError("Invalid parser: {}".format(decoder_name))
 
-    def parse_results_file(self, results_file_path):
+    def read_results_file(self, results_file_path):
         """
         Parse the the JSON results file and return the parsed data.
         """
-
-        with open(results_file_path, "r", encoding="utf8") as results_file:
-            data = json.load(results_file)
+        if not os.path.exists(results_file_path):
+            results = []
+        else:
+            with open(results_file_path, "r", encoding="utf8") as results_file:
+                results = json.load(results_file)
 
         # The results file data is expected to be a list of metadata dictionaries
-        if not isinstance(data, list) or not all(isinstance(a, dict) for a in data):
+        if not isinstance(results, list) or not all(isinstance(a, dict) for a in results):
             raise ValueError("Results file is invalid: {}".format(results_file_path))
 
-        return data
+        # Replace {MALAWARE_REPO} with full input file.
+        for result in results:
+            # Add results_file_path for relative paths.
+            # NOTE: os.path.join will ignore the prefix we add if the second is not relative.
+            input_file_path = result[INPUT_FILE_PATH]
+            # expand environment variables
+            input_file_path = os.path.expandvars(input_file_path)
+            # resolve variables
+            if self.malware_repo:
+                input_file_path = input_file_path.format(MALWARE_REPO=self.malware_repo)
+
+            input_file_path = os.path.join(os.path.dirname(results_file_path), input_file_path)
+            input_file_path = os.path.abspath(input_file_path)
+            result[INPUT_FILE_PATH] = input_file_path
+
+        return results
+
+    def write_results_file(self, results_list, file_path):
+        """
+        Saves the JSON results list to the given file path.
+        :param list[dict] results_list: JSON results list to save
+        :param str file_path: Path to save the results JSON file.
+        """
+        # Replace references to the malware repo with a variable.
+        if self.malware_repo:
+            for results in results_list:
+                input_file_path = results[INPUT_FILE_PATH]
+                if input_file_path.startswith(self.malware_repo):
+                    input_file_path = "{MALWARE_REPO}" + input_file_path[len(self.malware_repo) :]
+                results[INPUT_FILE_PATH] = input_file_path
+
+        # Write updated data to results file
+        # NOTE: We need to use dumps instead of dump to avoid TypeError.
+        with open(file_path, "w", encoding="utf8") as results_file:
+            results_file.write(str(json.dumps(results_list, indent=4, sort_keys=True)))
 
     def update_tests(self, force=False):
         """
@@ -228,21 +266,26 @@ class Tester(object):
         logging.root.setLevel(logging.INFO)  # Force info level logs so test cases stay consistent.
         try:
             for decoder_name in self.decoder_names:
-                for decoder in kordesii.iter_decoders(decoder_name):
-                    results_file_path = self.get_results_filepath(decoder.full_name)
-                    if not os.path.isfile(results_file_path):
-                        logger.warning("No test case file found for parser: {}")
+                results_file_path = self.get_results_filepath(decoder_name)
+                if not os.path.isfile(results_file_path):
+                    logger.warning("No test case file found for decoder: {}")
+                    continue
+                results_list = self.read_results_file(results_file_path)
+                for index, file_path in enumerate(self._list_test_files(results_list)):
+                    new_results = self.gen_results(decoder_name, file_path)
+                    if not new_results:
+                        logger.warning(
+                            "Empty results for {} in {}, not updating.".format(file_path, results_file_path)
+                        )
                         continue
-                    for results in self.parse_results_file(results_file_path):
-                        input_file = results[INPUT_FILE_PATH]
-                        metadata = self.gen_results(decoder.full_name, input_file)
-                        if not metadata:
-                            logger.warning(
-                                "Empty results for {} in {}, not updating.".format(input_file, results_file_path)
-                            )
-                        if force or not self.reporter.errors:
-                            logger.info("Updating results for {} in {}".format(input_file, results_file_path))
-                            self._update_test_results(results_file_path, metadata, replace=True)
+                    if self.reporter.errors and not force:
+                        logger.warning("Results for {} has errors, not updating.".format(file_path))
+                        continue
+
+                    logger.info("Updating results for {} in {}".format(file_path, results_file_path))
+                    results_list[index] = new_results
+                        # self._update_test_results(results_file_path, metadata, replace=True)
+                self.write_results_file(results_list, results_file_path)
         finally:
             logging.root.setLevel(orig_level)
 
@@ -257,65 +300,45 @@ class Tester(object):
         logging.root.setLevel(logging.INFO)  # Force info level logs so test cases stay consistent.
         try:
             for decoder_name in self.decoder_names:
-                for decoder in kordesii.iter_decoders(decoder_name):
-                    results_file_path = self.get_results_filepath(decoder.full_name)
-                    metadata = self.gen_results(decoder.full_name, file_path)
-                    if not metadata:
-                        logger.warning("Empty results for {} in {}, not adding.".format(file_path, results_file_path))
-                    if force or not self.reporter.errors:
-                        logger.info("Adding results for {} in {}".format(file_path, results_file_path))
-                        self._update_test_results(results_file_path, metadata, replace=True)
+                results_file_path = self.get_results_filepath(decoder_name)
+                results_list = self.read_results_file(results_file_path)
+                input_files = self._list_test_files(results_list)
+
+                if file_path in input_files:
+                    logger.warning("Test case for {} already exists in {}".format(file_path, results_file_path))
+                    continue
+
+                new_results = self.gen_results(decoder_name, file_path)
+                if not new_results:
+                    logger.warning("Empty results for {} in {}, not adding.".format(file_path, results_file_path))
+                    continue
+                if self.reporter.errors and not force:
+                    logger.warning("Results for {} has errors, not adding.".format(file_path))
+                    continue
+
+                logger.info("Adding results for {} in {}".format(file_path, results_file_path))
+                results_list.append(new_results)
+
+                # self._update_test_results(results_file_path, new_results, replace=True)
+                self.write_results_file(results_list, results_file_path)
         finally:
             logging.root.setLevel(orig_level)
 
     def remove_test(self, file_path):
         """Removes test case for given file path."""
         for decoder_name in self.decoder_names:
-            for decoder in kordesii.iter_decoders(decoder_name):
-                results_file_path = self.get_results_filepath(decoder.full_name)
-                results_file_data = []
-                for metadata in self.parse_results_file(results_file_path):
-                    if metadata[INPUT_FILE_PATH] == file_path:
-                        logger.info("Removed results for {} in {}".format(file_path, results_file_path))
-                    else:
-                        results_file_data.append(metadata)
+            results_file_path = self.get_results_filepath(decoder_name)
+            results_list = []
+            removed = False
+            for results in self.read_results_file(results_file_path):
+                if results[INPUT_FILE_PATH] == file_path:
+                    logger.info("Removed results for {} in {}".format(file_path, results_file_path))
+                    removed = True
+                else:
+                    results_list.append(results)
 
-                with open(results_file_path, "w", encoding="utf8") as results_file:
-                    results_file.write(str(json.dumps(results_file_data, indent=4, sort_keys=True)))
-
-    def _update_test_results(self, results_file_path, results_data, replace=True):
-        """
-        Update results in the results file with the passed in results data. If the
-        file path for the results data matches a file path that is already found in
-        the passed in results file, then the replace argument comes into play to
-        determine if the record should be replaced.
-        """
-        # The results data is expected to be a dictionary representing results
-        # for a single file
-        assert isinstance(results_data, dict)
-
-        if os.path.isfile(results_file_path):
-            results_file_data = self.parse_results_file(results_file_path)
-
-            # Check if there is a duplicate file path already in the results
-            # path
-            for index, metadata in enumerate(results_file_data):
-                if metadata[INPUT_FILE_PATH] == results_data[INPUT_FILE_PATH]:
-                    if replace:
-                        results_file_data[index] = results_data
-                    break
-            else:
-                # If no duplicate found, then append the passed in results data to
-                # existing results
-                results_file_data.append(results_data)
-        else:
-            # Results file should be a list of metadata dictionaries
-            results_file_data = [results_data]
-
-        # Write updated data to results file
-        # NOTE: We need to use dumps instead of dump to avoid TypeError.
-        with open(results_file_path, "w", encoding="utf8") as results_file:
-            json.dump(results_file_data, results_file, indent=4, sort_keys=True)
+            if removed:
+                self.write_results_file(results_list, results_file_path)
 
 
 class TestCase(object):
@@ -525,21 +548,18 @@ class ResultComparison(object):
         elif self._diff_report:
             return self._diff_report
         else:
-            tab = tabs * "\t"
-            tab_1 = tab + "\t"
-            tab_2 = tab_1 + "\t"
-            report = tab + "{}:\n".format(self.field)
-            report += tab_1 + "Passed: {}\n".format(self.passed)
+            report = f"{self.field}:\n"
+            report += f"\tPassed: {self.passed}\n"
             if self.missing:
-                report += tab_1 + "Missing:\n"
+                report += "\tMissing:\n"
                 for item in self.missing:
-                    report += tab_2 + "{!r}\n".format(item)
+                    report += f"\t\t{repr(item)}\n"
             if self.unexpected:
-                report += tab_1 + "Unexpected:\n"
+                report += "\tUnexpected:\n"
                 for item in self.unexpected:
-                    report += tab_2 + "{!r}\n".format(item)
+                    report += f"\t\t{repr(item)}\n"
 
-            return report.rstrip()
+            return textwrap.indent(report, "\t" * tabs).rstrip()
 
     def _diff(self, test_case_results: str, new_results: str):
         diff = difflib.context_diff(

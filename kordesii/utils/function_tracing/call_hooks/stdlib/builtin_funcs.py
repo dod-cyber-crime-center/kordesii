@@ -1,80 +1,15 @@
 """
-CPU EMULATOR BUILTIN FUNCTIONS
-
-These functions are used to emulate the effects of known builtin functions.
-
-Add any builtin functions that need to be handled below.  The function should be declared as such
-
-# Using the same function for multiple instructions:
-@builtin_func("memmove")
-@builtin_func("memcpy")
-def _memcpy(cpu_context, call_ip, func_name, func_args):
-    print "IN memmove or memcpy"
-    return 1  # Return anything to be placed into rax (or equivalent)
-
-# Using a single function for a builtin
-@builtin_func
-def memmove(cpu_context, call_ip, func_name, func_args):
-    print "IN memmove"
-
+Common standard C library builtin functions.
 """
 
-import six
-
 import logging
-from contextlib import contextmanager
+import re
 
-from . import utils
-from .constants import *
-from .registry import registrar
+from ... import utils
+from ... import constants
+from ...call_hooks import builtin_func
 
 logger = logging.getLogger(__name__)
-
-
-# Dictionary containing builtin function names -> function
-BUILTINS = {}
-builtin_func = registrar(BUILTINS, name="builtin")
-
-# Collections of user defined hooks.
-_USER_DEFINED = None
-
-
-def get(func_name_or_start_ea):
-    """
-    Gets function hook for given function name or start address.
-
-    :param func_name_or_start_ea: Name or start address of the function to get hook for.
-
-    :return: A function to run.
-    :rtype: function
-    """
-    # Convert the string to lowercase so it can match the dictionary of built-in functions
-    if isinstance(func_name_or_start_ea, str):
-        func_name_or_start_ea = func_name_or_start_ea.lower()
-
-    # First check user defined hooks.
-    if _USER_DEFINED and func_name_or_start_ea in _USER_DEFINED:
-        return _USER_DEFINED[func_name_or_start_ea]
-
-    # Then pull from our builtins.
-    return BUILTINS.get(func_name_or_start_ea)
-
-
-@contextmanager
-def hooks(hooks):
-    """
-    Context manager used to temporarily set the given user defined function hooks
-    during emulation.
-
-    :param hooks: Dictionary of function names mapping to hook functions.
-    :return:
-    """
-    global _USER_DEFINED
-    try:
-        _USER_DEFINED = hooks
-        yield
-    finally:
-        _USER_DEFINED = None
 
 
 @builtin_func("_alloca")
@@ -90,7 +25,7 @@ def _alloca(cpu_context, func_name, func_args):
     (size,) = func_args
     if size:
         size = utils.align_page_up(size)
-        logger.debug(" :: Allocating {} bytes of stack space.".format(size))
+        logger.debug("Allocating %d bytes of stack space.", size)
         # Returns a pointer to our allocated stack space.
         return cpu_context.sp - size
 
@@ -107,7 +42,7 @@ def malloc(cpu_context, func_name, func_args):
     else:
         (size,) = func_args
     if size:
-        logger.debug(" :: Allocating {} bytes of memory.".format(size))
+        logger.debug("Allocating %d bytes of memory.", size)
         return cpu_context.mem_alloc(size)
 
 
@@ -128,13 +63,13 @@ def new(cpu_context, func_name, func_args):
         ptr = 0
     if size:
         if ptr:
-            logger.debug(" :: Mapping {} bytes into 0x{:X}".format(size, ptr))
+            logger.debug("Mapping %d bytes into 0x%X", size, ptr)
             # If a pointer was provided, just give it back to them without doing anything.
             # Our memory controller will automatically allocate pages as they are being written.
             return ptr
-        else:
-            logger.debug(" :: Allocating {} bytes of memory.".format(size))
-            return cpu_context.mem_alloc(size)
+
+        logger.debug("Allocating %d bytes of memory.", size)
+        return cpu_context.mem_alloc(size)
 
 
 @builtin_func
@@ -144,7 +79,7 @@ def realloc(cpu_context, func_name, func_args):
     """
     ptr, size = func_args
     if ptr and size:
-        logger.debug(" :: Reallocating 0x{:X} with {} bytes.".format(ptr, size))
+        logger.debug("Reallocating 0x%X with %d bytes.", ptr, size)
         return cpu_context.mem_realloc(ptr, size)
 
 
@@ -158,14 +93,12 @@ def memchr(cpu_context, func_name, func_args):
     to it.
     """
     data_ptr, value, num = func_args
-    if six.PY2:
-        value = chr(value)
 
     ptr = cpu_context.memory.find(value, start=data_ptr, end=data_ptr + num)
     if ptr == -1:
         return 0
-    else:
-        return ptr
+
+    return ptr
 
 
 @builtin_func("memmove")
@@ -192,7 +125,7 @@ def memcpy(cpu_context, func_name, func_args):
         count *= 2
 
     if dst and src:
-        logger.debug(" :: Copying {} bytes from 0x{:X} to 0x{:X}".format(count, src, dst))
+        logger.debug("Copying %d bytes from 0x%X to 0x%X", count, src, dst)
         cpu_context.mem_copy(src, dst, count)
         return 0 if secure else dst
 
@@ -204,8 +137,8 @@ def memset(cpu_context, func_name, func_args):
     """
     dst, ch, count = func_args
     if dst:
-        logger.debug(" :: Writing {!r} * {} to 0x{:X}".format(chr(ch), count, dst))
-        cpu_context.mem_write(dst, chr(ch) * count)
+        logger.debug("Writing %r * %d to 0x%X", chr(ch), count, dst)
+        cpu_context.mem_write(dst, bytes([ch]) * count)
     return dst
 
 
@@ -213,15 +146,16 @@ def memset(cpu_context, func_name, func_args):
 def memcmp(cpu_context, func_name, func_args):
     lhs, rhs, count = func_args
     if lhs and rhs:
-        logger.debug(" :: Comparing the first {} bytes in 0x{:X} with 0x{:X}".format(count, lhs, rhs))
+        logger.debug("Comparing the first %d bytes in 0x%X with 0x%X", count, lhs, rhs)
         left = cpu_context.mem_read(lhs, count)
         right = cpu_context.mem_read(rhs, count)
         if left < right:
             return -1
-        elif left > right:
+
+        if left > right:
             return 1
-        else:
-            return 0
+
+        return 0
 
 
 @builtin_func("strcat")
@@ -247,9 +181,9 @@ def strcat(cpu_context, func_name, func_args):
         dst_size = None
 
     if dst and src:
-        logger.debug(" :: Concatenating c string in 0x{:X} to c string in 0x{:X}".format(src, dst))
-        append_str = cpu_context.read_data(src, data_type=WIDE_STRING if wide else STRING)
-        dest_str = cpu_context.read_data(dst, data_type=WIDE_STRING if wide else STRING)
+        logger.debug("Concatenating c string in 0x%X to c string in 0x%X", src, dst)
+        append_str = cpu_context.read_data(src, data_type=constants.WIDE_STRING if wide else constants.STRING)
+        dest_str = cpu_context.read_data(dst, data_type=constants.WIDE_STRING if wide else constants.STRING)
         null_offset = dst + len(dest_str)
         if dst_size is not None:
             dst_size -= null_offset - dst
@@ -282,9 +216,9 @@ def strncat(cpu_context, func_name, func_args):
         count *= 2
 
     if dst and src:
-        logger.debug(" :: Concatenating c string in 0x{:X} to c string in 0x{:X}".format(src, dst))
-        append_str = cpu_context.read_data(src, data_type=WIDE_STRING if wide else STRING)[:count]
-        dest_str = cpu_context.read_data(dst, data_type=WIDE_STRING if wide else STRING)
+        logger.debug("Concatenating c string in 0x%X to c string in 0x%X", src, dst)
+        append_str = cpu_context.read_data(src, data_type=constants.WIDE_STRING if wide else constants.STRING)[:count]
+        dest_str = cpu_context.read_data(dst, data_type=constants.WIDE_STRING if wide else constants.STRING)
         null_offset = dst + len(dest_str)
         if dst_size is not None:
             dst_size -= null_offset - dst
@@ -320,8 +254,6 @@ def strchr(cpu_context, func_name, func_args):
     """
     string_ptr, character = func_args
     string = cpu_context.read_data(string_ptr)
-    if six.PY2:
-        character = chr(character)
 
     if func_name == "strchr":
         offset = string.find(character)
@@ -330,8 +262,8 @@ def strchr(cpu_context, func_name, func_args):
 
     if offset == -1:
         return 0
-    else:
-        return string_ptr + offset
+
+    return string_ptr + offset
 
 
 @builtin_func("strcpy")
@@ -355,9 +287,9 @@ def strcpy(cpu_context, func_name, func_args):
         dst_size = None
 
     if dst and src:
-        logger.debug(" :: Copying c string in 0x{:X} to 0x{:X}".format(src, dst))
+        logger.debug("Copying c string in 0x%X to 0x%X", src, dst)
         terminator = b"\0\0" if wide else b"\0"
-        src_str = cpu_context.read_data(src, data_type=WIDE_STRING if wide else STRING) + terminator
+        src_str = cpu_context.read_data(src, data_type=constants.WIDE_STRING if wide else constants.STRING) + terminator
         size = len(src_str)
         if dst_size is not None:
             size = min(dst_size, size)  # limit to dst_size if secure.
@@ -389,9 +321,9 @@ def strncpy(cpu_context, func_name, func_args):
         count *= 2
 
     if dst and src:
-        logger.debug(" :: Copying c string in 0x{:X} to 0x{:X}".format(src, dst))
+        logger.debug("Copying c string in 0x%X to 0x%X", src, dst)
         terminator = b"\0\0" if wide else b"\0"
-        src_str = cpu_context.read_data(src, data_type=WIDE_STRING if wide else STRING) + terminator
+        src_str = cpu_context.read_data(src, data_type=constants.WIDE_STRING if wide else constants.STRING) + terminator
         size = min(count, len(src_str))
         cpu_context.mem_copy(src, dst, size)
         # Non-secure version also pads the rest with null characters to reach count size
@@ -400,9 +332,8 @@ def strncpy(cpu_context, func_name, func_args):
             delta = count - size
             if delta > 0x1000:
                 logger.warning(
-                    " :: Attempted to write {} bytes of padding. Ignoring request and using {} bytes "
-                    "of padding instead.".format(delta, 0x1000)
-                )
+                    "Attempted to write %d bytes of padding. Ignoring request and using %d bytes "
+                    "of padding instead.", delta, 0x1000)
                 delta = 0x1000
             cpu_context.mem_write(src + size, b"\0" * delta)
         return 0 if secure else dst
@@ -416,7 +347,7 @@ def strdup(cpu_context, func_name, func_args):
     """
     (str_ptr,) = func_args
     if str_ptr:
-        logger.debug(" :: Copying c string in 0x{:X} to new pointer.".format(str_ptr))
+        logger.debug("Copying c string in 0x%X to new pointer.", str_ptr)
         null_offset = cpu_context.memory.find(b"\0", start=str_ptr)
         size = null_offset - str_ptr
         # create new pointer
@@ -435,9 +366,9 @@ def strndup(cpu_context, func_name, func_args):
     """
     str_ptr, size = func_args
     if str_ptr:
-        logger.debug(" :: Copying {} bytes of c string in 0x{:X} to new pointer.".format(size, str_ptr))
+        logger.debug("Copying %d bytes of c string in 0x%X to new pointer.", size, str_ptr)
         null_offset = cpu_context.memory.find(b"\0", start=str_ptr)
-        size - min(size, null_offset - str_ptr)
+        size = min(size, null_offset - str_ptr)
         # create new pointer
         new_ptr = cpu_context.mem_alloc(size + 1)
         # Copy at most size bytes of data then add the null terminator.
@@ -465,9 +396,9 @@ def strlen(cpu_context, func_name, func_args):
         strsz = None
 
     if str_ptr:
-        logger.debug(" :: Getting length of c string in 0x{:X}".format(str_ptr))
-        str = cpu_context.read_data(str_ptr, data_type=WIDE_STRING if wide else STRING)
-        size = len(str)
+        logger.debug("Getting length of c string in 0x%X", str_ptr)
+        sstr = cpu_context.read_data(str_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING)
+        size = len(sstr)
         if wide:
             size /= 2
         # For secure version, strsz is returned if the terminator was not found
@@ -491,5 +422,75 @@ def strstr(cpu_context, func_name, func_args):
     offset = str1.find(str2)
     if offset == -1:
         return 0
-    else:
-        return str1_ptr + offset
+
+    return str1_ptr + offset
+
+
+@builtin_func
+def sprintf(ctx, func_name, func_args):
+    """
+    Format a string based on provided format string and parameters.
+
+    For sprintf, there's no way to know up front how many args are needed, but there should always be at least
+    2 (destination and format).  We can use the format string to determine how many arguments we need by counting the
+    % symbols.
+    """
+    # Almost guaranteed to get the incorrect number of args.  So obtain the format string and count the number of
+    # % symbols to determine how many args we need, not including the first 2
+    if len(func_args) < 2:   # Ensure that there are at least 2 arguments, dest and format
+        # Need to try to get at least 2 arguments...
+        func_args = ctx.get_function_args(num_args=2)
+
+    dest = func_args[0]
+    fmt = ctx.read_data(func_args[1])
+    logger.debug("Format string: %s", fmt)
+
+    # Format using best attempt here.  Basically, locate all the % format strings, and convert them to a python
+    # supported format string.  For each format string, extract the appropriate data from the context, and append it to
+    # the values list.
+    fmt_val_re = re.compile(br"""
+    %                           # start with percent character
+    [-+ #0]{0,1}                # optional flag character
+    (\*|[0-9]{1,}){0,}          # optional width specifier, though mutually exclusive (either a number or *, not both)
+    ((\.[0-9]{1,})|\.\*){0,}    # optional precision specifier, mutually exclusive
+    [diuoxXfFeEgGaAcspn]        # format type
+    """, re.VERBOSE)
+
+    # NOTE: findall() produces empty results so we need to use finditer()
+    fmt_vals = [match.group() for match in fmt_val_re.finditer(fmt)]
+    logger.debug("Format vals: %r", fmt_vals)
+
+    # Re-pull function arguments with correct number of arguments.
+    func_args = ctx.get_function_args(num_args=2 + len(fmt_vals))
+
+    format_vals = []
+    arg_pos = 2  # skip destination and format string
+    for match in fmt_vals:
+        if b'*' in match:
+            # Indicates that one of the parameters is a width, which must be pulled and added to the list first
+            format_vals.append(func_args[arg_pos])
+            arg_pos += 1
+
+        if match.endswith(b'c'):  # character (will this be the value or a read from the context???
+            arg_val = func_args[arg_pos]
+            if arg_val <= 0xFF:  # assume that the argument contains the character
+                format_vals.append(arg_val)
+            else:   # assume it's a pointer that must be dereferenced
+                format_vals.append(ctx.read_data(arg_val, size=1))
+
+        elif match.endswith(b's'):  # string value, should be a pointer
+            _arg = ctx.read_data(func_args[arg_pos])
+            if not len(_arg):   # If the argument isn't set during parsing, preserve the formatting
+                logger.debug("Pulled 0 byte format string, reverting")
+                _arg = b"%s"
+            format_vals.append(_arg)
+
+        else:   # all other numerical types???
+            format_vals.append(func_args[arg_pos])
+
+        arg_pos += 1
+
+    result = fmt % tuple(format_vals)
+    logger.debug("Writing formatted value %s to 0x%X", result, dest)
+    ctx.mem_write(dest, result + b'\0')
+    return len(result)

@@ -176,7 +176,6 @@ class FPURegisters(RegisterMap):
 
         # "st*" register field is special and refers to the top of the stack.
         # TODO: Determine the name IDA uses to refer to the other stack elements.
-        reg_name = reg_name.lower()
         if not reg_name.startswith("st"):
             return super(FPURegisters, self).__getattr__(reg_name)
 
@@ -202,7 +201,6 @@ class FPURegisters(RegisterMap):
             return
 
         # "st" register field is special and refers to the top of the stack.
-        reg_name = reg_name.lower()
         if not reg_name.startswith("st"):
             super(FPURegisters, self).__setattr__(reg_name, value)
             return
@@ -238,7 +236,7 @@ class FPURegisters(RegisterMap):
         # Decrement stack pointer and then add value.
         self.top = (self.top - 1) % 8
         self.st = value
-        logger.debug(":: Pushed on FPU stack: {}".format(value))
+        logger.debug("Pushed on FPU stack: %r", value)
 
     def pop(self):
         # Retreive top of stack, mark it as empty, then increment stack pointer.
@@ -246,5 +244,5 @@ class FPURegisters(RegisterMap):
         self[self._TAG_MAP[self.top]] = 0b11  # mark as empty
         self.st = self.EMPTY
         self.top = (self.top + 1) % 8
-        logger.debug(":: Popped off FPU stack: {}".format(ret))
+        logger.debug("Popped off FPU stack: %r", ret)
         return ret

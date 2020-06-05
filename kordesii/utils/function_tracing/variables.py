@@ -2,14 +2,15 @@
 Interface for variable management.
 """
 
-from builtins import map
-from builtins import range
-from builtins import object
 from copy import deepcopy
 import functools
 import logging
+from typing import List, Iterable
 
 import idc
+import ida_bytes
+import ida_struct
+import ida_typeinf
 
 from kordesii.utils.function_tracing import utils
 
@@ -18,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 class VariableMap(object):
-    """Class that stores a set of variables that have been encountered during emulation."""
+    """
+    Class that stores a set of variables that have been encountered during emulation.
+    """
 
     def __init__(self, cpu_context):
         self._variables = {}
@@ -26,7 +29,7 @@ class VariableMap(object):
 
     def __repr__(self):
         return "<VariableMap : \n\t{}\n>".format(
-            "\n\t".join(map(repr, sorted(list(self._variables.values()), key=lambda var: var.addr)))
+            "\n\t".join(([repr(var) for addr, var in sorted(self._variables.items())]))
         )
 
     def __deepcopy__(self, memo):
@@ -38,26 +41,30 @@ class VariableMap(object):
         copy._variables = {addr: deepcopy(variable, memo) for addr, variable in list(self._variables.items())}
         return copy
 
-    def __getitem__(self, addr_or_name):
+    def __getitem__(self, addr_or_name) -> "Variable":
         """Gets a variable by name or address."""
         if isinstance(addr_or_name, str):
-            for var in list(self._variables.values()):
-                if addr_or_name == var.name:
+            name = addr_or_name
+            for var in self:
+                if name == var.name:
                     return var
-            raise KeyError("{} not found.".format(addr_or_name))
+            raise KeyError(f"{name} not found.")
         elif isinstance(addr_or_name, int):
             return self._variables[addr_or_name]
         else:
             raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
-    def get(self, addr_or_name, default=None):
+    def __len__(self):
+        return len(self._variables)
+
+    def get(self, addr_or_name, default=None) -> "Variable":
         """Gets a variable by name or address."""
         try:
             return self[addr_or_name]
         except (KeyError, ValueError):
             return default
 
-    def at(self, ip):
+    def at(self, ip) -> List["Variable"]:
         """
         Retrieves the variables referenced at the given instruction address.
 
@@ -80,21 +87,20 @@ class VariableMap(object):
         else:
             raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
-    def __contains__(self, addr_or_name):
+    def __contains__(self, addr_or_name) -> bool:
         if isinstance(addr_or_name, str):
-            for var in list(self._variables.values()):
-                if addr_or_name == var.name:
-                    return True
-            return False
+            name = addr_or_name
+            return any(name == var.name for var in self)
         elif isinstance(addr_or_name, int):
-            return addr_or_name in self._variables
+            addr = addr_or_name
+            return addr in self._variables
         else:
             raise ValueError("Invalid variable name or address: {!r}".format(addr_or_name))
 
-    def __iter__(self):
-        return iter(list(self._variables.values()))
+    def __iter__(self) -> Iterable["Variable"]:
+        return iter(self._variables.values())
 
-    def add(self, addr, frame_id=None, stack_offset=None, reference=None):
+    def add(self, addr, frame_id=None, stack_offset=None, reference=None) -> "Variable":
         """
         Creates and adds a variable object to mapping by object
 
@@ -113,29 +119,44 @@ class VariableMap(object):
         return var
 
     @property
-    def names(self):
-        return [var.name for var in list(self._variables.values())]
+    def names(self) -> List[str]:
+        return [var.name for var in self]
 
     @property
-    def addrs(self):
+    def addrs(self) -> List[int]:
         return list(self._variables.keys())
 
     @property
-    def stack_variables(self):
-        return [var for var in list(self._variables.values()) if var.is_stack]
+    def stack_variables(self) -> List["Variable"]:
+        return [var for var in self if var.is_stack]
 
     @property
-    def global_variables(self):
-        return [var for var in list(self._variables.values()) if not var.is_stack]
+    def global_variables(self) -> List["Variable"]:
+        return [var for var in self if not var.is_stack]
 
 
 @functools.total_ordering
 class Variable(object):
-    """Stores information for a local / global variable for a specific CPU context state."""
+    """
+    Stores information for a local / global variable for a specific CPU context state.
+    """
 
-    # Maps data types to their sizes.
+    TYPE_MAP = {
+        idc.FF_BYTE: "byte",
+        idc.FF_WORD: "word",
+        idc.FF_DWORD: "dword",
+        idc.FF_QWORD: "qword",
+        idc.FF_OWORD: "oword",
+        idc.FF_TBYTE: "tbyte",
+        idc.FF_STRLIT: "char",
+        idc.FF_STRUCT: "struct",
+        idc.FF_FLOAT: "float",
+        idc.FF_DOUBLE: "double",
+        idc.FF_PACKREAL: "packed decimal real",
+        idc.FF_ALIGN: "alignment directive",
+    }
+
     SIZE_MAP = {
-        idc.FF_BYTE: 1,
         idc.FF_WORD: 2,
         idc.FF_DWORD: 4,
         idc.FF_QWORD: 8,
@@ -162,11 +183,18 @@ class Variable(object):
         return copy
 
     def __repr__(self):
-        string = "<Variable {} : addr = 0x{:0x} : value = {!r} : size = {}".format(
-            self.name, self.addr, self.value, self.size
+        data_type_str = self.data_type
+        if self.count > 1 and data_type_str != "func_ptr":
+            data_type_str += f"[{self.count}]"
+        string = (
+            f"<Variable {self.name} "
+            f": type = {data_type_str} "
+            f": addr = 0x{self.addr:0x} "
+            f": value = {repr(self.value)} "
+            f": size = {self.size} "
         )
         if self.is_stack:
-            string += " : frame_id = 0x{:0x} : stack_offset = {}".format(self.frame_id, self.stack_offset)
+            string += f": frame_id = 0x{self.frame_id:0x} : stack_offset = {self.stack_offset} "
         string += ">"
         return string
 
@@ -175,6 +203,14 @@ class Variable(object):
 
     def __lt__(self, other):
         return self.addr < other.addr
+
+    @property
+    def _struc(self):
+        return ida_struct.get_struc(self.frame_id)
+
+    @property
+    def _member(self):
+        return ida_struct.get_member(self._struc, self.stack_offset)
 
     @property
     def is_stack(self):
@@ -188,7 +224,7 @@ class Variable(object):
     @property
     def name(self):
         if self.is_stack:
-            name = idc.get_member_name(self.frame_id, self.stack_offset)
+            name = ida_struct.get_member_name(self._member.id)
         else:
             name = idc.get_name(self.addr)
         if not name:
@@ -197,15 +233,61 @@ class Variable(object):
 
     @property
     def size(self):
+        """Size of data"""
         if self.is_stack:
-            return idc.get_member_size(self.frame_id, self.stack_offset)
+            return ida_struct.get_member_size(self._member)
         else:
-            return idc.get_item_size(self.addr)
+            return ida_bytes.get_item_size(self.addr)
+
+    @property
+    def data_type_size(self) -> int:
+        """The data type size, defaults to 1 if unknown"""
+        if self.is_stack:
+            tif = ida_typeinf.tinfo_t()
+            success = ida_struct.get_member_tinfo(tif, self._member)
+            if not success:
+                # Sometimes IDA will fail to get member type information for unknown reasons.
+                # In these cases, set the type size ourselves if it is obvious or default to 1.
+                return self.SIZE_MAP.get(self._data_type_enum, 1)
+            return tif.get_size()
+        else:
+            return ida_bytes.get_data_elsize(self.addr, self._data_type_enum)
+
+    @property
+    def count(self):
+        """Count of elements in the array."""
+        return self.size // self.data_type_size
 
     @property
     def data(self):
         """The raw data the variable is pointing to."""
         return self._cpu_context.mem_read(self.addr, self.size)
+
+    @data.setter
+    def data(self, value):
+        """Sets the raw data the variable is pointing to."""
+        size = self.size
+        if len(value) > size:
+            raise ValueError(f"Data size for variable at 0x{self.addr:08x} ({self.name}) must be <= {size} bytes.")
+
+        self._cpu_context.mem_write(self.addr, value)
+
+    @property
+    def _data_type_enum(self) -> int:
+        """The data type as a IDA enum"""
+        if self.is_stack:
+            flags = self._member.flag
+        else:
+            flags = ida_bytes.get_flags(self.addr)
+        return flags & idc.DT_TYPE
+
+    @property
+    def data_type(self) -> str:
+        """The data type as a string."""
+        if self.is_func_ptr:
+            return "func_ptr"
+        else:
+            return self.TYPE_MAP.get(self._data_type_enum, "")
 
     def add_reference(self, ip):
         """Adds ip to list of references for this variable."""
@@ -214,31 +296,66 @@ class Variable(object):
             return
         self.references.append(ip)
 
+    def _data_array(self) -> List[int]:
+        """Returns data as an array of unpacked integers based on data_type size."""
+        data = self.data
+        data_type_size = self.data_type_size
+        return [utils.struct_unpack(data[i:i + data_type_size]) for i in range(0, len(data), data_type_size)]
+
     @property
     def value(self):
         """The unpacked data the variable is pointing to."""
-        if self.is_func_ptr:
+        data_type = self.data_type
+
+        if data_type == "func_ptr":
             return self.addr
 
-        if self.is_stack:
-            flag = idc.get_member_flag(self.frame_id, self.stack_offset)
-            data_type = flag & idc.DT_TYPE
-            # Unpack if an integer type.
-            if data_type in self.SIZE_MAP:
-                data_type_size = self.SIZE_MAP[data_type]
-                if self.size == data_type_size:
-                    return utils.struct_unpack(self.data)
-                else:
-                    # If data size is greater than type size, then we have an array.
-                    data = self.data
-                    return [
-                        utils.struct_unpack(data[i : i + data_type_size]) for i in range(0, len(data), data_type_size)
-                    ]
-            else:
-                return self.data
-        else:
-            # TODO: Determine how to unpack based on type for global variables.
+        if data_type in ("char", "byte", "tbyte"):
             return self.data
+
+        if data_type in ("word", "dword", "qword", "oword"):
+            data_array = self._data_array()
+            if len(data_array) == 1:
+                return data_array[0]
+            return data_array
+
+        if data_type in ("float", "double"):
+            data_array = [utils.int_to_float(value) for value in self._data_array()]
+            if len(data_array) == 1:
+                return data_array[0]
+            return data_array
+
+        if data_type == "struct":
+            # TODO: Support returning some type of dictionary for structs.
+            return self.data
+
+        raise NotImplementedError(f"Unsupported data type: {data_type}")
+
+    @value.setter
+    def value(self, value):
+        """Set the data the variable is pointing to."""
+        data_type = self.data_type
+
+        if data_type in ("char", "tbyte"):
+            self.data = value
+
+        elif data_type in ("byte", "word", "dword", "qword", "oword"):
+            width = self.data_type_size
+            if isinstance(value, list):
+                self.data = b''.join(utils.struct_pack(_value, width=width) for _value in value)
+            else:
+                self.data = utils.struct_pack(value, width=width)
+
+        elif data_type in ("float", "double"):
+            width = self.data_type_size
+            if isinstance(value, list):
+                self.data = b''.join(
+                    utils.struct_pack(utils.float_to_int(_value), width=width) for _value in value)
+            else:
+                self.data = utils.struct_pack(utils.float_to_int(value), width=width)
+
+        else:
+            raise NotImplementedError(f"Unsupported data type: {data_type}")
 
     @property
     def history(self):
