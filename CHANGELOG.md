@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 
-## [Unreleased]
+## [2.1.0] - 2020-06-05
 
 ### Added
 - *function_tracing*
@@ -354,7 +354,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.1...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.1.0...HEAD
+[2.1.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.1...2.1.0
 [2.0.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...2.0.0
 [1.7.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.6.1...1.7.0
