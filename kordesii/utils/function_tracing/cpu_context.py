@@ -445,7 +445,7 @@ class ProcessorContext(object):
                 # IDA will sometimes create hidden or "fake" operands.
                 # These are there to represent things like an implicit EAX register.
                 # To help avoid confusion to the opcode developer, these fake operands will not be included.
-                # TODO: Checking shown() may not work like I think it does.
+                # TODO: Checking shown() may not work as expected.
                 #   If things explode, go back to checking operand.is_hidden
                 if op.shown():
                     indices.append((idx, op.type))

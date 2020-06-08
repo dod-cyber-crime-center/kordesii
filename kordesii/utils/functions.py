@@ -4,6 +4,7 @@ Utilties for working with functions.
 
 import collections
 import logging
+import warnings
 from typing import Iterable
 
 import ida_bytes
@@ -20,25 +21,23 @@ logger = logging.getLogger(__name__)
 
 class Function(object):
     """
-    Description:
-        Effectively extends func_t to also know its name and all its non-recursive xrefs and knows
-        how to rename itself.
-
-    Fields:
-        function_obj - The idaapi.func_t object for this function. (<ea> must be within a function.)
-        name - The name of the function.
-        xrefs_to - EA's for all of the non-recursive references to this function's start_ea.
-        xref_count - len(xrefs_to)
-
-    Input:
-        ea - An EA within the function.
-        identifier - The id of the YARA rule that hit in this function
-        create_if_not_exists - If true, uses IN_Dev_Repo's function creator to create a function containing <ea>
+    Object that wraps the func_t object created by IDA.
+    This object greatly expands the functionality for interfacing with a function.
     """
 
     def __init__(self, ea, identifier=None, create_if_not_exists=True):
+        """
+
+        :param ea: An address within the function.
+        :param identifier: **DEPRECATED** Some custom unique identifier for this function.
+            Historically this was the id of the YARA rule that hit this function.
+        :param create_if_not_exists: If True, the function_creator will be used to attempt
+            to create function if not defined by IDA.
+
+        :raises AttributeError: If no function exists at the given address.
+        """
         self.origin_ea = ea
-        self.identifier = identifier
+        self._identifier = identifier
         self.function_obj = idaapi.get_func(ea)
         if not self.function_obj:
             if create_if_not_exists:
@@ -64,13 +63,23 @@ class Function(object):
         self._flowchart = None
         self._api_calls = None
 
+    @property
+    def identifier(self):
+        warnings.warn("The identifier property in Function is deprecated.", DeprecationWarning)
+        return self._identifier
+
+    @identifier.setter
+    def identifier(self, value):
+        warnings.warn("The identifier property in Function is deprecated.", DeprecationWarning)
+        self._identifier = value
+
     @classmethod
-    def from_name(cls, func_name, ignore_underscore=False) -> "Function":
+    def from_name(cls, func_name: str, ignore_underscore: bool = False) -> "Function":
         """
         Factory method for obtaining Function by name.
 
         :param str func_name: Name of function to obtain
-        :param bol ignore_underscore: Whether to ignore underscores in function name.
+        :param bool ignore_underscore: Whether to ignore underscores in function name.
             (Will return the first found function if enabled.)
 
         :return: Function object
@@ -102,7 +111,7 @@ class Function(object):
             self.name, self.start_ea, self.end_ea
         )
 
-    def __contains__(self, ea):
+    def __contains__(self, ea: int):
         """Tests if ea is within function."""
         # NOTE: We can't just test if it's between start_ea and end_ea because the function might have
         # fragmented function chunks.
@@ -114,7 +123,7 @@ class Function(object):
             return False
         return func.start_ea == self.start_ea
 
-    def heads(self, start=None, reverse=False, dfs=False) -> Iterable[int]:
+    def heads(self, start: int = None, reverse: bool = False, dfs: bool = False) -> Iterable[int]:
         """
         Iterates all the heads for the given function.
 
@@ -132,7 +141,7 @@ class Function(object):
 
         yield from self._flowchart.heads(start, reverse=reverse, dfs=dfs)
 
-    def rename(self, new_name):
+    def rename(self, new_name: str):
         """
         Attempts to apply new_name to the object at <ea>. If more than one object starts at <ea>, the
         largest object will be renamed. If that name already exists, let IDA resolve the collision

@@ -266,8 +266,8 @@ def test_cpu_context():
     # The way the xor function works is that it takes and MODIFIES the
     # pointer argument passed in, unhelpfully returning a pointer to the end of the
     # decrypted data, not the start, with no way knowing the size...
-    # This is obviously a typo on my part when creating strings.exe, but let's just say
-    # this is good practice for dealing with some narly malware sample :)
+    # This is obviously a typo when creating strings.exe, but let's just say
+    # this is good practice for dealing with some gnarly malware sample :)
     # Therefore, we are going to iteratively decrease the pointer until we find a
     # valid address in the variable map. This variable was the variable used by the caller.
     result = context.registers.eax

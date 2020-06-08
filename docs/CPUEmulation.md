@@ -191,8 +191,8 @@ emulator = function_tracing.Emulator(max_instructions=10000)
 
 ## Retrieving Function Arguments
 
-The function arguments within a CPU context can be retrieved and set for any `call` instruction
-or on the passed in arguments of the current subroutine that is being traced.
+The function arguments within a CPU context can be retrieved and set for any `call` instruction,
+or for the passed in arguments of the current subroutine that is being traced.
 
 Use the `get_function_arg_objects()` function to retrieve the current arguments relative to the given
 function. Then use the returned objects to retrieve and set the name, type, and value of the argument. As well, the memory address can also be retrieved for stack arguments.
@@ -323,7 +323,7 @@ from kordesii.utils import function_tracing
 emulator = function_tracing.Emulator()
 
 
-# Emulate the XOR decryption function at 0x401000 of strings.exe
+# Emulate the XOR decryption function at 0x401000 of the executable.
 xor_decrypt = emulator.create_emulated(0x401000)
 
 # Create a context that we can fill with our encrypted data before emulating.
@@ -350,7 +350,7 @@ from kordesii.utils import function_tracing
 
 emulator = function_tracing.Emulator()
 
-# Emulate the XOR decryption function at 0x401000 of strings.exe
+# Emulate the XOR decryption function at 0x401000 of the executable.
 # The xor decryption function returns a pointer to the decrypted string.
 xor_decrypt = emulator.create_emulated(0x401000, return_type=function_tracing.STRING)
 

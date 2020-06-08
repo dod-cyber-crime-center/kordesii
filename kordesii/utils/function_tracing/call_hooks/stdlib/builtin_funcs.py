@@ -432,11 +432,11 @@ def sprintf(ctx, func_name, func_args):
     Format a string based on provided format string and parameters.
 
     For sprintf, there's no way to know up front how many args are needed, but there should always be at least
-    2 (destination and format).  We can use the format string to determine how many arguments we need by counting the
-    % symbols.
+    2 (destination and format).  We can use the format string to determine how many arguments we need by
+    counting the format specifiers.
     """
     # Almost guaranteed to get the incorrect number of args.  So obtain the format string and count the number of
-    # % symbols to determine how many args we need, not including the first 2
+    # format specifiers to determine how many args we need, not including the first 2
     if len(func_args) < 2:   # Ensure that there are at least 2 arguments, dest and format
         # Need to try to get at least 2 arguments...
         func_args = ctx.get_function_args(num_args=2)
@@ -445,7 +445,7 @@ def sprintf(ctx, func_name, func_args):
     fmt = ctx.read_data(func_args[1])
     logger.debug("Format string: %s", fmt)
 
-    # Format using best attempt here.  Basically, locate all the % format strings, and convert them to a python
+    # Format using best attempt here.  Basically, locate all the format specifiers, and convert them to a python
     # supported format string.  For each format string, extract the appropriate data from the context, and append it to
     # the values list.
     fmt_val_re = re.compile(br"""

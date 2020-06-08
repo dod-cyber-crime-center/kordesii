@@ -62,6 +62,7 @@ future version.
 - Deprecated `FunctionTracer` and `get_tracer()` in exchange for creating a global instance of an `Emulator` object. This object just needs to be instantiated once on the top of your modules and is used in the same way as a function tracer but for any function.  It is also used to apply call hooks.
   - See [documentation](docs/CPUEmulation.md) for more information.
 - `kordesii.utils.decoderutils.make_superfunc_t_from_matches()`
+- The `identifier` property in `kordesii.utils.Function` (renamed from `SuperFunc_t`) is deprecated and should not be used.
 
 ### Removed
 - *function_tracing*
@@ -104,7 +105,7 @@ future version.
 
 **NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
 The next release will only support Python 3 and IDA >= 7.4.**
-f
+
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 - *function_tracing:*

@@ -42,7 +42,7 @@ ENV_VAR_MAP = {
 #typespec("DWORD GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize)")
 def get_environment_variable(cpu_context, func_name, func_args):
     """
-    Retreives the contents of the specified varaible from the environement block of the calling process.
+    Retrieves the contents of the specified variable from the environment block of the calling process.
     """
     var_name_ptr, buffer_ptr, max_size = func_args
     var_name = cpu_context.read_data(var_name_ptr).decode("utf8")
@@ -60,8 +60,10 @@ def get_environment_variable(cpu_context, func_name, func_args):
 @builtin_func("GetModuleFileNameW")
 #typespec("DWORD GetModuleFileNameA_1(HMODULE hModule, LPSTR lpFilename, DWORD nSize);")
 def get_module_file_name(cpu_context, func_name, func_args):
-    """
+    r"""
     Get the fully qualified path for the file that contains the specified module.
+
+    Using the real filename prefixed by "%INPUT_FILE_DIR%\" to indicate the file path for this emulator.
     """
     wide = func_name.endswith("W")
     module_handle, filename_ptr, max_size = func_args
@@ -94,7 +96,7 @@ def get_short_path_name(cpu_context, func_name, func_args):
     Retrieves the short path form of the specified path.
     """
     # We aren't going to bother actually shortening the path name.
-    # This hook is just hear to ensure the destination gets filled in.
+    # This hook is just here to ensure the destination gets filled in.
     wide = func_name.endswith("W")
     long_path_ptr, short_path_ptr, short_path_size = func_args
 
@@ -116,8 +118,10 @@ def get_short_path_name(cpu_context, func_name, func_args):
 #typespec("UINT GetSystemDirectoryA(char* lpBuffer, UINT uSize);")
 #typespec("UINT GetSystemDirectoryW(wchar* lpbuffer, UINT uSize);")
 def get_system_directory(cpu_context, func_name, func_args):
-    """
-    Get the system directory in variable format
+    r"""
+    Retrieves the path of the system directory.
+
+    Using unexpanded "%WinDir%\System32" to indicate the system directory for this emulator.
     """
     wide = func_name.endswith("W")
     buffer_ptr, max_size = func_args
@@ -140,8 +144,10 @@ def get_system_directory(cpu_context, func_name, func_args):
 #typespec("ULONGLONG GetTickCount64();")
 def get_tick_count(cpu_context, func_name, func_args):
     """
-    Get the current tick count
+    Retrieves the number of milliseconds that have elapsed since the system was started, up to 49.7 days.
     """
+    # TODO: Should we allow users to specify a specific tick count or provide permission
+    #   to use the real time when setting up Emulator?
     # mask = 0xFFFFFFFFFFFFFFFF if func_name == "GetTickCount64" else 0xFFFFFFFF
     # return int(time.time()) & mask
 
@@ -155,7 +161,9 @@ def get_tick_count(cpu_context, func_name, func_args):
 #typespec("UINT GetWindowsDirectoryW(wchar* lpBuffer, UINT uSize);")
 def get_windows_directory(cpu_context, func_name, func_args):
     """
-    Get the windows directory in variable format
+    Retrieves the path of the Windows directory.
+
+    Using unexpanded "%WinDir%" to indicate the windows directory for this emulator.
     """
     wide = func_name.endswith("W")
     buffer_ptr, max_size = func_args
@@ -175,8 +183,10 @@ def get_windows_directory(cpu_context, func_name, func_args):
 #typespec("HANDLE CreateNamedPipeA(char* lpName, DWORD dwOpenMode, DWORD dwPipeMode, DWORD nMaxInstances, DWORD nOutBufferSize, DWORD nInBufferSize, DWORD nDefaultTimeOut, SECURITY_ATTRIBUTES* lpSecurityAttributes);")
 def create_named_pipe(cpu_context, func_name, func_args):
     """
-    Return a manfactured handle value for a named pipe
+    Creates an instance of a named pipe and returns a handle for subsequent pip operations.
     """
+    # TODO: Create high level NamedPipe objects to keep track of data stored in pipes.
+    #   This should work similar if not the same to the File objects we already keep track of.
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
 
 
@@ -186,7 +196,12 @@ def create_named_pipe(cpu_context, func_name, func_args):
 #typespec("BOOL GetComputerNameW(wchar* lpBuffer, DWORD* nSize);")
 def get_computer_name(cpu_context, func_name, func_args):
     """
-    return a computer name
+    Retrieves the NetBIOS name of the local computer.
+    This name is established at system startup, when the system reads it
+    from the registry.
+
+    Using the computer name "KORDESII_COMP" for this emulator.
+    TODO: Should we allow user to provide their own computer name when setting up Emulator?
     """
     wide = func_name.endswith("W")
     buffer_ptr, size_ptr = func_args
@@ -209,7 +224,10 @@ def get_computer_name(cpu_context, func_name, func_args):
 #typespec("BOOL GetUserNameW(wchar* lpBuffer, DWORD* pcbBuffer);")
 def get_user_name(cpu_context, func_name, func_args):
     """
-    return a user name
+    Retrieves the name of the user associated with the current thread.
+
+    Using the user name "kordesii" for this emulator.
+    TODO: Should we allow user to provide their own user name when setting up Emulator?
     """
     wide = func_name.endswith("W")
     buffer_ptr, size_ptr = func_args
@@ -250,9 +268,7 @@ def create_process(cpu_context, func_name, func_args):
 #typespec("UINT WinExec(char* lpCmdLine, UINT nCmdShow);")
 def win_exec(cpu_context, func_name, func_args):
     """
-    Runs the specified application
-
-    Record the interesting action and then return a success code.
+    Runs the specified application.
     """
     cmd_ptr, visibility = func_args
     cmd = cpu_context.read_data(cmd_ptr).decode("utf8")
@@ -271,9 +287,19 @@ def win_exec(cpu_context, func_name, func_args):
 #typespec("BOOL CreateDirectoryw(wchar* lpPathName, SECURITY_ATTRIBUTES* lpSecurityAttributes);")
 def create_directory(cpu_context, func_name, func_args):
     """
-    return a true result for a directory creation
+    Creates a new directory.
     """
-    return 1
+    wide = func_name.endswith("W")
+    path_ptr = func_args[0]
+
+    path = cpu_context.read_data(path_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING)
+    path = path.decode("utf-16-le" if wide else "utf8")
+    logger.debug("Create Directory: %r", path)
+
+    if path:
+        cpu_context.actions.append(actions.DirectoryCreated(cpu_context.ip, path))
+
+    return 1  # return success
 
 
 @builtin_func("CreateFileA")
@@ -282,7 +308,9 @@ def create_directory(cpu_context, func_name, func_args):
 #typespec("HANDLE CreateFileW(wchar* lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, SECURITY_ATTRIBUTES* lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);")
 def create_file(cpu_context, func_name, func_args):
     """
-    return a manufactured handle to a created file
+    Creates or opens a file or I/O device.
+    The function returns a handle that can be used to access the file or device for various
+    types of I/O depending on the file or device and the flags and attributes specified.
     """
     wide = func_name.endswith("W")
     name_ptr = func_args[0]
@@ -339,11 +367,12 @@ def write_file(cpu_context, func_name, func_args):
 
     return 1  # return success
 
+
 @builtin_func("MoveFileA")
 @builtin_func("MoveFileExA")
 def move_file(cpu_context, func_name, func_args):
     """
-    Moves an existing file (or directory) to new locaiton.
+    Moves an existing file (or directory) to new location.
     """
     old_name_ptr, new_name_ptr, *_ = func_args
     old_path = cpu_context.read_data(old_name_ptr).decode("utf8")
@@ -387,7 +416,7 @@ def close_file(cpu_context, func_name, func_args):
 #typespec("BOOL DeleteFileW(wchar* lpFileName);")
 def delete_file(cpu_context, func_name, func_args):
     """
-    return a true result for a file deletion
+    Deletes an existing file.
     """
     wide = func_name.endswith("W")
     path_ptr = func_args[0]
@@ -407,67 +436,49 @@ def delete_file(cpu_context, func_name, func_args):
 
     return 1  # return success
 
+
 @builtin_func("CreateMutexA")
 @builtin_func("CreateMutexW")
-#typespec("HANDLE CreateMutexA(SECURITY_ATTRIBUTES* lpMutexAttributes, BOOL bInitialOwner, char* lpName);")
-#typespec("HANDLE CreateMutexW(SECURITY_ATTRIBUTES* lpMutexAttributes, BOOL bInitialOwner, wchar* lpName);")
-def create_mutex(cpu_context, func_name, func_args):
-    """
-    return a manufactured handle for a named mutex
-    """
-    return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
-
-
 @builtin_func("CreateMutexExA")
 @builtin_func("CreateMutexExW")
+#typespec("HANDLE CreateMutexA(SECURITY_ATTRIBUTES* lpMutexAttributes, BOOL bInitialOwner, char* lpName);")
+#typespec("HANDLE CreateMutexW(SECURITY_ATTRIBUTES* lpMutexAttributes, BOOL bInitialOwner, wchar* lpName);")
 #typespec("HANDLE CreateMutexExA(SECURITY_ATTRIBUTES* lpMutexAttributes, char* lpName, DWROD dwFlags, DWORD dwDesiredAccess);")
 #typespec("HANDLE CreateMutexExW(SECURITY_ATTRIBUTES* lpMutexAttributes, wchar* lpName, DWORD dwFlags, DWORD dwDesiredAccess);")
-def create_mutex_ex(cpu_context, func_name, func_args):
+def create_mutex(cpu_context, func_name, func_args):
     """
-    return a manufactured handle for a named mutex
+    Creates or opens a named or unnamed mutex object and returns a handle to the object.
     """
+    # TODO: Create high level Mutex object.
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
 
 
 @builtin_func("CreateEventA")
 @builtin_func("CreateEventW")
-#typespec("HANDLE CreateEventA(SECURTIY_ATTRIBUTES* lpEventAttributes, BOOL bManualReset, BOOL bInitialState, char* lpName);")
-#typespec("HANDLE CreateEventW(SECURTIY_ATTRIBUTES* lpEventAttributes, BOOL bManualReset, BOOL bInitialState, wchar* lpName);")
-def create_event(cpu_context, func_name, func_args):
-    """
-    return a manufactured handle for a named event
-    """
-    return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
-
-
 @builtin_func("CreateEventExA")
 @builtin_func("CreateEventEXW")
+#typespec("HANDLE CreateEventA(SECURTIY_ATTRIBUTES* lpEventAttributes, BOOL bManualReset, BOOL bInitialState, char* lpName);")
+#typespec("HANDLE CreateEventW(SECURTIY_ATTRIBUTES* lpEventAttributes, BOOL bManualReset, BOOL bInitialState, wchar* lpName);")
 #typespec("HANDLE CreateEventExA(SECURITY_ATTRIBUTES* lpEventAttributes, char* lpName, DWORD dwFlags, DWORD dwDesiredAccess);")
 #typespec("HANDLE CreateEventExW(SECURITY_ATTRIBUTES* lpEventAttributes, wchar* lpName, DWORD dwFlags, DWORD dwDesiredAccess);")
-def create_event_ex(cpu_context, func_name, func_args):
+def create_event(cpu_context, func_name, func_args):
     """
-    return a manufactured handle for a named event
+    Creates or opens a named or unnamed event object and returns a handle to the object.
     """
+    # TODO: Create high level Event object.
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
 
 
 @builtin_func("CreateSemaphoreA")
 @builtin_func("CreateSemaphoreW")
-#typespec("HANDLE CreateSemaphoreA(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, char* lpName);")
-#typespec("HANDLE CreateSemaphoreW(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, wchar* lpName);")
-def create_semaphore(cpu_context, func_name, func_args):
-    """
-    return a manufactured handle for a named semaphore
-    """
-    return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
-
-
 @builtin_func("CreateSemaphoreExA")
 @builtin_func("CreateSemaphoreExW")
+#typespec("HANDLE CreateSemaphoreA(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, char* lpName);")
+#typespec("HANDLE CreateSemaphoreW(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, wchar* lpName);")
 #typespec("HANDLE CreateSemaphoreExA(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, char* lpName, DWORD dwFlags, DWORD dwDesiredAccess);")
 #typespec("HANDLE CreateSemaphoreExW(SECURITY_ATTRIBUTES* lpSemaphoreAttributes, LONG lInitialCount, LONG lMaximumCount, wchar* lpName, DWORD dwFlags, DWORD dwDesiredAccess);")
-def create_semaphore_ex(cpu_context, func_name, func_args):
+def create_semaphore(cpu_context, func_name, func_args):
     """
-    return a manufactured handle for a named semaphore
+    Creates or opens a named or unnamed semaphore object and returns a handle to the object.
     """
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)

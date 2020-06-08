@@ -40,36 +40,7 @@ DISPLAY_CODE = "cp437" if sys.platform == "win32" else "ascii"
 @functools.total_ordering
 class EncodedString(object):
     """
-    Description:
-        Object to hold data about an encoded/encrypted string.
-
-    Fields:
-        string_location - The EA at which the encoded_data starts.
-        string_reference - The EA from which the string is referenced. Defaults to None.
-        size - The size of the encoded_data. When set in the constructor, causes encoded_data to be
-               populated. Defaults to None.
-        offset - The offset from string_location at which the actual encoded_data starts. Often unused.
-                 Defaults to None.
-        key - The key used for decoding. Generally, this os only set when the key differs by string.
-        encoded_data - The raw data from the file that we intend to decode.
-            Automatically populated from string_location if not manually provided.
-        decoded_data - The string's value after it has been decoded/decrypted.
-        code_page - Code page used to decode string when unicode() is called.
-
-    Input:
-        string_location - The location of the encrypted data.
-            Usually required, but can be None if you are providing an encoded_data.
-        string_reference - The location the string is referenced from. Often helpful
-        size - Known size of the encoded data. Used to retrieve data if encoded_data is not provided.
-        offset - Used when there is an offset based accessing scheme.
-        key - Used when there is a key that can vary by string.
-        encoded_data - encoded/encrypted data, if not provided data will be retrieved from IDA.
-        code_page - known encoding page used to decode data to unicode (after data is decrypted)
-            (code page is dynamically determined if not provided)
-        dest - Location of decrypted data (if different from string_location)
-
-    Raises:
-        RuntimeError - If encoded data cannot be extracted.
+    Object to hold data about an encoded/encrypted string.
     """
 
     _MAX_COMMENT_LENGTH = 130
@@ -89,6 +60,25 @@ class EncodedString(object):
         code_page=None,
         dest=None,
     ):
+        """
+        Instantiate an EncodedString.
+
+        :param string_location:
+            Data segment pointer for static strings or stack pointer for stack strings.
+        :param string_reference:
+            The location the string is referenced from.
+            This is required to pull the stack frame when string_location is a stack pointer.
+        :param size: Size of the encoded data.
+            When set encoded_data is populated using this and string_location.
+        :param offset: Used when there is an offset based accessing scheme.
+        :param key: Used when there is a key that can vary by string.
+        :param encoded_data: encoded/encrypted data, if not provided data will be retrieved from IDA.
+        :param code_page: known encoding page used to decode data to unicode (after data is decrypted)
+            (code page is dynamically determined if not provided)
+        :param dest: Location of decrypted data (if different from string_location)
+
+        :raises ValueError: If both encoded_data and string_location is not provided.
+        """
         self.string_location = string_location
         self.string_reference = string_reference
         self.offset = offset
@@ -137,7 +127,8 @@ class EncodedString(object):
         :param string_reference:
             The location the string is referenced from.
             This is required to pull the stack frame when string_location is a stack pointer.
-        :param size: The size of the string. Required to use self.get_bytes.
+        :param size: Size of the encoded data.
+            When set encoded_data is populated using this and string_location.
         :param offset: Used when there is an offset based accessing scheme.
         :param key: Used when there is a key that can vary by string.
         :param encoded_data: encoded/encrypted data, if not provided data will be retrieved from IDA.
@@ -180,7 +171,6 @@ class EncodedString(object):
             frame_id=stack,
             stack_offset=stack_offset,
             string_reference=string_reference,
-            size=size,
             offset=offset,
             key=key,
             code_page=code_page,
@@ -295,7 +285,7 @@ class EncodedString(object):
         if self.string_location is not None:
             ida_name.force_name(self.string_location, "a" + name)
         if self.dest is not None:
-            # IDA will sometimes type API function pointers based on code anlaysis, and it's generic.  Unsetting the
+            # IDA will sometimes type API function pointers based on code analysis, and it's generic.  Unsetting the
             # type before the rename will cause IDA to properly type API functions if the type is known from the
             # loaded type libraries.
             idc.SetType(self.dest, '')
@@ -517,16 +507,33 @@ class EncodedStackString(EncodedString):
         stack_offset=None,
         memory_ptr=None,
         string_reference=None,
-        size=None,
         offset=None,
         key=None,
         code_page=None,
         dest=None,
     ):
+        """
+        Instantiate an EncodedStackString object.
+
+        :param encoded_data:
+            encoded/encrypted data of string
+            (This must be provided because stack strings don't have a string_location attribute.)
+        :param frame_id: The id of the IDA frame containing the stack this string comes from.
+        :param stack_offset: The offset within the IDA frame containing this string.
+        :param memory_ptr: Optional extra argument to keep track of pointer to string in memory
+            when using function_tracing.
+        :param string_reference:
+            The location the string is referenced from.
+            This is required to pull the stack frame when string_location is a stack pointer.
+        :param offset: Used when there is an offset based accessing scheme.
+        :param key: Used when there is a key that can vary by string.
+        :param code_page: known encoding page used to decode data to unicode (after data is decrypted)
+            (code page is dynamically determined if not provided)
+        :param dest: Location of decrypted data
+        """
         super(EncodedStackString, self).__init__(
             None,
             string_reference=string_reference,
-            size=size,
             offset=offset,
             key=key,
             encoded_data=encoded_data,

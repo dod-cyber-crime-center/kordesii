@@ -284,7 +284,6 @@ class Tester(object):
 
                     logger.info("Updating results for {} in {}".format(file_path, results_file_path))
                     results_list[index] = new_results
-                        # self._update_test_results(results_file_path, metadata, replace=True)
                 self.write_results_file(results_list, results_file_path)
         finally:
             logging.root.setLevel(orig_level)
@@ -318,8 +317,6 @@ class Tester(object):
 
                 logger.info("Adding results for {} in {}".format(file_path, results_file_path))
                 results_list.append(new_results)
-
-                # self._update_test_results(results_file_path, new_results, replace=True)
                 self.write_results_file(results_list, results_file_path)
         finally:
             logging.root.setLevel(orig_level)

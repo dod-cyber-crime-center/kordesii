@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_reg_key(cpu_context, root_key_handle, sub_key_ptr, wide=False):
-    """Retrieves the root key and sub key strings from the giving hKey and lpSubKey arguments.
+    """
+    Retrieves the root key and sub key strings from the giving hKey and lpSubKey arguments.
 
     :param root_key_handle: The hKey argument (the HKEY handle for the root key)
     :param sub_key_ptr: The lpSubKey argument (the pointer to the sub key string)
@@ -142,7 +143,7 @@ def reg_delete_key(cpu_context, func_name, func_args):
 #typespec("int RegDeleteKeyValueW(HKEY hKey, wchar* lpSubKey, wchar* lpValueName);")
 def reg_delete_key_value(cpu_context, func_name, func_args):
     """
-    return a success status for deleted registry value
+    Removes the specified value from the specified registry key and subkey.
     """
     wide = func_name.endswith("W")
     root_key_handle, sub_key_ptr, value_name_ptr = func_args
@@ -165,7 +166,7 @@ def reg_delete_key_value(cpu_context, func_name, func_args):
 #typespec("int RegDeleteValueW(HKEY hKey, wchar* lpValueName);")
 def reg_delete_value(cpu_context, func_name, func_args):
     """
-    return a success status for deleted registry value
+    Removes a named value from the specified registry key.
     """
     wide = func_name.endswith("W")
     root_key_handle, value_name_ptr = func_args
@@ -241,7 +242,8 @@ def reg_set_value(cpu_context, func_name, func_args):
 #typespec("HANDLE OpenSCManagerA(wchar* lpMachineName, wchar* lpDatabasename, DWORD dwDesiredAccess);")
 def open_sc_manager(cpu_context, func_name, func_args):
     """
-    create a manufactured handle to the service control manager
+    Establishes a connection to the service control manager on the specified computer
+    and opens the specified service control manager database.
     """
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
 
@@ -252,7 +254,7 @@ def open_sc_manager(cpu_context, func_name, func_args):
 #typespec("HANDLE CreateServiceW(HANDLE hSCManager, wchar* lpServiceName, wchar* lpDisplayName, DWORD dwDesiredAccess, DWORD dwServiceType, DWORD dwStartType, DWORD dwErrorControl, wchar* lpBinaryPathName, wchar* lpLoadOrderGroup, DWORD* lpdwTagId, wchar* lpDependencies, wchar* lpServiceStartName, wchar* lpPassword);")
 def create_service(cpu_context, func_name, func_args):
     """
-    create a manufactured handle to a created service
+    Creates a service object and adds it to the specified service control manager database.
     """
     wide = func_name.endswith("W")
     service_name_ptr = func_args[1]

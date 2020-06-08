@@ -15,6 +15,11 @@ class CommandExecuted(NamedTuple):
     visibility: win_constants.Visibility = None
 
 
+class DirectoryCreated(NamedTuple):
+    ip: int
+    path: str
+
+
 class FileCreated(NamedTuple):
     ip: int
     path: str

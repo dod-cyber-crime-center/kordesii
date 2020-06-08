@@ -53,7 +53,7 @@ class Emulator(object):
             to be miss-aligned for future instructions. Do this at your own risk.
 
         :param name: Name of opcode or function hook.
-            NOTE: The all "rep*" opcodes will be disabled if the name is "rep".
+            NOTE: All the "rep*" opcodes will be disabled if the name is "rep".
         """
         name = name.lower()
         context = self.new_context()
@@ -297,8 +297,8 @@ class Emulator(object):
         )
 
         # Create a generator for getting the initial contexts at this level.
-        # Normally I dislike creating functions inside functions like this, but this proved to be
-        # the method that created the least amount of headaches.
+        # Normally, creating functions inside functions like this is not advisable.
+        # However, this proved to be the least complex solution in this situation.
         def init_contexts():
             logger.debug("Iterating contexts for call level: %d", depth)
 
@@ -397,7 +397,6 @@ class Emulator(object):
             operand = cpu_context.operands[index]
             # Pass memory address if there is one, otherwise pass the value.
             value = operand.addr or operand.value
-            # value = cpu_context.get_operand_value(index, data_size, data_type=data_type, ip=ea)
             # Prevent returning multiple values which are the same....
             if value in values:
                 continue
