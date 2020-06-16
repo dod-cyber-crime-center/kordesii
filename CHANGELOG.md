@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 
 
+## Unreleased
+
+### Changed
+- Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
+
+
 ## [2.1.0] - 2020-06-05
 
 ### Added
