@@ -290,20 +290,27 @@ def get_user_name(cpu_context, func_name, func_args):
 
 
 @builtin_func("CreateProcessA")
+@builtin_func("CreateProcessW")
 #typespec("BOOL CreateProcessA(LPCSTR lpApplicationName, LPSTR lpCommandLine, LPSECURITY_ATTRIBUTES lpProcessAttributes, LPSECURITY_ATTRIBUTES lpThreadAttributes, BOOL bInheritHandles, DWORD dwCreationFlags, LPVOID lpEnvironment, LPCSTR lpCurrentDirectory, LPSTARTUPINFOA lpStartupInfo, LPPROCESS_INFORMATION lpProcessInformation)")
 def create_process(cpu_context, func_name, func_args):
     """
     Create a new process.
     """
+    wide = func_name.endswith("W")
+
     app_ptr = func_args[0]
     cmd_ptr = func_args[1]
 
-    cmd = cpu_context.read_data(cmd_ptr).decode("utf8")
+    cmd = cpu_context.read_data(
+        cmd_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING
+    ).decode("utf-16-le" if wide else "utf8")
     if app_ptr:
-        app = cpu_context.read_data(app_ptr).decode("utf8")
+        app = cpu_context.read_data(
+            app_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING
+        ).decode("utf-16-le" if wide else "utf8")
         cmd = app + " " + cmd
 
-    logger.debug("OpenProcessA: %r", cmd)
+    logger.debug(f"{func_name}: {cmd}")
     cpu_context.actions.append(actions.CommandExecuted(cpu_context.ip, cmd))
 
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
