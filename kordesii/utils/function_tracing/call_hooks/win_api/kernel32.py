@@ -39,18 +39,22 @@ ENV_VAR_MAP = {
 
 
 @builtin_func("GetEnvironmentVariableA")
+@builtin_func("GetEnvironmentVariableW")
 #typespec("DWORD GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize)")
 def get_environment_variable(cpu_context, func_name, func_args):
     """
     Retrieves the contents of the specified variable from the environment block of the calling process.
     """
+    wide = func_name.endswith("W")
     var_name_ptr, buffer_ptr, max_size = func_args
-    var_name = cpu_context.read_data(var_name_ptr).decode("utf8")
+    var_name = cpu_context.read_data(
+        var_name_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING
+    ).decode("utf-16-le" if wide else "utf8")
 
-    # Replace some common enviornment variables, and add %'s for others.
+    # Replace some common environment variables, and add %'s for others.
     # - 1 for null terminator
     name = ENV_VAR_MAP.get(var_name.lower(), f"%{var_name}%")[:max_size - 1]
-    cpu_context.write_data(buffer_ptr, name)
+    cpu_context.write_data(buffer_ptr, name, data_type=constants.WIDE_STRING if wide else constants.STRING)
     logger.debug("Getting environment variable: %s -> %s", var_name, name)
 
     return len(name)
