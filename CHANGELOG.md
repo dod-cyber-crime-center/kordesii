@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+- *function_tracing*
+    - Added additional WinAPI function hook support
+    - Added recording of ShellOperation actions
+
 ### Changed
 - Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
 
