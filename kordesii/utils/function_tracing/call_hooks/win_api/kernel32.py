@@ -60,6 +60,26 @@ def get_environment_variable(cpu_context, func_name, func_args):
     return len(name)
 
 
+@builtin_func("GetCurrentDirectoryA")
+@builtin_func("GetCurrentDirectoryW")
+#typespec("DWORD GetCurrentDirectory(DWORD  nBufferLength, LPTSTR lpBuffer);")
+def get_current_directory(cpu_context, func_name, func_args):
+    """
+    Retrieves the current working directory
+
+    Using value "." to represent the current working directory for this emulator
+    """
+    wide = func_name.endswith("W")
+    max_size, buffer_ptr = func_args
+
+    cwd = u"."[:max_size]
+
+    logger.debug(f"Writing current working directory {cwd} to 0x{buffer_ptr:08x}")
+    cpu_context.write_data(buffer_ptr, cwd, data_type=constants.WIDE_STRING if wide else constants.STRING)
+
+    return len(cwd)
+
+
 @builtin_func("GetModuleFileNameA")
 @builtin_func("GetModuleFileNameW")
 #typespec("DWORD GetModuleFileNameA_1(HMODULE hModule, LPSTR lpFilename, DWORD nSize);")
