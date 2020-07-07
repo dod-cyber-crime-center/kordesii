@@ -14,12 +14,11 @@ def memmove(cpu_context, func_name, func_args):
 
 """
 import logging
-import random
 
 from mwcp.utils import construct
 
 from . import win_constants as wc
-from ... import actions, utils, constants, objects
+from ... import constants
 from ...call_hooks import builtin_func
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,9 @@ logger = logging.getLogger(__name__)
 #typespec("SHFOLDERAPI SHGetFolderPathA(HWND hwnd, int    csidl,HANDLE hToken,DWORD  dwFlags,LPSTR  pszPath);")
 def shgetfolderpath(cpu_context, func_name, func_args):
     """
-    Hook for SHGetFolderPath Windows API
+    Retrieves the CSIDL folder mapping for the provided CSIDL Enumeration
+
+    Does not attempt to expand upon the folder path
     """
     wide = func_name.endswith("W")
     _, csidl, _, _, path_ptr = func_args
@@ -48,9 +49,11 @@ def shgetfolderpath(cpu_context, func_name, func_args):
 @builtin_func("SHGetSpecialFolderPathA")
 @builtin_func("SHGetSpecialFolderPathW")
 #typespec("BOOL SHGetSpecialFolderPathA(HWND hwnd, LPSTR pszPath, int csidl, BOOL fCreate);")
-def shgetfolderpath(cpu_context, func_name, func_args):
+def shgetspecialfolderpath(cpu_context, func_name, func_args):
     """
-    Hook for SHGetFolderPath Windows API
+    Retrieves the CSIDL folder mapping for the provided CSIDL Enumeration
+
+    Does not attempt to expand upon the folder path
     """
     wide = func_name.endswith("W")
     _, path_ptr, csidl, _ = func_args
