@@ -142,6 +142,27 @@ def get_system_directory(cpu_context, func_name, func_args):
     return len(system_dir)
 
 
+@builtin_func("GetTempPathA")
+@builtin_func("GetTempPathW")
+#typespec("DWORD GetTempPathA(DWORD nBufferLength,LPSTR lpBuffer);")
+def get_temp_path(cpu_context, func_name, func_args):
+    """
+    Retrieves the path of the temp directory
+
+    Using unexpanded "%Temp%\" to indicate the temp directory for this emulator
+    """
+    wide = func_name.endswith("W")
+    max_size, buffer_ptr = func_args
+
+    # The returned string ends with a backslash
+    temp_dir = u"%Temp%\\"[:max_size]
+
+    logger.debug(f"Writing temp directory {temp_dir} to 0x{buffer_ptr:08x}")
+    cpu_context.write_data(buffer_ptr, temp_dir, data_type=constants.WIDE_STRING if wide else constants.STRING)
+
+    return len(temp_dir)
+
+
 @builtin_func("GetTickCount")
 @builtin_func("GetTickCount64")
 #typespec("DWORD GetTickCount();")
