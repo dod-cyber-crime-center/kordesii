@@ -64,7 +64,7 @@ def shell_execute(cpu_context, func_name, func_args):
 
     logger.debug("%s: %r %r", func_name, operation, filepath)
     cpu_context.actions.append(
-        actions.ShellOperation(cpu_context.ip, operation, filepath, params, directory, visibility)
+        actions.ShellOperation(cpu_context.ip, operation, filepath, params, directory, wc.Visibility(visibility))
     )
 
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
