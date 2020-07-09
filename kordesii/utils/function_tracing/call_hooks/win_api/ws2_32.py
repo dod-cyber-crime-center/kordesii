@@ -38,7 +38,7 @@ def inet_addr(cpu_context, func_name, func_args):
     try:
         addr = construct.IP4Address.build(addr_str.decode())
     except construct.ConstructError:
-        logger.debug(f"Failed to convert value {addr_str} to an IPv4 address")
+        logger.debug("Failed to convert value %s to an IPv4 address", addr_str)
         return 0
     return construct.Int32ul.parse(addr)
 

@@ -62,7 +62,7 @@ def shell_execute(cpu_context, func_name, func_args):
     else:
         directory = u""
 
-    logger.debug(f"{func_name}: {operation} {filepath}")
+    logger.debug("%s: %r %r", func_name, operation, filepath)
     cpu_context.actions.append(
         actions.ShellOperation(cpu_context.ip, operation, filepath, params, directory, visibility)
     )
@@ -85,9 +85,9 @@ def sh_get_folder_path(cpu_context, func_name, func_args):
     try:
         folder = construct.KnownFolderID(construct.Int32ul).parse(csidl_int)
     except construct.ConstructError:
-        logger.warning(f"Could not acquire a folder for CSIDL {csidl}")
+        logger.warning("Could not acquire a folder for CSIDL %d", csidl)
         folder = f"{csidl}"
-    logger.debug(f"Writing CSIDL {folder} to 0x{path_ptr:08x}")
+    logger.debug("Writing CSIDL %s to 0x%08X", folder, path_ptr)
     cpu_context.write_data(path_ptr, folder, data_type=constants.WIDE_STRING if wide else constants.STRING)
     return wc.ERROR_SUCCESS
 
@@ -107,8 +107,8 @@ def sh_get_special_folder_path(cpu_context, func_name, func_args):
     try:
         folder = construct.KnownFolderID(construct.Int32ul).parse(csidl_int)
     except construct.ConstructError:
-        logger.warning(f"Could not acquire a folder for CSIDL {csidl}")
+        logger.warning("Could not acquire a folder for CSIDL %d", csidl)
         folder = f"{csidl}"
-    logger.debug(f"Writing CSIDL {folder} to 0x{path_ptr:08x}")
+    logger.debug("Writing CSIDL %s to 0x%08X", folder, path_ptr)
     cpu_context.write_data(path_ptr, folder, data_type=constants.WIDE_STRING if wide else constants.STRING)
     return True

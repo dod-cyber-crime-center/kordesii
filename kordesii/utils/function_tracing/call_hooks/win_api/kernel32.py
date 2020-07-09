@@ -74,7 +74,7 @@ def get_current_directory(cpu_context, func_name, func_args):
 
     cwd = u"."[:max_size]
 
-    logger.debug(f"Writing current working directory {cwd} to 0x{buffer_ptr:08x}")
+    logger.debug("Writing current working directory %s to 0x%08X", cwd, buffer_ptr)
     cpu_context.write_data(buffer_ptr, cwd, data_type=constants.WIDE_STRING if wide else constants.STRING)
 
     return len(cwd)
@@ -177,7 +177,7 @@ def get_temp_path(cpu_context, func_name, func_args):
     # The returned string ends with a backslash
     temp_dir = u"%Temp%\\"[:max_size]
 
-    logger.debug(f"Writing temp directory {temp_dir} to 0x{buffer_ptr:08x}")
+    logger.debug("Writing temp directory %s to 0x%08X}", temp_dir, buffer_ptr)
     cpu_context.write_data(buffer_ptr, temp_dir, data_type=constants.WIDE_STRING if wide else constants.STRING)
 
     return len(temp_dir)
@@ -310,7 +310,7 @@ def create_process(cpu_context, func_name, func_args):
         ).decode("utf-16-le" if wide else "utf8")
         cmd = app + " " + cmd
 
-    logger.debug(f"{func_name}: {cmd}")
+    logger.debug("%s: %r", func_name, cmd)
     cpu_context.actions.append(actions.CommandExecuted(cpu_context.ip, cmd))
 
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
