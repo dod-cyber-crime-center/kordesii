@@ -230,6 +230,10 @@ def CALL(cpu_context, ip, mnem, operands):
                 )
                 logger.debug("Running hook: %r", func)
                 ret = func(cpu_context, func_name, args)
+                if ret is True:
+                    ret = 1
+                elif ret is False:
+                    ret = 0
                 # Set return value to rax
                 if ret is not None:
                     if not isinstance(ret, int):

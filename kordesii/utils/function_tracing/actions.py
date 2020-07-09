@@ -77,3 +77,12 @@ class ServiceCreated(NamedTuple):
     start_type: win_constants.ServiceStart
     display_name: str
     binary_path: str
+
+
+class ShellOperation(NamedTuple):
+    ip: int
+    operation: str
+    path: str
+    parameters: str
+    directory: str
+    visibility: win_constants.Visibility = None
