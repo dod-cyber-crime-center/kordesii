@@ -1090,7 +1090,7 @@ def JNO(cpu_context, ip, mnem, operands):
 @opcode("jpo")
 def JNP_JPO(cpu_context, ip, mnem, operands):
     """ Jump Not Parity (PF=0) """
-    if not cpu_context.regiseters.pf:
+    if not cpu_context.registers.pf:
         cpu_context.ip = operands[0].value
 
 
