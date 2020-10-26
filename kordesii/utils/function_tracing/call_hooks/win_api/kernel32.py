@@ -533,4 +533,5 @@ def create_semaphore(cpu_context, func_name, func_args):
     """
     Creates or opens a named or unnamed semaphore object and returns a handle to the object.
     """
+    # TODO: Create high level Semaphore object.
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)

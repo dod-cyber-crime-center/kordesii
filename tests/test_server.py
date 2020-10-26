@@ -133,7 +133,10 @@ def test_log_endpoint(client):
 @pytest.mark.in_ida
 def test_decoder_strings(client, expected_results, sample_file_pointer):
     """Test decoder strings output"""
-    rv = client.post("/run_decoder", data={"decoder": "sample", "input_file": (sample_file_pointer, "strings.exe")})
+    rv = client.post("/run_decoder", data={"decoder": "Sample", "input_file": (sample_file_pointer, "strings.exe")})
+    # Print results for debugging purposes.
+    print(rv)
+    print(rv.json)
     assert rv.json["strings"] == expected_results["strings"]
 
 

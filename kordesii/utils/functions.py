@@ -5,7 +5,7 @@ Utilties for working with functions.
 import collections
 import logging
 import warnings
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import ida_bytes
 import ida_name
@@ -173,13 +173,10 @@ class Function(object):
             return self._api_calls
 
         api_calls = collections.Counter()
-        for ea in self.heads():
-            if idc.print_insn_mnem(ea) == "call":
-                for xref in idautils.XrefsFrom(ea, idaapi.XREF_FAR):
-                    if xref.to:
-                        func_name = ida_name.get_name(xref.to)
-                        if func_name:
-                            api_calls.update([func_name])
+        for ea, func_ea in self.calls_from:
+            func_name = ida_name.get_name(func_ea)
+            if func_name:
+                api_calls.update([func_name])
 
         self._api_calls = api_calls
         return self._api_calls
@@ -199,12 +196,35 @@ class Function(object):
                 yield ea
 
     @property
+    def calls_from(self) -> Iterable[Tuple[int, int]]:
+        """Iterates call address and callee address of the calls within this function."""
+        for ea in self.heads():
+            if idc.print_insn_mnem(ea) == "call":
+                for xref in idautils.XrefsFrom(ea, idaapi.XREF_FAR):
+                    func_ea = xref.to
+                    if func_ea:
+                        yield ea, func_ea
+
+    @property
     def callers(self) -> Iterable["Function"]:
         """Iterates Function objects that call this function."""
         cache = set()
         for ea in self.calls_to:
             try:
                 func = Function(ea)
+            except AttributeError:
+                continue
+            if func.name not in cache:
+                yield func
+                cache.add(func.name)
+
+    @property
+    def callees(self) -> Iterable["Function"]:
+        """Iterates Function objects that this function calls."""
+        cache = set()
+        for ea, func_ea in self.calls_from:
+            try:
+                func = Function(func_ea)
             except AttributeError:
                 continue
             if func.name not in cache:

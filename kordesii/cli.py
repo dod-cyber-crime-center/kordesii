@@ -97,7 +97,14 @@ def list_(json_):
     show_default=True,
     help="Timeout for running IDA. A timeout of 0 disables the timeout.",
 )
-def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log, timeout):
+@click.option(
+    "--64bit/--32bit",
+    "is_64bit",
+    default=None,
+    help="Identifies if input file is 64 bit or 32 bit, which is used to determine whether to run ida64 or ida. "
+         "If not provided, bitness is automatically determined by examining the input file."
+)
+def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log, timeout, is_64bit):
     """
     Parses given input with given parser.
 
@@ -127,7 +134,7 @@ def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log,
 
     # Run Kordesii
     try:
-        reporter = kordesii.Reporter(tempdir=tempdir, disabletempcleanup=not cleanup,)
+        reporter = kordesii.Reporter(tempdir=tempdir, disabletempcleanup=not cleanup)
         results = []
         for path in input_files:
             logger.info("Parsing: {}".format(path))
@@ -140,6 +147,7 @@ def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log,
                 cleanup_txt_files=cleanup,
                 cleanup_idb_files=cleanup,
                 cleanup_output_files=not output_files,
+                is_64bit=is_64bit,
             )
             # TODO: Pull errors and ida logs from logger?
             result = reporter.metadata

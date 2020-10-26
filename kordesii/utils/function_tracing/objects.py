@@ -1,6 +1,7 @@
 """
 Interfaces for higher level elements such as open files or registry keys.
 """
+import ntpath
 import os
 from copy import deepcopy
 import logging
@@ -153,7 +154,7 @@ class File(Object):
     @property
     def name(self):
         """The base name of the file."""
-        return os.path.basename(self.path)
+        return ntpath.basename(self.path)
 
     def write(self, data):
         self.data += data

@@ -5,8 +5,6 @@ import sys
 from setuptools import setup, find_packages
 
 
-version_tuple = (sys.version_info[0], sys.version_info[1])
-
 setup(
     name='kordesii',
     author='DC3',
@@ -43,7 +41,8 @@ setup(
         'pyyaml',
         'tabulate',
         'yara-python',
-        'ruamel.yaml',
+        # Forcing newer version ruamel.yaml to keep serialization consistent among Windows and Linux.
+        'ruamel.yaml>=0.16.12',
         'setuptools',
         'six',
 
@@ -55,7 +54,6 @@ setup(
         'testing': [
             'pytest',
             'pytest-console-scripts',
-            'nox',
         ]
     },
 )

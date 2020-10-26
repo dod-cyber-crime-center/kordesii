@@ -220,6 +220,7 @@ def run_ida(
     input_file,
     autonomous=True,
     ida_path=None,
+    is_64bit=None,
     timeout=3600,
     log=False,
     cleanup_txt_files=True,
@@ -239,6 +240,9 @@ def run_ida(
                      explicit idc.qexit().
         ida_path - Full path to idaq.exe file to run IDA. If None, use find_ida() function to
                    determine the path.
+        is_64bit - Boolean indicating if input file is 64 bit if True or 32 bit if False.
+                   Parameter may also be None to be automatically determined based on the input file.
+                   (this is the default)
         timeout - run_ida will wait <timeout> seconds before killing the process. Setting
                   timeout to 0 will disable the timeout. This is mostly useful for automation.
         log - Get IDA log contents. The output is equivalent to the IDA console output.
@@ -252,7 +256,10 @@ def run_ida(
     """
     # First find IDA executable to run
     if not ida_path:
-        ida_path = find_ida(is_64_bit(input_file))
+        # Determine bitness of input file (or use user provided)
+        if is_64bit is None:
+            is_64bit = is_64_bit(input_file)
+        ida_path = find_ida(is_64bit)
 
     # Setup some variables for files that may be output by the decoder and IDA
     base_dir = os.path.dirname(os.path.abspath(input_file))

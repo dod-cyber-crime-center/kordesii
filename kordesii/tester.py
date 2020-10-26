@@ -3,18 +3,15 @@ Test case support for DC3-Kordesii. Decoder output is stored in a json file per 
 decoder is re-run and compared to previous results.
 """
 
-import difflib
-
 from io import open
-import textwrap
-
-import json
-import multiprocessing as mp
-
-# Standard imports
-import os
-import logging
 from timeit import default_timer
+import difflib
+import json
+import logging
+import multiprocessing as mp
+import os
+import pathlib
+import textwrap
 
 import kordesii.reporter
 from kordesii import registry
@@ -223,8 +220,11 @@ class Tester(object):
         # Replace {MALAWARE_REPO} with full input file.
         for result in results:
             # Add results_file_path for relative paths.
-            # NOTE: os.path.join will ignore the prefix we add if the second is not relative.
-            input_file_path = result[INPUT_FILE_PATH]
+            # NOTE: Using PureWindowsPath to help convert a Windows path using \
+            #   into / path.
+            #   This helps in-case the test case was originally made with a Windows machine
+            #   but is being tested on Linux.
+            input_file_path = pathlib.PureWindowsPath(result[INPUT_FILE_PATH]).as_posix()
             # expand environment variables
             input_file_path = os.path.expandvars(input_file_path)
             # resolve variables

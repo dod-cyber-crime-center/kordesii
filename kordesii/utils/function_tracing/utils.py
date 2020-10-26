@@ -8,6 +8,7 @@ import string
 import struct
 
 import ida_allins
+import ida_funcs
 import ida_ida
 import ida_idp
 import ida_nalt
@@ -276,7 +277,6 @@ def _get_function_tif_with_hex_rays(offset):
     # Save type for next time.
     fmt = decompiled.print_dcl()
     fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
-    # The 2's remove the unknown bytes always found at the start and end.
     set_type_result = idc.SetType(offset, "{};".format(fmt))
     if not set_type_result:
         logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
@@ -296,11 +296,11 @@ def _get_function_tif_with_guess_type(offset):
 
     guessed_type = idc.guess_type(offset)
     if guessed_type is None:
-        raise RuntimeError("failed to guess function type for offset 0x{:X}".format(offset))
+        raise RuntimeError("Failed to guess function type for offset 0x{:X}".format(offset))
 
     func_name = idc.get_func_name(offset)
     if func_name is None:
-        raise RuntimeError("failed to get function name for offset 0x{:X}".format(offset))
+        raise RuntimeError("Failed to get function name for offset 0x{:X}".format(offset))
 
     # Documentation states the type must be ';' terminated, also the function name must be inserted
     guessed_type = re.sub(r"\(", " {}(".format(func_name), "{};".format(guessed_type))
@@ -311,7 +311,7 @@ def _get_function_tif_with_guess_type(offset):
         )
     # Try one more time to get the tinfo_t object
     if not ida_nalt.get_tinfo(tif, offset):
-        raise RuntimeError("failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
+        raise RuntimeError("Failed to obtain tinfo_t object for offset 0x{:X}".format(offset))
 
     return tif
 
@@ -404,8 +404,13 @@ def get_function_name(func_ea):
     return func_name
 
 
-def is_func_ptr(offset):
+def is_func_ptr(offset: int) -> bool:
     """Returns true if the given offset is a function pointer."""
+    # As a first check, simply see if the offset is the start of a function.
+    func = ida_funcs.get_func(offset)
+    if func and func.start_ea == offset:
+        return True
+
     # Sometimes we will get a really strange issue where the IDA disassember has set a type for an
     # address that should not have been set during our course of emulation.
     # Therefore, before attempting to use get_function_data() to test if it's a function pointer,
@@ -413,6 +418,7 @@ def is_func_ptr(offset):
     # If it doesn't, we know that it shouldn't be a function pointer.
     # (plus it saves on time)
     # TODO: Determine if we could have false negatives.
+    #   - this caused a false negatives, so I added the check if offset is the start of a function.
     try:
         if idc.is_loaded(offset) and not idc.guess_type(offset):
             return False

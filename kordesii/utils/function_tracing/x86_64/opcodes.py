@@ -425,8 +425,7 @@ def DEC(cpu_context, ip, mnem, operands):
     operands[0].value = result & mask
 
 
-@opcode("div")
-@opcode("idiv")
+@opcode
 def DIV(cpu_context, ip, mnem, operands):
     """
     Divide
@@ -460,6 +459,38 @@ def DIV(cpu_context, ip, mnem, operands):
         cpu_context.registers[rax_str] = result
         cpu_context.registers[rdx_str] = remainder
 
+        
+@opcode
+def IDIV(cpu_context, ip, mnem, operands):
+    """
+    Signed Division
+    """
+    RAX_REG_SIZE_MAP = {8: "rax", 4: "eax", 2: "ax", 1: "al"}
+    RDX_REG_SIZE_MAP = {8: "rdx", 4: "edx", 2: "dx"}
+    
+    width = operands[0].width
+    b_width = width * 8
+    divisor = utils.signed(operands[0].value, b_width)
+    if divisor == 0:
+        logger.debug("DIV / 0")
+        return
+        
+    rax_str = RAX_REG_SIZE_MAP[width]
+    dividend = utils.signed(cpu_context.registers[rax_str], b_width)
+    
+    result = int(dividend / divisor) & utils.get_mask(width)
+    # TODO: Ideally we would be able to just use result here instead of recalculating. We need to test if
+    #       we can do that without introducing errors and make the change if so.
+    remainder = (dividend - (int(dividend / divisor) * divisor)) & utils.get_mask(width)
+    logger.debug("0x%X / 0x%X = 0x%X", dividend, divisor, result)
+    if width == 1:
+        cpu_context.registers.al = result
+        cpu_context.registers.ah = remainder
+    else:
+        rdx_str = RDX_REG_SIZE_MAP[width]
+        cpu_context.registers[rax_str] = result
+        cpu_context.registers[rdx_str] = remainder
+        
 
 @opcode
 def DIVSD(cpu_context, ip, mnem, operands):

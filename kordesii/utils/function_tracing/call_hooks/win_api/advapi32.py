@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def _get_reg_key(cpu_context, root_key_handle, sub_key_ptr, wide=False):
     """
-    Retrieves the root key and sub key strings from the giving hKey and lpSubKey arguments.
+    Retrieves the root key and sub key strings from the given hKey and lpSubKey arguments.
 
     :param root_key_handle: The hKey argument (the HKEY handle for the root key)
     :param sub_key_ptr: The lpSubKey argument (the pointer to the sub key string)

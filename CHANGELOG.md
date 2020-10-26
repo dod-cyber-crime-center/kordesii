@@ -2,16 +2,23 @@
 All notable changes to this project will be documented in this file.
 
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 - *function_tracing*
     - Added additional WinAPI function hook support
     - Added recording of ShellOperation actions
+- Added `calls_from` and `callees` properties to `kordesii.utils.Function` object.
+- Added `is_64bit` option when running a decoder. This allows the user to force the use of `ida64` or `ida` if option
+    is `True` or `False` respectively. This option can also be set in the command line using the `--64bit` or `--32bit`
+    flags.
 
-### Changed
+### Fixed
 - Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
-- Fixed typo in `jnp` / `jpo` opcodes for `function_tracing`
+- *function_tracing*
+    - Fixed typo in `jnp` / `jpo` opcodes for `function_tracing`
+    - Fixed incorrect handling of IDIV signed division
+- General fixes to improve support when running under Linux.
 
 
 ## [2.1.0] - 2020-06-05
@@ -66,7 +73,8 @@ by the currently set malware repository path.
 - Remote logs using IDA proxy are now displayed.
 - If a log level is passed into `kordesii.setup_logging()` it will now be used set to the root logger for you.
 - *function_tracing*
-    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode. 
+    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode.
+    - Fixed incorrect handling of IDIV signd division
 
 ### Deprecated
 - Old locations for moved functions and classes mentioned above are deprecated and will be removed in a 
@@ -117,7 +125,7 @@ future version.
 
 **NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
 The next release will only support Python 3 and IDA >= 7.4.**
-
+f
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 - *function_tracing:*

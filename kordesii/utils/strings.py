@@ -365,7 +365,7 @@ class EncodedString(object):
         if rename:
             self.rename()
         if patch:
-            self.patch(fill_char=fill_char, define=True)
+            self.patch(fill_char=fill_char, define=define)
 
     @property
     def start_ea(self):
