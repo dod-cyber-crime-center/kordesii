@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 
-## [Unreleased]
+## [2.2.0] - 2020-10-30
 
 ### Added
 - *function_tracing*
@@ -79,8 +79,7 @@ by the currently set malware repository path.
 - Remote logs using IDA proxy are now displayed.
 - If a log level is passed into `kordesii.setup_logging()` it will now be used set to the root logger for you.
 - *function_tracing*
-    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode.
-    - Fixed incorrect handling of IDIV signd division
+    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode. 
 
 ### Deprecated
 - Old locations for moved functions and classes mentioned above are deprecated and will be removed in a 
@@ -131,7 +130,7 @@ future version.
 
 **NOTE: This is the last version to support Python 2 and IDA 7.0-7.3. 
 The next release will only support Python 3 and IDA >= 7.4.**
-f
+
 ### Added
 - Added `--force` flag to `Tester` for adding or updating testcases to ignore errors if set. (@ddash-ct)
 - *function_tracing:*
@@ -380,7 +379,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.1.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.2.0...HEAD
+[2.2.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.1.0...2.2.0
 [2.1.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.1...2.1.0
 [2.0.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/1.7.0...2.0.0
