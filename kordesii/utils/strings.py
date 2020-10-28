@@ -1,10 +1,12 @@
 """
 Utilities for working with encoded strings.
 """
+import copy
 import functools
 import logging
 import re
 import sys
+from typing import List, Iterable, Tuple
 
 import ida_name
 import idaapi
@@ -34,6 +36,77 @@ CODE_PAGES = [
 
 # CODEC to use for displaying strings in IDA, etc.
 DISPLAY_CODE = "cp437" if sys.platform == "win32" else "ascii"
+
+
+# TODO: Add support for forcing only utf-16 or utf-8 string data?
+def find_string_data(data: bytes) -> Iterable[Tuple[int, bytes, str]]:
+    """
+    Iterates string data found within the given data.
+    This looks for the start of UTF-8 or UTF-16 strings found within the given block of data.
+
+    :param data: Chunk of data that contains a mixture of UTF-8 and UTF-16 encoded strings.
+    :yields: (start_offset, string_data, encoding)
+    """
+    if not data or data in (b"\x00", b"\x00\x00"):
+        return
+
+    # Iterate strings split up by either \x00\x00 or \x00.
+    # If we find a single character followed by a \x00, this is most likely a character of utf-16.
+    offset = 0
+    buffer = b""
+    utf_16 = False
+    for entry in re.split(b"((?<=\x00[^\x00]\x00)\x00\x00|\x00)", data):
+        buffer += entry
+        offset += len(entry)
+        string_offset = offset - len(buffer)
+
+        # If we have a single character, then this is most likely part of a utf-16 string.
+        # Don't yield anything yet.
+        if len(entry) == 1 and entry != b"\x00":
+            utf_16 = True
+
+        # If we find a single null character and not currently extracting a utf-16 string,
+        # we found the end of a utf-8 string.
+        elif entry == b"\x00" and not utf_16:
+            if buffer not in (b"\x00", b"\x00\x00"):
+                yield string_offset, buffer, "utf-8"
+            buffer = b""
+
+        # If we find a double null character, this is the end of a utf-16 string.
+        elif entry == b"\x00\x00":
+            if buffer not in (b"\x00", b"\x00\x00"):
+                yield string_offset, buffer, "utf-16-le"
+            buffer = b""
+            utf_16 = False
+
+        # If we find a multi-character string but in utf_16 mode, then we misidentified the utf-16.
+        # Yield buffer as single character utf-8 strings and then reset buffer to entry.
+        elif len(entry) > 1 and utf_16:
+            split_strings = []
+            for _entry in re.split(b"(\x00)", buffer[:-len(entry)]):
+                if _entry == b"\x00":
+                    split_strings[-1] += _entry
+                else:
+                    split_strings.append(_entry)
+            for _entry in split_strings:
+                if _entry:
+                    yield string_offset, _entry, "utf-8"
+                string_offset += len(_entry)
+            buffer = buffer[-len(entry):]
+            utf_16 = False
+
+    # Yield remaining string that may not have a null terminator.
+    if buffer and buffer not in (b"\x00", b"\x00\x00"):
+        string_offset = offset - len(buffer)
+        if utf_16:
+            # If we have no ending null byte and there is a null byte in front, then it must be big endian.
+            if not buffer.endswith(b"\x00") and len(buffer) < len(data) and data[string_offset-1] == 0x00:
+                buffer = b"\x00" + buffer
+                yield string_offset - 1, buffer, "utf-16-be"
+            else:
+                yield string_offset, buffer, "utf-16-le"
+        else:
+            yield string_offset, buffer, "utf-8"
 
 
 @serializable_class
@@ -492,6 +565,29 @@ class EncodedString(object):
             return best_output
 
         return u""
+
+    def split(self, define=False) -> List["EncodedString"]:
+        """
+        Splits up EncodedString object into a list of multiple EncodedString objects split up by
+        null terminators, which can contain utf-8 or utf-16 encoded strings.
+
+        NOTE: This function assumes one-to-one decryption has occurred.
+            If not, you can call find_string_data() manually.
+
+        The original EncodedString is not modified.
+
+        :param define: Whether to define new strings in IDB.
+        """
+        new_strings = []
+        for offset, string_data, encoding in find_string_data(self.decoded_data):
+            new_string = copy.copy(self)
+            new_string.encoded_data = self.encoded_data[offset: offset + len(string_data)]
+            new_string.decoded_data = string_data
+            new_string.offset = offset
+            if define:
+                new_string.define()
+            new_strings.append(new_string)
+        return new_strings
 
 
 @serializable_class(skip_attrs=["xrefs_to"])

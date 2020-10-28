@@ -174,7 +174,6 @@ def is_valid_ea(ea):
     ) <= ea <= idc.get_inf_attr(idc.INF_MAX_EA)
 
 
-# TODO: Integrate this into EncodedString class
 def split_decoded_string(decoded_string, identify=False):
     """
     Description:
@@ -211,6 +210,12 @@ def split_decoded_string(decoded_string, identify=False):
     we searched for the rightmost \x00 earlier. We continue like this until we run into the front of
     the current block and then process the next block, repeating until we hit the end of the buffer.
     """
+    warnings.warn(
+        "split_decoded_string() is deprecated. "
+        "Please use .split() on the EncodedString object instead.",
+        DeprecationWarning
+    )
+
     results = []
     section_start = 0
     section_end = decoded_string.decoded_data.find(b"\x00\x00")

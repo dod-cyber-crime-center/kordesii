@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
 - Added `is_64bit` option when running a decoder. This allows the user to force the use of `ida64` or `ida` if option
     is `True` or `False` respectively. This option can also be set in the command line using the `--64bit` or `--32bit`
     flags.
+    
+### Changed
+- Added `.split()` function to `EncodedString` class, which replaces `decoderutils.split_decoded_string()`
 
 ### Fixed
 - Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
@@ -19,6 +22,9 @@ All notable changes to this project will be documented in this file.
     - Fixed typo in `jnp` / `jpo` opcodes for `function_tracing`
     - Fixed incorrect handling of IDIV signed division
 - General fixes to improve support when running under Linux.
+    
+### Deprecated
+- `kordesii.utils.split_decoded_string()` is deprecated in favor of using `kordesii.utils.EncodedString.split()`
 
 
 ## [2.1.0] - 2020-06-05
