@@ -149,6 +149,10 @@ def _is_func_type(ea):
     tif = ida_typeinf.tinfo_t()
     ida_nalt.get_tinfo(tif, ea)
     func_type_data = ida_typeinf.func_type_data_t()
+    # In IDA 7.6, imported functions are now function pointers.
+    # To handle this, check if we need to pull out a pointed object first
+    if tif.is_funcptr():
+        tif = tif.get_pointed_object()
     return bool(tif.get_func_details(func_type_data))
 
 

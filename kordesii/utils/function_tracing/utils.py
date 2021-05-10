@@ -367,6 +367,12 @@ def get_function_data(offset, operand: Operand = None):
 
     if tif:
         funcdata = ida_typeinf.func_type_data_t()
+
+        # In IDA 7.6, imported functions are now function pointers.
+        # To handle this, check if we need to pull out a pointed object first
+        if tif.is_funcptr():
+            tif = tif.get_pointed_object()
+
         success = tif.get_func_details(funcdata)
         if success:
             # record that we have processed this function before. (and that we can grab it from the offset)
