@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- In IDA 7.6, imported functions are now function pointers, add checks accordingly
+
 
 ## [2.2.0] - 2020-10-30
 
