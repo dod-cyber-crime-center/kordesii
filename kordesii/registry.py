@@ -147,7 +147,7 @@ def iter_decoders(name=None, source=None):
         else:
             # Extract all decoders within the directory
             for root, directories, filenames in os.walk(source.path):
-                for filename in filenames:
+                for filename in sorted(filenames, key=lambda f: f.lower()):  # Case-insensitive sorting.
                     if filename.endswith(".py") and not filename.startswith("_"):
                         script_path = os.path.join(root, filename)
                         rel_path, _ = os.path.splitext(os.path.relpath(script_path, source.path))

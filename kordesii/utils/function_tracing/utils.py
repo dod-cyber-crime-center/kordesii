@@ -9,6 +9,7 @@ import struct
 
 import ida_allins
 import ida_funcs
+import ida_hexrays
 import ida_ida
 import ida_idp
 import ida_nalt
@@ -249,6 +250,89 @@ def get_bits():
     return result
 
 
+def _decompile(offset: int) -> tuple:
+    """
+    Attempt to decompile the function at the provided offset using the Hex-Rays plugin. Returns a tuple containing the
+    decompiled text (which will be None if an error occurred) and the populated hexrays_failure_t object.
+    :param offset: an offset in the function to decompile
+    :return: (decompiled text, failure object)
+    """
+    func = ida_funcs.get_func(offset)
+    hf = ida_hexrays.hexrays_failure_t()
+    decompiled = ida_hexrays.decompile_func(func, hf, 0)
+    return decompiled, hf
+
+
+def _set_decompiled_func_type(offset: int, decompiled: "ida_hexrays.cfuncptr_t"):
+    """
+    Given the cfuncptr_t object, obtain the declaration, sanitize it, and set the function's type.
+    :param offset: offset of function to set type for
+    :param decompiled: a cfuncptr_t object
+    """
+    # Save type for next time.
+    fmt = decompiled.print_dcl()
+    fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
+    set_type_result = idc.SetType(offset, "{};".format(fmt))
+    if not set_type_result:
+        logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
+
+
+DECOMPILE_ERRORS = [
+    -12,    # call analysis failed
+]
+
+
+def _get_decompiled_function(offset: int) -> "ida_hexrays.cfuncptr_t":
+    """
+    Attempt to decompile the function containing offset and return the obtained cfuncptr_t object. Additionaly sets the
+    type for all decompiled functions.
+    :param offset: offset of interest
+    :return: a cfuncptr_t object or None
+    """
+    # This requires Hexrays decompiler, load it and make sure it's available before continuing.
+    if not idaapi.init_hexrays_plugin():
+        idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
+    if not idaapi.init_hexrays_plugin():
+        raise RuntimeError("Unable to load Hexrays decompiler.")
+
+    decompiled = None
+    offsets_to_decompile = [offset] # LIFO list of offsets to try to decompile
+    offsets_attempted = set()       # Offsets already attempted to decompile, whether successful or not
+    offsets_decompiled = set()      # Set of offsets that successfull decompiled
+    # Continue trying to decompile until the list of offsets to decompile is empty or we get an error we can't handle
+    # TODO: Determine what errors we can actually handle
+    while offsets_to_decompile:
+        _offset = offsets_to_decompile.pop()
+        # This check means we have probably hit a snag preventing us from decompiling all together, and should prevent
+        # an endless loop of continuously trying to decompile
+        if _offset in offsets_decompiled:   # already decompiled, but still causing a problem?
+            raise RuntimeError("Unable to decompile function 0x{:X}".format(offset))
+
+        offsets_attempted.add(_offset)
+        decompiled, hf = _decompile(_offset)
+        if decompiled and not hf.code:  # successful decompilation, add to set of decompiled, and remove from attempted
+            # set the type
+            _set_decompiled_func_type(_offset, decompiled)
+            offsets_decompiled.add(_offset)
+            offsets_attempted.remove(_offset)
+        else:   # unsuccessful...
+            if not hf.code in DECOMPILE_ERRORS: # cannot possibly recover
+                raise RuntimeError("Unable to decompile function at 0x{:X}".format(offset))
+
+            # Can possibly recover by decompiling called functions
+            # add the current offset back to the LIFO list to try decompiling a second time
+            offsets_to_decompile.append(_offset)
+            # get the address where the analysis failed, pull its operand, and add to the stack
+            call_ea = idc.get_operand_value(hf.errea, 0)
+            # can't continue if this address was already attempted
+            if call_ea in offsets_attempted:
+                raise RuntimeError("Unable to decompile function at 0x{:X}".format(offset))
+
+            offsets_to_decompile.append(call_ea)
+
+    return decompiled
+
+
 def _get_function_tif_with_hex_rays(offset):
     """
     Attempt to get the tinfo_t object of a function using the Hex-Rays decompiler plugin.
@@ -258,29 +342,11 @@ def _get_function_tif_with_hex_rays(offset):
     :returns: tinfo_t object on success.
     """
     tif = ida_typeinf.tinfo_t()
+    decompiled = _get_decompiled_function(offset)
+    if not decompiled: # not sure what for shenanigans happened to get None back....
+        raise RuntimeError("Expected cfuncptr_t object, received None")
 
-    # This requires Hexrays decompiler, load it and make sure it's available before continuing.
-    if not idaapi.init_hexrays_plugin():
-        idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
-    if not idaapi.init_hexrays_plugin():
-        raise RuntimeError("Unable to load Hexrays decompiler.")
-
-    # Pull type from decompiled C code.
-    try:
-        decompiled = idaapi.decompile(offset)
-    except idaapi.DecompilationFailure:
-        decompiled = None
-    if decompiled is None:
-        raise RuntimeError("Cannot decompile function at 0x{:X}".format(offset))
     decompiled.get_func_type(tif)
-
-    # Save type for next time.
-    fmt = decompiled.print_dcl()
-    fmt = "".join(c for c in fmt if c in string.printable and c not in ("\t", "!"))
-    set_type_result = idc.SetType(offset, "{};".format(fmt))
-    if not set_type_result:
-        logger.warning("Failed to SetType for function at 0x{:X} with decompiler type {!r}".format(offset, fmt))
-
     return tif
 
 

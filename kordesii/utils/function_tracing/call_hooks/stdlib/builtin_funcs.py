@@ -426,6 +426,69 @@ def strstr(cpu_context, func_name, func_args):
     return str1_ptr + offset
 
 
+def _format_string(ctx, fmt, required_args, string_type=constants.STRING):
+    """
+    Handles formatting the string with the function arguments based on the format.
+
+    :param ctx: cpu_context object
+    :param fmt: format string
+    :param required_args: num of required arguments for the particular format function to skip
+    """
+    # Format using best attempt here.  Basically, locate all the format specifiers, and convert them to a python
+    # supported format string.  For each format string, extract the appropriate data from the context, and append it to
+    # the values list.
+    fmt_val_re = re.compile(br"""
+    %                           # start with percent character
+    [-+ #0]{0,1}                # optional flag character
+    (\*|[0-9]{1,}){0,}          # optional width specifier, though mutually exclusive (either a number or *, not both)
+    ((\.[0-9]{1,})|\.\*){0,}    # optional precision specifier, mutually exclusive
+    [diuoxXfFeEgGaAcspn]        # format type
+    """, re.VERBOSE)
+
+    # NOTE: findall() produces empty results so we need to use finditer()
+    fmt_vals = [match.group() for match in fmt_val_re.finditer(fmt)]
+    logger.debug("Format vals: %r", fmt_vals)
+
+    # Re-pull function arguments with correct number of arguments.
+    func_sig = ctx.get_function_signature()
+    func_sig.arg_types = func_sig.arg_types[:required_args]
+    # For an unknown reason, int is not always being read as a QWORD on 64-bit, so this line
+    # forces the issue to ensure pointer addresses aren't being truncated to 32 bits
+    types = "QWORD" if utils.get_bits() == 64 else "DWORD"
+    func_sig.arg_types += ((types,) * len(fmt_vals))
+    func_args = [arg.value for arg in func_sig.args]
+
+    format_vals = []
+    arg_pos = required_args  # skip destination and format string
+    for match in fmt_vals:
+        if b'*' in match:
+            # Indicates that one of the parameters is a width, which must be pulled and added to the list first
+            format_vals.append(func_args[arg_pos])
+            arg_pos += 1
+
+        if match.endswith(b'c'):  # character (will this be the value or a read from the context???
+            arg_val = func_args[arg_pos]
+            if arg_val <= 0xFF:  # assume that the argument contains the character
+                format_vals.append(arg_val)
+            else:   # assume it's a pointer that must be dereferenced
+                format_vals.append(ctx.read_data(arg_val, size=1))
+
+        elif match.endswith(b's'):  # string value, should be a pointer
+            _arg = ctx.read_data(func_args[arg_pos], data_type=string_type)
+            if not len(_arg):   # If the argument isn't set during parsing, preserve the formatting
+                logger.debug("Pulled 0 byte format string, reverting")
+                _arg = b"%s"
+            format_vals.append(_arg)
+
+        else:   # all other numerical types???
+            format_vals.append(func_args[arg_pos])
+
+        arg_pos += 1
+
+    result = fmt % tuple(format_vals)
+    return result
+
+
 @builtin_func
 def sprintf(ctx, func_name, func_args):
     """
@@ -444,53 +507,30 @@ def sprintf(ctx, func_name, func_args):
     dest = func_args[0]
     fmt = ctx.read_data(func_args[1])
     logger.debug("Format string: %s", fmt)
-
-    # Format using best attempt here.  Basically, locate all the format specifiers, and convert them to a python
-    # supported format string.  For each format string, extract the appropriate data from the context, and append it to
-    # the values list.
-    fmt_val_re = re.compile(br"""
-    %                           # start with percent character
-    [-+ #0]{0,1}                # optional flag character
-    (\*|[0-9]{1,}){0,}          # optional width specifier, though mutually exclusive (either a number or *, not both)
-    ((\.[0-9]{1,})|\.\*){0,}    # optional precision specifier, mutually exclusive
-    [diuoxXfFeEgGaAcspn]        # format type
-    """, re.VERBOSE)
-
-    # NOTE: findall() produces empty results so we need to use finditer()
-    fmt_vals = [match.group() for match in fmt_val_re.finditer(fmt)]
-    logger.debug("Format vals: %r", fmt_vals)
-
-    # Re-pull function arguments with correct number of arguments.
-    func_args = ctx.get_function_args(num_args=2 + len(fmt_vals))
-
-    format_vals = []
-    arg_pos = 2  # skip destination and format string
-    for match in fmt_vals:
-        if b'*' in match:
-            # Indicates that one of the parameters is a width, which must be pulled and added to the list first
-            format_vals.append(func_args[arg_pos])
-            arg_pos += 1
-
-        if match.endswith(b'c'):  # character (will this be the value or a read from the context???
-            arg_val = func_args[arg_pos]
-            if arg_val <= 0xFF:  # assume that the argument contains the character
-                format_vals.append(arg_val)
-            else:   # assume it's a pointer that must be dereferenced
-                format_vals.append(ctx.read_data(arg_val, size=1))
-
-        elif match.endswith(b's'):  # string value, should be a pointer
-            _arg = ctx.read_data(func_args[arg_pos])
-            if not len(_arg):   # If the argument isn't set during parsing, preserve the formatting
-                logger.debug("Pulled 0 byte format string, reverting")
-                _arg = b"%s"
-            format_vals.append(_arg)
-
-        else:   # all other numerical types???
-            format_vals.append(func_args[arg_pos])
-
-        arg_pos += 1
-
-    result = fmt % tuple(format_vals)
+    result = _format_string(ctx, fmt, 2)
     logger.debug("Writing formatted value %s to 0x%X", result, dest)
     ctx.mem_write(dest, result + b'\0')
+    return len(result)
+
+
+@builtin_func("snprintf")
+@builtin_func("sprintf_s")
+@builtin_func("swprintf_s")
+def snprintf(ctx, func_name, func_args):
+    """
+    int snprintf (char *s, size_t n, const char *format, ...);
+
+    Format a string using the provided format string and values, truncated if necessary to length n.
+    """
+    wide = func_name.startswith("sw")
+    string_type = constants.WIDE_STRING if wide else constants.STRING
+    if len(func_args) < 3:
+        func_args = ctx.get_function_args(num_args=3)
+
+    dest, n = func_args[:2]
+    fmt = ctx.read_data(func_args[2], data_type=string_type)
+    logger.debug("Format string: %s", fmt)
+    result = _format_string(ctx, fmt, 3, string_type)
+    logger.debug("Writing formatted value %s to 0x%X", result[:n - 1], dest)
+    ctx.mem_write(dest, result[:n - 1] + b'\0')
     return len(result)

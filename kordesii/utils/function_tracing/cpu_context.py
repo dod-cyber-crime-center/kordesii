@@ -26,7 +26,8 @@ from kordesii.utils.function_tracing.memory import Memory
 from kordesii.utils.function_tracing.variables import VariableMap
 from kordesii.utils.function_tracing.operands import Operand, OperandLite
 from kordesii.utils.function_tracing.functions import FunctionSignature, FunctionArg
-from kordesii.utils.function_tracing.objects import ObjectMap, Object, File, RegKey
+from kordesii.utils.function_tracing.objects import File, RegKey, Service, ObjectMap
+from kordesii.utils.function_tracing.actions import ActionList
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class ProcessorContext(object):
         self.byteness = self.bitness // 8
         self.variables = VariableMap(self)
         self.objects = ObjectMap(self)
-        self.actions = []   # List of action objects (namedtuples)
+        self.actions = ActionList()
 
         # Function start address of a function we are currently hooking.
         self.hooking_call = None
@@ -173,7 +174,7 @@ class ProcessorContext(object):
         copy.memory = deepcopy(self.memory, memo)
         copy.variables = deepcopy(self.variables, memo)
         copy.objects = deepcopy(self.objects, memo)
-        copy.actions = list(self.actions)
+        copy.actions = deepcopy(self.actions, memo)
         copy.func_calls = dict(self.func_calls)
         copy.executed_instructions = list(self.executed_instructions)
         copy.memory_copies = self.memory_copies.copy()
@@ -802,32 +803,9 @@ class ProcessorContext(object):
     @property
     def files(self) -> List[File]:
         """
-        The opened files for this context.
+        All File objects in the current context.
         """
-        return [obj for obj in self.objects if isinstance(obj, File)]
-
-    def open_file(self, path: str, mode: str = None) -> File:
-        """
-        Adds opened file for tracking.
-        """
-        if not path:
-            path = f"0x{self.ip:08x}.bin"
-
-        # First see if the file already exists.
-        for file in self.files:
-            if file.path == path:
-                if mode:
-                    file.mode = mode  # update mode
-                # Undo closed and delete indicators.
-                file.closed = False
-                file.deleted = False
-                return file
-
-        # Create a new file and store in object map.
-        file = File(path=path, mode=mode)
-        self.objects.add(file)
-        logger.debug("Opened file: %s", file.path)
-        return file
+        return list(self.objects.query(File))
 
     def get_file(self, handle_or_path: Union[int, str], default=None) -> File:
         """
@@ -835,26 +813,29 @@ class ProcessorContext(object):
 
         :raises TypeError: if handle points and object that is not a File.
         """
+        warnings.warn(
+            "get_file() is deprecated. Please use objects.query() instead.",
+            DeprecationWarning
+        )
         if isinstance(handle_or_path, int):
-            try:
-                handle = handle_or_path
-                obj = self.objects[handle]
-                if not isinstance(obj, File):
-                    raise TypeError(f"Expected handle {hex(handle)} to point to a File, got {type(obj)}")
-                return obj
-            except KeyError:
-                return default
-
+            condition = dict(handle=handle_or_path)
         else:
-            path = handle_or_path
-            for file in self.files:
-                if file.path == path:
-                    return file
-            return default
+            condition = dict(path=handle_or_path)
+
+        for obj in self.objects.query(File, **condition):
+            return obj
+        return default
 
     @property
     def regkeys(self) -> List[RegKey]:
         """
         The opened registry keys for this context.
         """
-        return [obj for obj in self.objects if isinstance(obj, RegKey)]
+        return list(self.objects.query(RegKey))
+
+    @property
+    def services(self) -> List[Service]:
+        """
+        The created services for this context.
+        """
+        return list(self.objects.query(Service))

@@ -3,8 +3,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- *function_tracing*
+    - Added recording of ChangeServiceConfig2A description actions.
+    - Added tracking for Service objects.
+
 ### Fixed
-- In IDA 7.6, imported functions are now function pointers, add checks accordingly
+- Fix `ida_re.Match` to return -1 when a capture group does not contribute to the match but is requested.
+- In IDA 7.6, imported functions are now function pointers, add checks accordingly. (@dash-ct)
+
+### Changed
+- Decoded strings in generated test cases are now alphabetized.
+- *function_tracing*
+    - Modified the methodology to decompile functions to improve obtaining the function signature.
+    - Updated implementation for high-level object tracking to be based on recorded actions to improve performance and correctness.
+    - Updated implementation for action tracking to improve performance.
+    - `Action` and `Object` types are no longer imported within the base of `kordesii.utils.function_tracing`. They must be imported from `kordesii.utils.function_tracing.actions` and `kordesii.utils.function_tracing.objects` respectively.
 
 
 ## [2.2.0] - 2020-10-30
@@ -22,8 +36,8 @@ All notable changes to this project will be documented in this file.
 - Added `.split()` function to `EncodedString` class, which replaces `decoderutils.split_decoded_string()`
 
 ### Fixed
-- Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
 - *function_tracing*
+    - Fix to account for getting the correct function data using the operand even if the offset is invalid. This provides better support for dynamically resolved function calls. (@ddash-ct)
     - Fixed typo in `jnp` / `jpo` opcodes for `function_tracing`
     - Fixed incorrect handling of IDIV signed division
 - General fixes to improve support when running under Linux.
@@ -84,7 +98,7 @@ by the currently set malware repository path.
 - Remote logs using IDA proxy are now displayed.
 - If a log level is passed into `kordesii.setup_logging()` it will now be used set to the root logger for you.
 - *function_tracing*
-    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode. 
+    - Fixed issue sometimes causing an incorrect stack cleanup when emulating the `call` opcode.
 
 ### Deprecated
 - Old locations for moved functions and classes mentioned above are deprecated and will be removed in a 

@@ -62,7 +62,7 @@ def shell_execute(cpu_context, func_name, func_args):
         directory = u""
 
     logger.debug("%s: %r %r", func_name, operation, filepath)
-    cpu_context.actions.append(
+    cpu_context.actions.add(
         actions.ShellOperation(cpu_context.ip, operation, filepath, params, directory, wc.Visibility(visibility))
     )
 

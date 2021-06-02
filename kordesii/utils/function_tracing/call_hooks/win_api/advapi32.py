@@ -31,15 +31,19 @@ def _get_reg_key(cpu_context, root_key_handle, sub_key_ptr, wide=False):
     :param sub_key_ptr: The lpSubKey argument (the pointer to the sub key string)
     :param wide: Whether strings are utf16 or utf8
     """
+    # Make sure root_key_handle is 32-bit
+    root_key_handle &= 0xFFFFFFFF
     # Get root key
-    if root_key_handle in cpu_context.objects:
-        root_key = cpu_context.objects[root_key_handle].path
-    elif root_key_handle in wc.RegistryKey.__members__.values():
-        # root key is a predefined enum.
-        root_key = wc.RegistryKey(root_key_handle).name
-    else:
-        logger.warning("Invalid registry key 0x%X, using hex string.", root_key_handle)
-        root_key = hex(root_key_handle)
+    try:
+        reg_key = cpu_context.objects[root_key_handle]
+        root_key = reg_key.path
+    except KeyError:
+        if root_key_handle in wc.RegistryKey.__members__.values():
+            # root key is a predefined enum.
+            root_key = wc.RegistryKey(root_key_handle).name
+        else:
+            logger.warning("Invalid registry key 0x%X, using hex string.", root_key_handle)
+            root_key = hex(root_key_handle)
 
     # Get sub key
     if not sub_key_ptr:
@@ -92,13 +96,15 @@ def reg_open_key(cpu_context, func_name, func_args):
     # Otherwise create new RegKey object.
     else:
         disposition = wc.REG_CREATED_NEW_KEY
-        reg_key = objects.RegKey(root_key, sub_key)
-        cpu_context.objects.add(reg_key)
+        path = "\\".join([root_key, sub_key])
+        handle = cpu_context.objects.alloc()
         cpu_context.mem_write(
-            result_ptr, utils.struct_pack(reg_key.handle, width=cpu_context.byteness)
+            result_ptr, utils.struct_pack(handle, width=cpu_context.byteness)
         )
-        cpu_context.actions.append(actions.RegKeyOpened(cpu_context.ip, reg_key.path))
-        logger.debug("Opening registry key: %s", reg_key.path)
+        cpu_context.actions.add(
+            actions.RegKeyOpened(cpu_context.ip, handle, path, root_key, sub_key)
+        )
+        logger.debug("Opening registry key: %s", path)
 
     # Need to report disposition if RegCreateKeyEx*
     if func_name.startswith("RegCreateKeyEx"):
@@ -131,7 +137,7 @@ def reg_delete_key(cpu_context, func_name, func_args):
         return
 
     path = "\\".join([root_key, sub_key])
-    cpu_context.actions.append(actions.RegKeyDeleted(cpu_context.ip, path))
+    cpu_context.actions.add(actions.RegKeyDeleted(cpu_context.ip, root_key_handle, path))
     logger.debug("Deleting registry key: %s", path)
 
     return wc.ERROR_SUCCESS
@@ -154,7 +160,9 @@ def reg_delete_key_value(cpu_context, func_name, func_args):
     ).decode("utf-16-le" if wide else "utf8")
 
     path = "\\".join([root_key, sub_key or ""])
-    cpu_context.actions.append(actions.RegKeyValueDeleted(cpu_context.ip, path, value_name))
+    cpu_context.actions.add(
+        actions.RegKeyValueDeleted(cpu_context.ip, root_key_handle, path, value_name)
+    )
     logger.debug("Deleting value %s from registry key %s", value_name, path)
 
     return wc.ERROR_SUCCESS
@@ -177,7 +185,9 @@ def reg_delete_value(cpu_context, func_name, func_args):
     ).decode("utf-16-le" if wide else "utf8")
 
     path = root_key
-    cpu_context.actions.append(actions.RegKeyValueDeleted(cpu_context.ip, path, value_name))
+    cpu_context.actions.add(
+        actions.RegKeyValueDeleted(cpu_context.ip, root_key_handle, path, value_name)
+    )
     logger.debug("Deleting value %s from registry key %s", value_name, path)
 
     return wc.ERROR_SUCCESS
@@ -230,7 +240,9 @@ def reg_set_value(cpu_context, func_name, func_args):
     else:
         raise NotImplementedError(f"Unsupported data type: {data_type.name}")
 
-    cpu_context.actions.append(actions.RegKeyValueSet(cpu_context.ip, path, data_type.name, data))
+    cpu_context.actions.add(
+        actions.RegKeyValueSet(cpu_context.ip, root_key_handle, path, data_type.name, data)
+    )
     logger.debug("Setting value %r to registry key %s", data, path)
 
     return wc.ERROR_SUCCESS
@@ -271,17 +283,103 @@ def create_service(cpu_context, func_name, func_args):
     service_type = wc.ServiceType(service_type)
     start_type = wc.ServiceStart(start_type)
 
+    # TODO: Determine if a new handle is always created.
+    handle = cpu_context.objects.get_or_alloc(objects.Service, name=service_name)
+
     action = actions.ServiceCreated(
         ip=cpu_context.ip,
+        handle=handle,
         name=service_name,
         access=desired_access,
         service_type=service_type,
         start_type=start_type,
         display_name=display_name,
-        binary_path=binary_path,
+        binary_path=binary_path
     )
-    cpu_context.actions.append(action)
+    cpu_context.actions.add(action)
     logger.debug("Created: %r", action)
+    return handle
 
-    # TODO: Keep track of service handles like we do with files?
-    return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
+
+@builtin_func("OpenServiceA")
+@builtin_func("OpenServiceW")
+#typespec("SC_HANDLE OpenServiceA(SC_HANDLE hSCManager, LPCSTR lpServiceName, DWORD dwDesiredAccess);")
+#typespec("SC_HANDLE OpenServiceW(SC_HANDLE hSCManager, LPCWSTR lpServiceName, DWORD dwDesiredAccess);")
+def open_service(cpu_context, func_name, func_args):
+    """
+    Open a service
+    """
+    wide = func_name.endswith("W")
+    service_name_ptr = func_args[1]
+    service_name = cpu_context.read_data(service_name_ptr).decode("utf-16-le" if wide else "utf8")
+
+    # TODO: Determine if a new handle is always created.
+    handle = cpu_context.objects.get_or_alloc(objects.Service, name=service_name)
+
+    action = actions.ServiceOpened(
+        ip=cpu_context.ip,
+        handle=handle,
+        name=service_name
+    )
+    cpu_context.actions.add(action)
+    logger.debug("Opened: %r", action)
+    return handle
+
+
+@builtin_func("DeleteService")
+def delete_service(cpu_context, func_name, func_args):
+    """
+    BOOL DeleteService(SC_HANDLE hService);
+
+    Delete service by handle
+    """
+    handle = func_args[0]
+
+    if not handle:
+        logger.warning(f"Service with handle {hex(handle)} does not exist.")
+        
+    try:
+        action = actions.ServiceDeleted(
+            ip=cpu_context.ip,
+            handle=handle
+        )
+        cpu_context.actions.add(action)
+        logger.debug("Deleted: %r", action)
+    except ValueError as err:
+        logger.debug("DeleteService: %s", err)
+
+    return 1
+
+
+@builtin_func("ChangeServiceConfig2A")
+@builtin_func("ChangeServiceConfig2W")
+#typespec("BOOL ChangeServiceConfig2A(SC_HANDLE hService, DWORD dwInfoLevel, LPVOID lpInfo);")
+#typespec("BOOL ChangeServiceConfig2W(SC_HANDLE hService, DWORD dwInfoLevel, LPVOID lpInfo);")
+def change_service_config(cpu_context, func_name, func_args):
+    """
+    Changes service configuration.
+
+    NOTE: For now, only concerned with info level 1 for service description
+    """
+    wide = func_name.endswith("W")
+    ptr_type = constants.QWORD if utils.get_bits() == 64 else constants.DWORD
+    handle = func_args[0]
+    info_level = func_args[1]
+    info_ptr = func_args[2]
+    ptr_value = cpu_context.read_data(info_ptr, data_type=ptr_type)
+
+    if not handle:
+        logger.warning(f"Service with handle {hex(handle)} does not exist.")
+
+    if info_level == 1: # SERVICE_CONFIG_DESCRIPTION
+        service_description = cpu_context.read_data(ptr_value).decode("utf-16-le" if wide else "utf8")
+
+        action = actions.ServiceDescriptionChanged(
+            ip=cpu_context.ip,
+            handle=handle,
+            description=service_description
+        )
+        cpu_context.actions.add(action)
+        logger.debug(f"Description for service with handle {hex(handle)} changed: {service_description}")
+
+    return 1

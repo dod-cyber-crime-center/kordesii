@@ -528,12 +528,14 @@ extracted by the user.
 Currently files and registry keys are supported.
 
 ```python
+from kordesii.utils.function_tracing import objects
+
 print(context.objects)  # Returns ObjectMap class that can be iterated for all instantiated objects.
 
 for obj in context.objects:
-    if isinstance(obj, function_tracing.File):
+    if isinstance(obj, objects.File):
         print(obj.name)
-    elif isinstance(obj, function_tracing.RegKey):
+    elif isinstance(obj, objects.RegKey):
         print(obj.sub_key)
 
 # context.files or context.regkeys can also be used for filtering.
@@ -554,9 +556,11 @@ in the `actions` attribute. A full list of supported actions can be found in
 [kordesii.utils.function_tracing.actions](../kordesii/utils/function_tracing/actions.py)
 
 ```python
+from kordesii.utils.function_tracing import actions
+
 print(context.actions)
 
 for action in context.actions:
-    if isinstance(action, function_tracing.CommandExecuted):
+    if isinstance(action, actions.CommandExecuted):
         print(f"Executed {action.command} at address {hex(action.ip)}")
 ```

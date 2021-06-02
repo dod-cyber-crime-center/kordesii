@@ -8,7 +8,7 @@ from .cpu_context import ProcessorContext
 # TODO: Remove import for function_tracer in future release.
 from .function_tracer import FunctionTracer, TracerCache, get_tracer, hook_tracers, clear_hooks
 from .flowchart import FlowChart, Flowchart, BasicBlock
-from .objects import File, RegKey
+from .objects import File, RegKey, Service
 from .actions import *
 from .exceptions import *
 

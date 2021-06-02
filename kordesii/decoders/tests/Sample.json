@@ -1,28 +1,29 @@
 [
     {
         "debug": [
-            "IDA return code = 0"
+            "[+] Found XOR encrypt function at: 0x401000",
+            "[+] IDA return code = 0"
         ],
+        "input_file": ".\\strings.exe",
         "strings": [
-            "Hello World!", 
-            "Test string with key 0x02", 
-            "The quick brown fox jumps over the lazy dog.", 
-            "Oak is strong and also gives shade.", 
-            "Acid burns holes in wool cloth.", 
-            "Cats and dogs each hate the other.", 
-            "Open the crate but don't break the glass.", 
-            "There the flood mark is ten inches.", 
-            "1234567890", 
-            "CreateProcessA", 
-            "StrCat", 
-            "ASP.NET", 
-            "kdjsfjf0j24r0j240r2j09j222", 
-            "32897412389471982470", 
-            "The past will look brighter tomorrow.", 
-            "Cars and busses stalled in sand drifts.", 
-            "The jacket hung on the back of the wide chair.", 
-            "32908741328907498134712304814879837483274809123748913251236598123056231895712"
-        ], 
-        "input_file": ".\\strings.exe"
+            "1234567890",
+            "32897412389471982470",
+            "32908741328907498134712304814879837483274809123748913251236598123056231895712",
+            "ASP.NET",
+            "Acid burns holes in wool cloth.",
+            "Cars and busses stalled in sand drifts.",
+            "Cats and dogs each hate the other.",
+            "CreateProcessA",
+            "Hello World!",
+            "Oak is strong and also gives shade.",
+            "Open the crate but don't break the glass.",
+            "StrCat",
+            "Test string with key 0x02",
+            "The jacket hung on the back of the wide chair.",
+            "The past will look brighter tomorrow.",
+            "The quick brown fox jumps over the lazy dog.",
+            "There the flood mark is ten inches.",
+            "kdjsfjf0j24r0j240r2j09j222"
+        ]
     }
 ]

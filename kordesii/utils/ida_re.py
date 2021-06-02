@@ -53,7 +53,11 @@ class Match(object):
         :return: virtual start address
         """
         if group:
-            return self._match.start(group) + self._start
+            _group_start = self._match.start(group)
+            if _group_start < 0:  # group exists, but not contributing to match
+                return _group_start
+
+            return _group_start + self._start
 
         return self._match.start() + self._start
 
@@ -66,7 +70,11 @@ class Match(object):
         :return: virtual end address
         """
         if group:
-            return self._match.end(group) + self._start
+            _group_end = self._match.end(group)
+            if _group_end < 0:  # group exists, but not contributing to match
+                return _group_end
+
+            return _group_end + self._start
 
         return self._match.end() + self._start
 

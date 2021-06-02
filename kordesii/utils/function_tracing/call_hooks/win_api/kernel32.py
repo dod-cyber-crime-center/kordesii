@@ -23,7 +23,7 @@ import ida_nalt
 from . import win_constants as wc
 from ...call_hooks import builtin_func
 from ... import constants
-from ... import actions
+from ... import actions, objects
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +311,7 @@ def create_process(cpu_context, func_name, func_args):
         cmd = app + " " + cmd
 
     logger.debug("%s: %r", func_name, cmd)
-    cpu_context.actions.append(actions.CommandExecuted(cpu_context.ip, cmd))
+    cpu_context.actions.add(actions.CommandExecuted(cpu_context.ip, cmd))
 
     return random.randint(wc.MIN_HANDLE, wc.MAX_HANDLE)
 
@@ -326,7 +326,7 @@ def win_exec(cpu_context, func_name, func_args):
     cmd = cpu_context.read_data(cmd_ptr).decode("utf8")
 
     logger.debug("WinExec: %r", cmd)
-    cpu_context.actions.append(
+    cpu_context.actions.add(
         actions.CommandExecuted(cpu_context.ip, cmd, wc.Visibility(visibility))
     )
 
@@ -349,7 +349,7 @@ def create_directory(cpu_context, func_name, func_args):
     logger.debug("Create Directory: %r", path)
 
     if path:
-        cpu_context.actions.append(actions.DirectoryCreated(cpu_context.ip, path))
+        cpu_context.actions.add(actions.DirectoryCreated(cpu_context.ip, path))
 
     return 1  # return success
 
@@ -370,17 +370,6 @@ def create_file(cpu_context, func_name, func_args):
     path = cpu_context.read_data(name_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING)
     path = path.decode("utf-16-le" if wide else "utf8")
 
-    create_disposition = func_args[4]
-    if create_disposition in [wc.CREATE_NEW, wc.CREATE_ALWAYS]:
-        logger.debug("Created file: %s", path)
-        cpu_context.actions.append(actions.FileCreated(cpu_context.ip, path))
-    elif create_disposition in [wc.OPEN_EXISTING, wc.OPEN_ALWAYS]:
-        logger.debug("Opened file: %s", path)
-        cpu_context.actions.append(actions.FileOpened(cpu_context.ip, path))
-    elif create_disposition == wc.TRUNCATE_EXISTING:
-        logger.debug("Truncated file: %s", path)
-        cpu_context.actions.append(actions.FileTruncated(cpu_context.ip, path))
-
     mode = ""
     desired_access = func_args[1]
     if desired_access & wc.GENERIC_READ:
@@ -388,9 +377,25 @@ def create_file(cpu_context, func_name, func_args):
     if desired_access & wc.GENERIC_WRITE:
         mode += "w"
 
-    file = cpu_context.open_file(path, mode=mode)
-    file.add_reference(cpu_context.ip)
-    return file.handle
+    if not path:
+        path = f"0x{cpu_context.ip:08x}.bin"
+
+    # Even if we have seen the path before, CreateFile* always creates a new
+    # handle, so we should too.
+    handle = cpu_context.objects.alloc()
+
+    create_disposition = func_args[4]
+    if create_disposition in [wc.CREATE_NEW, wc.CREATE_ALWAYS]:
+        logger.debug("Created file: %s", path)
+        cpu_context.actions.add(actions.FileCreated(cpu_context.ip, handle, path, mode))
+    elif create_disposition in [wc.OPEN_EXISTING, wc.OPEN_ALWAYS]:
+        logger.debug("Opened file: %s", path)
+        cpu_context.actions.add(actions.FileOpened(cpu_context.ip, handle, path, mode))
+    elif create_disposition == wc.TRUNCATE_EXISTING:
+        logger.debug("Truncated file: %s", path)
+        cpu_context.actions.add(actions.FileTruncated(cpu_context.ip, handle, path, mode))
+    
+    return handle
 
 
 @builtin_func("WriteFile")
@@ -404,15 +409,13 @@ def write_file(cpu_context, func_name, func_args):
     num_bytes_to_write = func_args[2]
     bytes_written_ptr = func_args[3]
 
-    file = cpu_context.get_file(handle)
-    if not file:
-        logger.warning("File handle 0x%x was never opened.", handle)
+    if not handle:
+        logger.warning(f"File with handle {hex(handle)} was never opened.")
         return 1
 
-    logger.debug("Writing %d bytes to file %s", num_bytes_to_write, file.path)
+    logger.debug(f"Writing {num_bytes_to_write} bytes to file with handle {hex(handle)}.")
     data = cpu_context.mem_read(data_ptr, num_bytes_to_write)
-    file.write(data)
-    file.add_reference(cpu_context.ip)
+    cpu_context.actions.add(actions.FileWritten(cpu_context.ip, handle, data))
 
     if bytes_written_ptr:
         cpu_context.write_data(bytes_written_ptr, len(data), data_type=constants.DWORD)
@@ -430,18 +433,13 @@ def move_file(cpu_context, func_name, func_args):
     old_path = cpu_context.read_data(old_name_ptr).decode("utf8")
     new_path = cpu_context.read_data(new_name_ptr).decode("utf8")
     logger.debug("Moving file: %s -> %s", old_path, new_path)
-    cpu_context.actions.append(actions.FileMoved(cpu_context.ip, old_path, new_path))
 
-    # Retreive file and then change it's name.
-    # If file was never opened previously, open the file temporarily.
-    file = cpu_context.get_file(old_path)
-    if file:
-        file.path = new_path
-    else:
-        file = cpu_context.open_file(old_path)
-        file.path = new_path
-        file.close()
-    file.add_reference(cpu_context.ip)
+    handle = cpu_context.objects.get_or_alloc(objects.File, path=old_path)
+
+    if not new_path:
+        logger.debug("Ignoring attempt to change file path to empty string.")
+    
+    cpu_context.actions.add(actions.FileMoved(cpu_context.ip, handle, old_path, new_path))
 
     return 1  # return success
 
@@ -453,11 +451,13 @@ def close_file(cpu_context, func_name, func_args):
     Closes an open object handle.
     """
     handle = func_args[0]
-    file = cpu_context.get_file(handle)
-    if file:
-        logger.debug("Closing file: %s", file.path)
-        file.close()
-    file.add_reference(cpu_context.ip)
+
+    if not handle:
+        logger.warning(f"File with handle {hex(handle)} does not exist.")
+        return 1
+        
+    logger.debug(f"Closing file with handle {hex(handle)}.")
+    cpu_context.actions.add(actions.FileClosed(cpu_context.ip, handle))
 
     return 1  # return success
 
@@ -475,16 +475,9 @@ def delete_file(cpu_context, func_name, func_args):
     path = cpu_context.read_data(path_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING)
     path = path.decode("utf16le" if wide else "utf8")
     logger.debug("Deleting: %s", path)
-    cpu_context.actions.append(actions.FileDeleted(cpu_context.ip, path))
 
-    file = cpu_context.get_file(path)
-    if file:
-        file.delete()
-    else:
-        file = cpu_context.open_file(path)
-        file.close()
-        file.delete()
-    file.add_reference(cpu_context.ip)
+    handle = cpu_context.objects.get_or_alloc(objects.File, path=path)
+    cpu_context.actions.add(actions.FileDeleted(cpu_context.ip, handle, path))
 
     return 1  # return success
 

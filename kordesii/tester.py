@@ -251,6 +251,11 @@ class Tester(object):
                     input_file_path = "{MALWARE_REPO}" + input_file_path[len(self.malware_repo) :]
                 results[INPUT_FILE_PATH] = input_file_path
 
+        # Alphabetize decoded strings
+        for results in results_list:
+            if kordesii.reporter.FIELD_STRINGS in results:
+                results[kordesii.reporter.FIELD_STRINGS] = sorted(results[kordesii.reporter.FIELD_STRINGS])
+
         # Write updated data to results file
         # NOTE: We need to use dumps instead of dump to avoid TypeError.
         with open(file_path, "w", encoding="utf8") as results_file:
