@@ -370,20 +370,18 @@ def _remove_idbs(input_file):
     Input:
         input_file - The file used to create the IDB we want to remove or the IDB itself.
     """
-    input_file_name = os.path.splitext(input_file)[0]
-
     try:
-        if os.path.exists(input_file_name + ".idb"):
-            os.remove(input_file_name + ".idb")
-        elif os.path.exists(input_file_name + ".i64"):
-            os.remove(input_file_name + ".i64")
-    except:
+        if os.path.exists(input_file + ".idb"):
+            os.remove(input_file + ".idb")
+        elif os.path.exists(input_file + ".i64"):
+            os.remove(input_file + ".i64")
+    except OSError:
         logger.warning("Unable to remove " + input_file)
 
     # The order of the extensions here is important.
     for ext in (".til", ".nam", ".id0", ".id1", ".id2", ".id3"):
         try:
-            os.remove(input_file_name + ext)
+            os.remove(input_file + ext)
         except OSError:
             break  # The file didn't exist. Since the extensions are ordered, we can assume none
             # of the others do either.

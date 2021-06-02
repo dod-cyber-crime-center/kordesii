@@ -8,10 +8,6 @@ All notable changes to this project will be documented in this file.
     - Added recording of ChangeServiceConfig2A description actions.
     - Added tracking for Service objects.
 
-### Fixed
-- Fix `ida_re.Match` to return -1 when a capture group does not contribute to the match but is requested.
-- In IDA 7.6, imported functions are now function pointers, add checks accordingly. (@dash-ct)
-
 ### Changed
 - Decoded strings in generated test cases are now alphabetized.
 - *function_tracing*
@@ -19,6 +15,12 @@ All notable changes to this project will be documented in this file.
     - Updated implementation for high-level object tracking to be based on recorded actions to improve performance and correctness.
     - Updated implementation for action tracking to improve performance.
     - `Action` and `Object` types are no longer imported within the base of `kordesii.utils.function_tracing`. They must be imported from `kordesii.utils.function_tracing.actions` and `kordesii.utils.function_tracing.objects` respectively.
+
+### Fixed
+- Fix `ida_re.Match` to return -1 when a capture group does not contribute to the match but is requested.
+- In IDA 7.6, imported functions are now function pointers, add checks accordingly. (@ddash-ct)
+- Fixed bug in .idb file cleanup. The idb will now be properly cleaned up when the `--cleanup` flag is set. (#30)
+    - In order to better match expected default behaviour, cleanup will now be disabled by default.
 
 
 ## [2.2.0] - 2020-10-30

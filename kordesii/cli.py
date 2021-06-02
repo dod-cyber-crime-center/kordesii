@@ -79,7 +79,7 @@ def list_(json_):
     "--output-files/--no-output-files", default=True, show_default=True, help="Whether to output files to filesystem."
 )
 @click.option(
-    "--cleanup/--no-cleanup", default=True, show_default=True, help="Whether to cleanup temporary files after parsing."
+    "--cleanup/--no-cleanup", default=False, show_default=True, help="Whether to cleanup supplemental files after parsing."
 )
 @click.option(
     "-m",

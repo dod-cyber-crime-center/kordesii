@@ -298,7 +298,7 @@ def _get_decompiled_function(offset: int) -> "ida_hexrays.cfuncptr_t":
     decompiled = None
     offsets_to_decompile = [offset] # LIFO list of offsets to try to decompile
     offsets_attempted = set()       # Offsets already attempted to decompile, whether successful or not
-    offsets_decompiled = set()      # Set of offsets that successfull decompiled
+    offsets_decompiled = set()      # Set of offsets that successfully decompiled
     # Continue trying to decompile until the list of offsets to decompile is empty or we get an error we can't handle
     # TODO: Determine what errors we can actually handle
     while offsets_to_decompile:
