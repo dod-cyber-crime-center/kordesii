@@ -114,7 +114,7 @@ class FPURegisters(RegisterMap):
 
     NaN = float("nan")
     INFINITY = float("inf")
-    EMPTY = None
+    EMPTY = 0.0
 
     def __init__(self):
         registers = [
