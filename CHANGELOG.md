@@ -1,6 +1,13 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- *function_tracing*
+    - Change value of `EMPTY` for FPU registers to `0.0` instead of `None`
+
+
 ## [2.3.0] - 2021-06-04
 
 ### Added
