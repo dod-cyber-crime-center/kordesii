@@ -210,7 +210,7 @@ class Emulator(object):
         """
         Gets the opcode implementation for the given opcode mneomic.
         :param opcode: Name of the opcode to get opcode from.
-        :return: The function callback or None if there is not hook.
+        :return: The function callback or None if there is no hook.
         """
         return self._opcode_hooks.get(opcode.lower())
 

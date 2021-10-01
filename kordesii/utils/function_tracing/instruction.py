@@ -68,7 +68,7 @@ class Instruction:
     @property
     def root_mnem(self) -> str:
         """
-        Opcode mneomic without any extensions such as condition codes, data type, etc.
+        Opcode mnemonic without any extensions such as condition codes, data type, etc.
 
         e.g.
             MOVSEQ -> MOV
@@ -192,7 +192,7 @@ class Instruction:
         Emulate the instruction and store results in the context.
         """
         # Log a header line for debug messages of this instruction.
-        # This is simpler and faster then trying to include the information at each log line
+        # This is simpler and faster than trying to include the information at each log line
         logger.debug("[0x%X %03X] :: %s", self.ip, self._cpu_context.sp_diff, self.mnem)
 
         # Set instruction pointer to where we are currently executing.
@@ -233,7 +233,7 @@ class Instruction:
         :param func_ea: Address of function to call.
         """
         # Tell context that we are currently emulating a function hook.
-        # This information is import for things like pulling out function arguments out correctly.
+        # This information is important for things like pulling out function arguments out correctly.
         self._cpu_context.hooking_call = func_ea
 
         try:
