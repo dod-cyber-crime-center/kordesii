@@ -21,7 +21,8 @@ def test_issue_7():
     assert context.read_data(0x123000, data_type=function_tracing.WIDE_STRING) == wide_string
 
 
-@pytest.mark.in_ida
+@pytest.mark.in_ida_x86
+@pytest.mark.in_ida_arm
 def test_function_case_senstivity():
     """Tests issue with case sensitivity when hooking functions."""
     from kordesii.utils import function_tracing

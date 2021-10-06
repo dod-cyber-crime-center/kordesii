@@ -1,5 +1,6 @@
 
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -10,12 +11,24 @@ import kordesii
 import kordesii.decoders
 
 
+DECODERS_PATH = pathlib.Path(kordesii.decoders.__file__).parent
+
+
 @pytest.fixture
 def strings_exe(tmpdir):
     """Creates and returns a copy of the strings.exe file in a temporary directory."""
-    orig_path = os.path.join(os.path.dirname(kordesii.decoders.__file__), "tests", "strings.exe")
+    orig_path = DECODERS_PATH / "tests" / "strings.exe"
     new_path = tmpdir / "strings.exe"
-    shutil.copy(orig_path, str(new_path))
+    shutil.copy(str(orig_path), str(new_path))
+    return new_path
+
+
+@pytest.fixture
+def strings_arm(tmpdir):
+    """Creates and returns a copy of the strings_arm file in a temporary directory."""
+    orig_path = DECODERS_PATH / "tests" / "strings_arm"
+    new_path = tmpdir / "strings_arm"
+    shutil.copy(str(orig_path), str(new_path))
     return new_path
 
 
@@ -33,27 +46,42 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "marks tests to be run within IDA")
 
 
+def pytest_generate_tests(metafunc):
+    """Sets up parametrization of the run_in_ida fixture to pass in appropriate strings_* fixture."""
+    item = metafunc.definition
+    x86_marker = bool(list(item.iter_markers(name="in_ida")) + list(item.iter_markers(name="in_ida_x86")))
+    arm_marker = bool(list(item.iter_markers(name="in_ida_arm")))
+
+    params = []
+    if x86_marker:
+        params.append(pytest.param("strings_exe", id="x86"))
+    if arm_marker:
+        params.append(pytest.param("strings_arm", id="arm"))
+
+    if params:
+        metafunc.parametrize("run_in_ida", params, indirect=True)
+
+
 @pytest.fixture(autouse=True)
-def run_in_ida(request, tmpdir, strings_exe):
+def run_in_ida(request):
     """Runs unit tests marked to be run within IDA."""
-    item = request.node
-    in_ida_marker = bool(list(item.iter_markers(name="in_ida")))
+    # Ignore if no params are set. This means either we are already in IDA or it is not a marked test.
+    if not hasattr(request, "param"):
+        return
 
-    # Allow in_ida tests to be run if in IDA.
+    # Ignore if we are already in IDA.
     if kordesii.in_ida:
-        if not in_ida_marker:
-            pytest.skip("Test to be run outside of IDA.")
         return
 
-    # Allow non-in_ida tests to run if not in IDA.
-    if not in_ida_marker:
-        return
+    item = request.node
 
-    # Otherwise, pass along the in_ida test to be run within the strings.exe idb.
+    # Otherwise, pass along the in_ida test to be run within the strings.exe or strings_arm idb.
 
-    log_file_path = tmpdir / "ida.log"
     test_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     test_path = os.path.join(test_path, item.nodeid)
+
+    # Pull appropriate input file path by executing the fixture passed into parameter.
+    input_path = request.getfixturevalue(request.param)
 
     # Remove repeated nodeid if in command line already.
     cli_args = sys.argv[1:]
@@ -64,15 +92,16 @@ def run_in_ida(request, tmpdir, strings_exe):
     pytest_args = " ".join(['"{}"'.format(test_path)] + cli_args)
 
     # TODO: Use a premade IDB?
+    log_file_path = pathlib.Path(input_path).parent / (input_path.basename + ".log")
+    ida_stub = pathlib.Path(__file__).parent / "ida_stub.py"
+    assert ida_stub.exists()
     command = [
         kordesii.find_ida(),
         "-P",
         "-A",
-        '-S""{script_path}" {pytest_args}"'.format(
-            script_path=os.path.join(os.path.dirname(__file__), "ida_stub.py"), pytest_args=pytest_args
-        ),
-        '-L"{}"'.format(str(log_file_path)),
-        '"{}"'.format(str(strings_exe)),
+        f'-S""{ida_stub}" {pytest_args}"',
+        f'-L"{log_file_path}"',
+        f'"{input_path}"',
     ]
     command = " ".join(command)  # doesn't work unless we convert to a string!
     print("Running IDA with command: {}".format(command))
@@ -84,7 +113,7 @@ def run_in_ida(request, tmpdir, strings_exe):
     print(stderr, file=sys.stderr)
 
     if log_file_path.exists():
-        print(log_file_path.read())
+        print(log_file_path.read_text())
 
     assert process.returncode == 0
 

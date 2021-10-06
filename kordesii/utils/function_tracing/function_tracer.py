@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 # Create a global Emulator to keep backwards compatibility with the legacy FunctionTracer and TracerCache.
-_emulator = Emulator()
+try:
+    _emulator = Emulator()
+except NotImplementedError:
+    _emulator = None
 
 
 def FunctionTracer(func_ea):

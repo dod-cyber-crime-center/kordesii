@@ -1,15 +1,10 @@
 import logging
 
-import idc
-import idaapi
-import idautils
-
+from . import utils as arm_utils
 from .. import utils
-from ..cpu_context import Operand
+from ..exceptions import FunctionTracingError
 from ..registry import registrar
-from .. import functions
 
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -52,45 +47,75 @@ cond    Mnemonic    Meaning (integer)                   Meaning (floating-point)
    
    
 Mnemonic        Instruction                         Branch offset range from the PC
-B.cond          Branch conditionally                1MB 
-CBNZ            Compare and branch if nonzero       1MB
-CBZ             Compare and branch if zero          1MB 
-TBNZ            Test bit and branch if nonzero      32KB
-TBZ             Test bit and branch if zero         32KB
+B.cond          Branch conditionally                ±1MB 
+CBNZ            Compare and branch if nonzero       ±1MB
+CBZ             Compare and branch if zero          ±1MB 
+TBNZ            Test bit and branch if nonzero      ±32KB
+TBZ             Test bit and branch if zero         ±32KB
 """
 
 # TODO: How does IDA report the mnemonic for B.cond
 
 
 @opcode
-def CBNZ(cpu_context, ip, mnem, opvalues):
+def CBNZ(cpu_context, instruction):
     """Compare and branch if nonzero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[0].value
+    jump_target = operands[1].value
+
+    if value != 0:
+        cpu_context.ip = jump_target
+
+    # TODO: Update branch tracking.
 
 
 @opcode
-def CBZ(cpu_context, ip, mnem, opvalues):
+def CBZ(cpu_context, instruction):
     """Compare and branch if zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[0].value
+    jump_target = operands[1].value
+
+    if value == 0:
+        cpu_context.ip = jump_target
+
+    # TODO: Update branch tracking.
 
 
 @opcode
-def TBNZ(cpu_context, ip, mnem, opvalues):
+def TBNZ(cpu_context, instruction):
     """Test bit and branch if nonzero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[0].value
+    bit_number = operands[1].value
+    jump_target = operands[2].value
+
+    if value & (1 << bit_number) != 0:
+        cpu_context.ip = jump_target
+
+    # TODO: Update branch tracking.
 
 
 @opcode
-def TBZ(cpu_context, ip, mnem, opvalues):
+def TBZ(cpu_context, instruction):
     """Test bit and branch if zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[0].value
+    bit_number = operands[1].value
+    jump_target = operands[2].value
+
+    if value & (1 << bit_number) == 0:
+        cpu_context.ip = jump_target
+
+    # TODO: Update branch tracking.
 
 
 """
 Unconditional branch (immediate/register)
 
 Unconditional branch (immediate) instructions change the flow of execution unconditionally by adding an immediate
-offset with a range of 128MB to the value of the program counter that fetched the instruction.  The BL instruction
+offset with a range of ±128MB to the value of the program counter that fetched the instruction.  The BL instruction
 also writes the address of the sequentially following instruction to general-purpose register X30.
 
 Unconditional branch (register) instructions change the flow of execution unconditionally by setting the program 
@@ -99,28 +124,36 @@ following instruction to general-purpose register X30.
 """
 
 
-@opcode
-def B(cpu_context, ip, mnem, opvalues):
+@opcode("b")
+@opcode("br")
+@opcode("bx")
+def B(cpu_context, instruction):
     """Branch unconditionally"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    cpu_context.ip = instruction.operands[0].value
 
 
-@opcode
-def BL(cpu_context, ip, mnem, opvalues):
+@opcode("bl")
+@opcode("blr")
+@opcode("blx")
+def BL(cpu_context, instruction):
     """Branch with link"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    # Function pointer can be a memory reference or immediate.
+    func_ea = operands[0].addr or operands[0].value
+    func_name = utils.get_function_name(func_ea)
 
+    logger.debug("call %s", func_name or f"0x{func_ea:X}")
 
-@opcode
-def BLR(cpu_context, ip, mnem, opvalues):
-    """Branch with link to register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    # Store next ip to lr register.
+    cpu_context.registers.lr = instruction.ip + 4
+    # Branch
+    cpu_context.ip = operands[0].value
 
+    if operands[0].is_func_ptr:
+        instruction.execute_call_hooks(func_name, func_ea)
 
-@opcode
-def BR(cpu_context, ip, mnem, opvalues):
-    """Branch to register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    # Restore instruction pointer to return address.
+    cpu_context.ip = cpu_context.registers.lr
 
 
 """
@@ -136,44 +169,36 @@ MSR             Move general-purpose register to System register        MSR (reg
 """
 
 
-@opcode
-def MRS(cpu_context, ip, mnem, opvalues):
-    """Move System register to general-purpose register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def MSR(cpu_context, ip, mnem, opvalues):
-    """
-    Move general-purpose register to System register
-    Move immediate to PE state field
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+@opcode("mrs")
+@opcode("msr")
+def _mov(cpu_context, instruction):
+    operands = instruction.operands
+    operands[0].value = operands[1].value
 
 
 """
 Load/Store register
 The Load/Store register instructions support the following addressing modes:
-* Base plus a scaled 12-bit unsigned immediate offset or base plus an unscaled 9-bit signed immediate offset.
-* Base plus a 64-bit register offset, optionally scaled.
-* Base plus a 32-bit extended register offset, optionally scaled.
-* Pre-indexed by an unscaled 9-bit signed immediate offset.
-* Post-indexed by an unscaled 9-bit signed immediate offset.
-* PC-relative literal for loads of 32 bits or more.
+• Base plus a scaled 12-bit unsigned immediate offset or base plus an unscaled 9-bit signed immediate offset.
+• Base plus a 64-bit register offset, optionally scaled.
+• Base plus a 32-bit extended register offset, optionally scaled.
+• Pre-indexed by an unscaled 9-bit signed immediate offset.
+• Post-indexed by an unscaled 9-bit signed immediate offset.
+• PC-relative literal for loads of 32 bits or more.
 
 If a Load instruction specifies writeback and the register being loaded is also the base register, then behavior is
 CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs the load using the specified addressing mode and the base register becomes
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs the load using the specified addressing mode and the base register becomes
   UNKNOWN. In addition, if an exception occurs during the execution of such an instruction, the base address
   might be corrupted so that the instruction cannot be repeated.
 
 If a Store instruction performs a writeback and the register that is stored is also the base register, then behavior is
 CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs the store to the designated register using the specified addressing mode, but the
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs the store to the designated register using the specified addressing mode, but the
   value stored is UNKNOWN.
   
   
@@ -188,12 +213,12 @@ naturally aligned to the size of the data.
 
 Load/Store scalar SIMD and floating-point register
 The Load/Store scalar SIMD and floating-point register instructions support the following addressing modes:
-* Base plus a scaled 12-bit unsigned immediate offset or base plus unscaled 9-bit signed immediate offset.
-* Base plus 64-bit register offset, optionally scaled.
-* Base plus 32-bit extended register offset, optionally scaled.
-* Pre-indexed by an unscaled 9-bit signed immediate offset.
-* Post-indexed by an unscaled 9-bit signed immediate offset.
-* PC-relative literal for loads of 32 bits or more.
+• Base plus a scaled 12-bit unsigned immediate offset or base plus unscaled 9-bit signed immediate offset.
+• Base plus 64-bit register offset, optionally scaled.
+• Base plus 32-bit extended register offset, optionally scaled.
+• Pre-indexed by an unscaled 9-bit signed immediate offset.
+• Post-indexed by an unscaled 9-bit signed immediate offset.
+• PC-relative literal for loads of 32 bits or more.
 
 Note
 The unscaled 9-bit signed immediate offset address mode requires its own instruction form
@@ -202,100 +227,31 @@ The unscaled 9-bit signed immediate offset address mode requires its own instruc
 
 
 @opcode
-def LDR(cpu_context, ip, mnem, opvalues):
-    """
-    Load register (register offset)
-    Load register (immediate offset)
-    Load register (PC-relative literal)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def LDR(cpu_context, instruction):
+    """Load with immediate"""
+    operands = instruction.operands
+    operands[0].value = operands[1].value
 
 
 @opcode
-def LDRB(cpu_context, ip, mnem, opvalues):
-    """
-    Load byte (register offset)
-    Load byte (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDRSB(cpu_context, ip, mnem, opvalues):
-    """
-    Load signed byte (register offset)
-    Load signed byte (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDRH(cpu_context, ip, mnem, opvalues):
-    """
-    Load halfword (register offset)
-    Load halfword (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDRSH(cpu_context, ip, mnem, opvalues):
-    """
-    Load signed halfword (register offset)
-    Load signed halfword (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDRSW(cpu_context, ip, mnem, opvalues):
-    """
-    Load signed word (register offset)
-    Load signed word (immediate offset)
-    Load signed word (PC-relative offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STR(cpu_context, ip, mnem, opvalues):
-    """
-    Store register (register offset)
-    Store register (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STRB(cpu_context, ip, mnem, opvalues):
-    """
-    Store byte (register offset)
-    Store byte (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STRH(cpu_context, ip, mnem, opvalues):
-    """
-    Store halfword (register offset)
-    Store halfword (immediate offset)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def STR(cpu_context, instruction):
+    """Store with immediate"""
+    operands = instruction.operands
+    operands[1].value = operands[0].value
 
 
 """
 Load/Store register (unscaled offset)
 The Load/Store register instructions with an unscaled offset support only one addressing mode:
-* Base plus an unscaled 9-bit signed immediate offset.
+• Base plus an unscaled 9-bit signed immediate offset.
 
 The Load/Store register (unscaled offset) instructions are required to disambiguate this instruction class from the
 Load/Store register instruction forms that support an addressing mode of base plus a scaled, unsigned 12-bit
 immediate offset, because that can represent some offset values in the same range.
 
 The ambiguous immediate offsets are byte offsets that are both:
-* In the range 0-255, inclusive.
-* Naturally aligned to the access size.
+• In the range 0-255, inclusive.
+• Naturally aligned to the access size.
 
 Other byte offsets in the range -256 to 255 inclusive are unambiguous. An assembler program translating a
 Load/Store instruction, for example LDR, is required to encode an unambiguous offset using the unscaled 9-bit offset
@@ -306,7 +262,7 @@ output using a Load/Store single register mnemonic, for example, LDR.
 
 Load/Store scalar SIMD and floating-point register (unscaled offset)
 The Load /Store scalar SIMD and floating-point register instructions support only one addressing mode:
-* Base plus an unscaled 9-bit signed immediate offset.
+• Base plus an unscaled 9-bit signed immediate offset.
 
 The Load/Store scalar SIMD and floating-point register (unscaled offset) instructions are required to disambiguate
 this instruction class from the Load/Store single SIMD and floating-point instruction forms that support an
@@ -314,132 +270,182 @@ addressing mode of base plus a scaled, unsigned 12-bit immediate offset. This is
 (unscaled offset) instructions, that disambiguate this instruction class from the Load/Store register instruction
 """
 
-
+# TODO: Can LDUR just be an alias for LDR?
 @opcode
-def LDUR(cpu_context, ip, mnem, opvalues):
+def LDUR(cpu_context, instruction):
     """Load register (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
+# TODO: Can STUR just be an alias for STR?
 @opcode
-def LDURB(cpu_context, ip, mnem, opvalues):
-    """Load byte (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDURSB(cpu_context, ip, mnem, opvalues):
-    """Load signed byte (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDURH(cpu_context, ip, mnem, opvalues):
-    """Load halfword (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDURSH(cpu_context, ip, mnem, opvalues):
-    """Load signed halfword (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDURSW(cpu_context, ip, mnem, opvalues):
-    """Load signed word (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUR(cpu_context, ip, mnem, opvalues):
+def STUR(cpu_context, instruction):
     """Store register (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
+
+
+"""
+Load Multiple (Increment After, Full Descending) loads multiple registers from consecutive memory locations
+using an address from a base register. The consecutive memory locations start at this address, and the address just
+above the highest of those locations can optionally be written back to the base register.
+The lowest-numbered register is loaded from the lowest memory address, through to the highest-numbered register
+from the highest memory address.
+
+Pop Multiple Registers from Stack loads multiple general-purpose registers from the stack, loading from
+consecutive memory locations starting at the address in SP, and updates SP to point just above the loaded data
+"""
 
 
 @opcode
-def STURB(cpu_context, ip, mnem, opvalues):
-    """Store byte (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def LDM(cpu_context, instruction):
+    """Load Multiple Registers"""
+    operands = instruction.operands
+    if not operands[1].is_register_list:
+        raise FunctionTracingError(f"Expected {operands[1].text} to be a register list.")
+
+    for reg_name in operands[1].register_list:
+        value = utils.struct_unpack(cpu_context.memory.read(operands[0].value, 4))
+        cpu_context.registers[reg_name] = value
+        # TODO: confirm operand is auto-increased in ARMInstruction._execute()
 
 
 @opcode
-def STURH(cpu_context, ip, mnem, opvalues):
-    """Store halfword (unscaled offset)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def POP(cpu_context, instruction):
+    """Load Multiple Register from Stack"""
+    operands = instruction.operands
+    if not operands[0].is_register_list:
+        raise FunctionTracingError(f"Expected {operands[0].text} to be a register list.")
+
+    for reg_name in operands[0].register_list:
+        value = utils.struct_unpack(cpu_context.memory.read(cpu_context.sp, 4))
+        cpu_context.registers[reg_name] = value
+        cpu_context.sp += 4
+
+
+"""
+Store Multiple (Increment After, Empty Ascending) stores multiple registers to consecutive memory locations using
+an address from a base register. The consecutive memory locations start at this address, and the address just above
+the last of those locations can optionally be written back to the base register.
+
+Push multiple registers to Stack stores multiple general-purpose registers to the stack, storing to consecutive
+memory locations ending just below the address in SP, and updates SP to point to the start of the stored data
+"""
+
+
+# TODO: Support different stack types:
+#  (STMFD, STMFA, STMED, STMEA, STMIA, STMIB, STMDA, STMDB)
+@opcode
+def STM(cpu_context, instruction):
+    """Store Multiple Registers"""
+    operands = instruction.operands
+    if not operands[1].is_register_list:
+        raise FunctionTracingError(f"Expected {operands[1].text} to be a register list.")
+
+    for value in reversed(operands[1].value):  # .value is a list of values
+        cpu_context.write_data(operands[0].value, value)
+        # TODO: confirm operand is auto-decreased in ARMInstruction._execute()
+
+
+@opcode
+def PUSH(cpu_context, instruction):
+    """Store Multiple Register onto Stack"""
+    operands = instruction.operands
+    if not operands[0].is_register_list:
+        raise FunctionTracingError(f"Expected {operands[0].text} to be a register list.")
+
+    # .value is a list of register values from lowest to highest.
+    # Registers are pushed from largest to smallest for PUSH.
+    for value in reversed(operands[0].value):
+        cpu_context.write_data(cpu_context.sp, value)
+        cpu_context.sp -= 4
 
 
 """
 Load/Store Pair
 The Load/Store Pair instructions support the following addressing modes:
-* Base plus a scaled 7-bit signed immediate offset.
-* Pre-indexed by a scaled 7-bit signed immediate offset.
-* Post-indexed by a scaled 7-bit signed immediate offset.
+• Base plus a scaled 7-bit signed immediate offset.
+• Pre-indexed by a scaled 7-bit signed immediate offset.
+• Post-indexed by a scaled 7-bit signed immediate offset.
 
 If a Load Pair instruction specifies the same register for the two registers that are being loaded, then behavior is
 CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
   an UNKNOWN value.
   
 If a Load Pair instruction specifies writeback and one of the registers being loaded is also the base register, then
 behavior is CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all of the loads using the specified addressing mode, and the base register becomes
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all of the loads using the specified addressing mode, and the base register becomes
   UNKNOWN. In addition, if an exception occurs during the instruction, the base address might be corrupted so
   that the instruction cannot be repeated.
   
 If a Store Pair instruction performs a writeback and one of the registers being stored is also the base register, then
 behavior is CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all the stores of the registers indicated by the specified addressing mode, but the
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all the stores of the registers indicated by the specified addressing mode, but the
   value stored for the base register is UNKNOWN.
   
 Load/Store SIMD and Floating-point register pair
 The Load/Store SIMD and floating-point register pair instructions support the following addressing modes:
-* Base plus a scaled 7-bit signed immediate offset.
-* Pre-indexed by a scaled 7-bit signed immediate offset.
-* Post-indexed by a scaled 7-bit signed immediate offset.
+• Base plus a scaled 7-bit signed immediate offset.
+• Pre-indexed by a scaled 7-bit signed immediate offset.
+• Post-indexed by a scaled 7-bit signed immediate offset.
 
 If a Load pair instruction specifies the same register for the two registers that are being loaded, then behavior is
 CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all of the loads using the specified addressing mode and the register being loaded
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all of the loads using the specified addressing mode and the register being loaded
   takes an UNKNOWN value.
 """
 
 
 @opcode
-def LDP(cpu_context, ip, mnem, opvalues):
+def LDP(cpu_context, instruction):
     """Load Pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value_a = operands[2].value
+    value_b = utils.struct_unpack(cpu_context.memory.read(
+        operands[2].addr + operands[0].width,
+        operands[1].width,
+    ))
+
+    logger.debug("Load 0x%X into %s", value_a, operands[0].text)
+    logger.debug("Load 0x%X into %s", value_b, operands[1].text)
+
+    operands[0].value = value_a
+    operands[1].value = value_b
 
 
 @opcode
-def LDPSW(cpu_context, ip, mnem, opvalues):
-    """Load Pair signed words"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STP(cpu_context, ip, mnem, opvalues):
+def STP(cpu_context, instruction):
     """Store Pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value_a = operands[0].value
+    value_b = operands[1].value
+
+    logger.debug("Store 0x%X and 0x%X into %s", value_a, value_b, operands[2].text)
+
+    operands[2].value = value_a
+    cpu_context.memory.write(
+        operands[2].addr + operands[0].width,
+        utils.struct_pack(value_b, width=operands[1].width),
+    )
 
 
 """
 Load/Store unprivileged
 The Load/Store unprivileged instructions support only one addressing mode:
-* Base plus an unscaled 9-bit signed immediate offset.
+• Base plus an unscaled 9-bit signed immediate offset.
 
 The accesses permissions that apply to accesses made at EL0 apply to the memory accesses made by a Load/Store
 unprivileged instruction that is executed either:
-* At EL1 when the Effective value of PSTATE.UAO is 0.
-* At EL2 when both the Effective value of HCR_EL2.{E2H, TGE} is {1, 1} and the Effective value of
+• At EL1 when the Effective value of PSTATE.UAO is 0.
+• At EL2 when both the Effective value of HCR_EL2.{E2H, TGE} is {1, 1} and the Effective value of
   PSTATE.UAO is 0.
   
 Otherwise, memory accesses made by a Load/Store unprivileged instruction are subject to the access permissions
@@ -453,63 +459,21 @@ instruction are always the same as those for the corresponding Load/Store regist
 
 
 @opcode
-def LDTR(cpu_context, ip, mnem, opvalues):
+def LDTR(cpu_context, instruction):
     """Load unprivileged register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDTRB(cpu_context, ip, mnem, opvalues):
-    """Load unpriviledged byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDTRSB(cpu_context, ip, mnem, opvalues):
-    """Load unprivileged signed byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDTRH(cpu_context, ip, mnem, opvalues):
-    """Load unprivileged halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDTRSH(cpu_context, ip, mnem, opvalues):
-    """Load unpriviledged signed halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDTRSW(cpu_context, ip, mnem, opvalues):
-    """Load unprivileged signed word"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STTR(cpu_context, ip, mnem, opvalues):
+def STTR(cpu_context, instruction):
     """Store unprivileged register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STTRB(cpu_context, ip, mnem, opvalues):
-    """Store unprivileged byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STTRH(cpu_context, ip, mnem, opvalues):
-    """Store unprivileged halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Load-Exclusive/Store-Exclusive
 The Load-Exclusive/Store-Exclusive instructions support only one addressing mode:
-* Base register with no offset.
+• Base register with no offset.
 
 The Load-Exclusive instructions mark the physical address being accessed as an exclusive access. This exclusive
 access mark is checked by the Store-Exclusive instruction, permitting the construction of atomic read-modify-write
@@ -524,57 +488,33 @@ entire memory location.
 
 
 @opcode
-def LDXR(cpu_context, ip, mnem, opvalues):
+def LDXR(cpu_context, instruction):
     """Load Exclusive register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDXRB(cpu_context, ip, mnem, opvalues):
-    """Load Exclusive byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDXRH(cpu_context, ip, mnem, opvalues):
-    """Load Exclusive halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDXP(cpu_context, ip, mnem, opvalues):
+def LDXP(cpu_context, instruction):
     """Load Exclusive pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STXR(cpu_context, ip, mnem, opvalues):
+def STXR(cpu_context, instruction):
     """Store Exclusive register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STXRB(cpu_context, ip, mnem, opvalues):
-    """Store Exclusive byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STXRH(cpu_context, ip, mnem, opvalues):
-    """Store Exclusive halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STXP(cpu_context, ip, mnem, opvalues):
+def STXP(cpu_context, instruction):
     """Store Exclusive pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Load-Acquire/Store-Release
 The Load-Acquire, Load-AcquirePC, and Store-Release instructions support only one addressing mode:
-* Base register with no offset.
+• Base register with no offset.
 
 The Load-Acquire, Load-AcquirePC, and Store-Release instructions can remove the requirement to use the explicit
 DMB memory barrier instruction. For more information about the ordering of Load-Acquire, Load-AcquirePC, and
@@ -590,170 +530,62 @@ A Store-Release Exclusive instruction only has the Release semantics if the stor
 
 
 @opcode
-def LDAPR(cpu_context, ip, mnem, opvalues):
+def LDAPR(cpu_context, instruction):
     """Load-Acquire RCpc Register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDAPRB(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire RCpc Register Byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPRH(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire RCpc Register Halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPUR(cpu_context, ip, mnem, opvalues):
+def LDAPUR(cpu_context, instruction):
     """Load-Acquire RCpc Register (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDAPURB(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire RCpc Register Byte (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPURH(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire RCpc Register Halfword (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPURSB(cpu_context, ip, mnem, opvalues):
-    """
-    Load-Acquire RCpc Register Signed Byte (unscaled) 32-bit
-    Load-Acquire RCpc Register Signed Byte (unscaled) 64-bit
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPURSH(cpu_context, ip, mnem, opvalues):
-    """
-    Load-Acquire RCpc Register Signed Halfword (unscaled) 32-bit
-    Load-Acquire RCpc Register Signed Halfword (unscaled) 64-bit
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAPURSW(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire RCpc Register Signed Word (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAR(cpu_context, ip, mnem, opvalues):
+def LDAR(cpu_context, instruction):
     """Load-Acquire Register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDARB(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire Byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDARH(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire Halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLR(cpu_context, ip, mnem, opvalues):
+def STLR(cpu_context, instruction):
     """Store-Release Register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STLRB(cpu_context, ip, mnem, opvalues):
-    """Store-Release Byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLRH(cpu_context, ip, mnem, opvalues):
-    """Store-Release Halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLUR(cpu_context, ip, mnem, opvalues):
+def STLUR(cpu_context, instruction):
     """Store-Release Register (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STLURB(cpu_context, ip, mnem, opvalues):
-    """Store-Release Register Byte (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLURH(cpu_context, ip, mnem, opvalues):
-    """Store-Release Register Halfword (unscaled)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAXR(cpu_context, ip, mnem, opvalues):
+def LDAXR(cpu_context, instruction):
     """Load-Acquire Exclusive register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDAXRB(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire Exclusive byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAXRH(cpu_context, ip, mnem, opvalues):
-    """Load-Acquire Exclusive halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDAXP(cpu_context, ip, mnem, opvalues):
+def LDAXP(cpu_context, instruction):
     """Load-Acquire Exclusive pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STLXR(cpu_context, ip, mnem, opvalues):
+def STLXR(cpu_context, instruction):
     """Store-Release Exclusive register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STLXRB(cpu_context, ip, mnem, opvalues):
-    """Store-Release Exclusive byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLXRH(cpu_context, ip, mnem, opvalues):
-    """Store-Release Exclusive halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLXP(cpu_context, ip, mnem, opvalues):
+def STLXP(cpu_context, instruction):
     """Store-Release Exclusive pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 The LoadLOAcquire/StoreLORelease instructions support only one addressing mode:
-* Base register with no offset.
+• Base register with no offset.
 
 The LoadLOAcquire/StoreLORelease instructions can remove the requirement to use the explicit DMB memory
 barrier instruction. For more information about the ordering of LoadLOAcquire/StoreLORelease, see
@@ -765,44 +597,20 @@ Alignment fault.
 
 
 @opcode
-def LDLARB(cpu_context, ip, mnem, opvalues):
-    """LoadLOAcquire byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDLARH(cpu_context, ip, mnem, opvalues):
-    """LoadLOAcquire halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDLAR(cpu_context, ip, mnem, opvalues):
+def LDLAR(cpu_context, instruction):
     """LoadLOAcquire register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STLLRB(cpu_context, ip, mnem, opvalues):
-    """StoreLORelease byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLLRH(cpu_context, ip, mnem, opvalues):
-    """StoreLORelease halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STLLR(cpu_context, ip, mnem, opvalues):
+def STLLR(cpu_context, instruction):
     """StoreLORelease register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 The Load/Store SIMD and Floating-point Non-temporal pair instructions support only one addressing mode:
-* Base plus a scaled 7-bit signed immediate offset.
+• Base plus a scaled 7-bit signed immediate offset.
 
 The Load/Store Non-temporal pair instructions provide a hint to the memory system that an access is non-temporal
 or streaming, and unlikely to be repeated in the near future. This means that data caching is not required. However,
@@ -816,14 +624,14 @@ within the shareability domain of the memory addresses being accessed.
 
 If a Load Non-temporal pair instruction specifies the same register for the two registers that are being loaded, then
 behavior is CONSTRAINED UNPREDICTABLE and one of the following behaviors must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
   an UNKNOWN value.
   
 Load/Store Non-temporal Pair
 The Load/Store Non-temporal Pair instructions support only one addressing mode:
-* Base plus a scaled 7-bit signed immediate offset.
+• Base plus a scaled 7-bit signed immediate offset.
 
 The Load/Store Non-temporal Pair instructions provide a hint to the memory system that an access is non-temporal
 or streaming, and unlikely to be repeated in the near future. This means that data caching is not required. However,
@@ -837,31 +645,31 @@ the shareability domain of the memory addresses being accessed.
 
 If a Load Non-Temporal Pair instruction specifies the same register for the two registers that are being loaded, then
 behavior is CONSTRAINED UNPREDICTABLE and one of the following must occur:
-* The instruction is treated as UNDEFINED.
-* The instruction is treated as a NOP.
-* The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
+• The instruction is treated as UNDEFINED.
+• The instruction is treated as a NOP.
+• The instruction performs all the loads using the specified addressing mode and the register that is loaded takes
   an UNKNOWN value.
 """
 
 
 @opcode
-def LDNP(cpu_context, ip, mnem, opvalues):
+def LDNP(cpu_context, instruction):
     """Load pair of scalar SIMD&FP registers"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STNP(cpu_context, ip, mnem, opvalues):
+def STNP(cpu_context, instruction):
     """Store pair of scalar SIMD&FP registers"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Load/Store Vector
 The Vector Load/Store structure instructions support the following addressing modes:
-* Base register only.
-* Post-indexed by a 64-bit register.
-* Post-indexed by an immediate, equal to the number of bytes transferred.
+• Base register only.
+• Post-indexed by a 64-bit register.
+• Post-indexed by an immediate, equal to the number of bytes transferred.
 
 Load/Store vector instructions, like other Load/Store instructions, allow any address alignment, unless strict
 alignment checking is enabled. If strict alignment checking is enabled, then alignment checking to the size of the
@@ -872,105 +680,105 @@ the element.
 
 
 @opcode
-def LD1(cpu_context, ip, mnem, opvalues):
+def LD1(cpu_context, instruction):
     """
     Load single 1-element structure to one lane of one register LD1 (single structure) on page C7-1637
     Load multiple 1-element structures to one register or to two, three, or four consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD2(cpu_context, ip, mnem, opvalues):
+def LD2(cpu_context, instruction):
     """
     Load single 2-element structure to one lane of two consecutive registers LD2 (single structure)
     Load multiple 2-element structures to two consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD3(cpu_context, ip, mnem, opvalues):
+def LD3(cpu_context, instruction):
     """
     Load single 3-element structure to one lane of three consecutive registers
     Load multiple 3-element structures to three consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD4(cpu_context, ip, mnem, opvalues):
+def LD4(cpu_context, instruction):
     """
     Load single 4-element structure to one lane of four consecutive registers
     Load multiple 4-element structures to four consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ST1(cpu_context, ip, mnem, opvalues):
+def ST1(cpu_context, instruction):
     """
     Store single 1-element structure from one lane of one register
     Store multiple 1-element structures from one register, or from two, three, or four consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ST2(cpu_context, ip, mnem, opvalues):
+def ST2(cpu_context, instruction):
     """
     Store single 2-element structure from one lane of two consecutive registers
     Store multiple 2-element structures from two consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ST3(cpu_context, ip, mnem, opvalues):
+def ST3(cpu_context, instruction):
     """
     Store single 3-element structure from one lane of three consecutive registers
     Store multiple 3-element structures from three consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ST4(cpu_context, ip, mnem, opvalues):
+def ST4(cpu_context, instruction):
     """
     Store single 4-element structure from one lane of four consecutive registers
     Store multiple 4-element structures from four consecutive registers
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD1R(cpu_context, ip, mnem, opvalues):
+def LD1R(cpu_context, instruction):
     """Load single 1-element structure and replicate to all lanes of one register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD2R(cpu_context, ip, mnem, opvalues):
+def LD2R(cpu_context, instruction):
     """Load single 2-element structure and replicate to all lanes of two registers"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD3R(cpu_context, ip, mnem, opvalues):
+def LD3R(cpu_context, instruction):
     """Load single 3-element structure and replicate to all lanes of three registers"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LD4R(cpu_context, ip, mnem, opvalues):
+def LD4R(cpu_context, instruction):
     """Load single 4-element structure and replicate to all lanes of four registers"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Compare and Swap
 The Compare and Swap instructions support only one addressing mode:
-* Base register only.
+• Base register only.
 
 For the purpose of permission checking, and for watchpoints, all of the Compare and Swap instructions are treated
 as performing both a load and a store.
@@ -996,32 +804,20 @@ was executed.
 
 
 @opcode
-def CAS(cpu_context, ip, mnem, opvalues):
+def CAS(cpu_context, instruction):
     """Compare and swap"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CASB(cpu_context, ip, mnem, opvalues):
-    """Compare and swap byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CASH(cpu_context, ip, mnem, opvalues):
-    """Compare and swap halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CASP(cpu_context, ip, mnem, opvalues):
+def CASP(cpu_context, instruction):
     """Compare and swap pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """Atomic memory operations
 The atomic memory operation instructions support only one addressing mode:
-* Base register only.
+• Base register only.
 
 For the purpose of permission checking, and for watchpoints, all of the Compare and Swap instructions are treated
 as performing both a load and a store.
@@ -1043,297 +839,105 @@ doing a read for the purpose of a DMB LD barrier.
 
 
 @opcode
-def LDADD(cpu_context, ip, mnem, opvalues):
+def LDADD(cpu_context, instruction):
     """Atomic add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDADDB(cpu_context, ip, mnem, opvalues):
-    """Atomic add on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDADDH(cpu_context, ip, mnem, opvalues):
-    """Atomic add on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDCLR(cpu_context, ip, mnem, opvalues):
+def LDCLR(cpu_context, instruction):
     """Atomic bit clear"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDCLRB(cpu_context, ip, mnem, opvalues):
-    """Atomic bit clear on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDCLRH(cpu_context, ip, mnem, opvalues):
-    """Atomic bit clear on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDEOR(cpu_context, ip, mnem, opvalues):
+def LDEOR(cpu_context, instruction):
     """Atomic exclusive OR"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDEORB(cpu_context, ip, mnem, opvalues):
-    """Atomic exclusive OR on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDEORH(cpu_context, ip, mnem, opvalues):
-    """Atomic exclusive OR on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDSET(cpu_context, ip, mnem, opvalues):
+def LDSET(cpu_context, instruction):
     """Atomic bit set"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDSETB(cpu_context, ip, mnem, opvalues):
-    """Atomic bit set on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDSETH(cpu_context, ip, mnem, opvalues):
-    """Atomic bit set on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDMAX(cpu_context, ip, mnem, opvalues):
+def LDMAX(cpu_context, instruction):
     """Atomic signed maximum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDMAXB(cpu_context, ip, mnem, opvalues):
-    """Atomic signed maximum on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDMAXH(cpu_context, ip, mnem, opvalues):
-    """Atomic signed maximum on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDMIN(cpu_context, ip, mnem, opvalues):
+def LDMIN(cpu_context, instruction):
     """Atomic signed minimum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDMINB(cpu_context, ip, mnem, opvalues):
-    """Atomic signed minimum on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDMINH(cpu_context, ip, mnem, opvalues):
-    """Atomic signed minimum on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDUMAX(cpu_context, ip, mnem, opvalues):
+def LDUMAX(cpu_context, instruction):
     """Atomic unsigned maximum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDUMAXB(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned maximum on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDUMAXH(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned maximum on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDUMIN(cpu_context, ip, mnem, opvalues):
+def LDUMIN(cpu_context, instruction):
     """Atomic unsigned minimum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LDUMINB(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned minimum on byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def LDUMINH(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned minimum on halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STADD(cpu_context, ip, mnem, opvalues):
+def STADD(cpu_context, instruction):
     """Atomic add, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STADDB(cpu_context, ip, mnem, opvalues):
-    """Atomic add on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STADDH(cpu_context, ip, mnem, opvalues):
-    """Atomic add on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STCLR(cpu_context, ip, mnem, opvalues):
+def STCLR(cpu_context, instruction):
     """Atomic bit clear, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STCLRB(cpu_context, ip, mnem, opvalues):
-    """Atomic bit clear on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STCLRH(cpu_context, ip, mnem, opvalues):
-    """Atomic bit clear on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STEOR(cpu_context, ip, mnem, opvalues):
+def STEOR(cpu_context, instruction):
     """Atomic exclusive OR, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STEORB(cpu_context, ip, mnem, opvalues):
-    """Atomic exclusive OR on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STEORH(cpu_context, ip, mnem, opvalues):
-    """Atomic exclusive OR on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STSET(cpu_context, ip, mnem, opvalues):
+def STSET(cpu_context, instruction):
     """Atomic bit set, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STSETB(cpu_context, ip, mnem, opvalues):
-    """Atomic bit set on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STSETH(cpu_context, ip, mnem, opvalues):
-    """Atomic bit set on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STMAX(cpu_context, ip, mnem, opvalues):
+def STMAX(cpu_context, instruction):
     """Atomic signed maximum, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STMAXB(cpu_context, ip, mnem, opvalues):
-    """Atomic signed maximum on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STMAXH(cpu_context, ip, mnem, opvalues):
-    """Atomic signed maximum on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STMIN(cpu_context, ip, mnem, opvalues):
+def STMIN(cpu_context, instruction):
     """Atomic signed minimum, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STMINB(cpu_context, ip, mnem, opvalues):
-    """Atomic signed minimum on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STMINH(cpu_context, ip, mnem, opvalues):
-    """Atomic signed minimum on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUMAX(cpu_context, ip, mnem, opvalues):
+def STUMAX(cpu_context, instruction):
     """Atomic unsigned maximum, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def STUMAXB(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned maximum on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUMAXH(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned maximum on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUMIN(cpu_context, ip, mnem, opvalues):
+def STUMIN(cpu_context, instruction):
     """Atomic unsigned minimum, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUMINB(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned minimum on byte, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def STUMINH(cpu_context, ip, mnem, opvalues):
-    """Atomic unsigned minimum on halfword, without return"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Swap
 The swap instructions support only one addressing mode:
-* Base register only.
+• Base register only.
 
 For the purpose of permission checking, and for watchpoints, all of the Compare and Swap instructions are treated
 as performing both a load and a store.
@@ -1350,21 +954,16 @@ synchronous Data Abort, then the source register is restored to the value it hel
 
 
 @opcode
-def SWP(cpu_context, ip, mnem, opvalues):
+def SWP(cpu_context, instruction):
     """Swap"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value_a = operands[0].value
+    value_c = operands[2].value
 
+    logger.debug("Swap %s %s %s", operands[0].text, operands[1].text, operands[2].text)
 
-@opcode
-def SWPB(cpu_context, ip, mnem, opvalues):
-    """Swap byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def SWPH(cpu_context, ip, mnem, opvalues):
-    """Swap halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands[1].value = value_c
+    operands[2].value = value_a
 
 
 """
@@ -1376,40 +975,102 @@ pointer. The flag setting instructions can read from the stack pointer, but they
 """
 
 
-@opcode
-def ADD(cpu_context, ip, mnem, opvalues):
-    """Add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+@opcode("add")
+@opcode("adc")
+def ADD(cpu_context, instruction):
+    """
+    Handle both ADC and ADD here since the only difference is the flags.
+    """
+    operands = instruction.operands
+    term_1 = operands[-2].value
+    term_2 = operands[-1].value
+    result = term_1 + term_2
+    if instruction.root_mnem.startswith("adc"):
+        result += cpu_context.registers.c
+
+    width = get_max_operand_size(operands)
+    mask = utils.get_mask(width)
+
+    if instruction.flag_update:
+        cpu_context.registers.c = int(result > mask)
+        cpu_context.registers.z = int(result & mask == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.registers.v = int(utils.sign_bit(~(term_1 ^ term_2) & (term_2 ^ result), width) == 0)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n", "v"], operands)
+
+    result = result & mask
+
+    logger.debug("0x%X + 0x%X = 0x%X", term_1, term_2, result)
+    operands[0].value = result
 
 
-@opcode
-def ADDS(cpu_context, ip, mnem, opvalues):
-    """Add and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def SUB(cpu_context, ip, mnem, opvalues):
+# TODO: Due to simplification, it may be better to just keep the opcodes separate.
+@opcode("sub")
+@opcode("sbc")
+@opcode("rsb")
+@opcode("rsc")
+def SUB(cpu_context, instruction):
     """Subtract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    term_1 = operands[1].value
+    term_2 = operands[2].value
+    if instruction.mnem.startswith("r"):  # reverse subtract
+        term_1, term_2 = term_2, term_1
+
+    result = term_1 - term_2
+    if instruction.mnem.startswith(("sbc", "rsc")):
+        result -= cpu_context.registers.c ^ 1
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        mask = utils.get_mask(width)
+        cpu_context.registers.c = int((term_1 & mask) < (term_2 & mask))
+        cpu_context.registers.z = int(result & mask == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.registers.v = int(utils.sign_bit((term_1 ^ term_2) & (term_1 ^ result), width) == 0)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n", "v"], operands)
+
+    logger.debug("0x%X - 0x%X = 0x%X", term_1, term_2, result)
+    operands[0].value = result
 
 
 @opcode
-def SUBS(cpu_context, ip, mnem, opvalues):
-    """Subtract and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CMP(cpu_context, ip, mnem, opvalues):
+def CMP(cpu_context, instruction):
     """Compare"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    term_1 = operands[0].value
+    term_2 = operands[1].value
+    result = term_1 - term_2
+    width = get_max_operand_size(operands)
+
+    # Flags are always updated for CMP
+    mask = utils.get_mask(width)
+    cpu_context.registers.c = int((term_1 & mask) < (term_2 & mask))
+    cpu_context.registers.z = int(result & mask == 0)
+    cpu_context.registers.n = utils.sign_bit(result, width)
+    cpu_context.registers.v = int(utils.sign_bit((term_1 ^ term_2) & (term_1 ^ result), width) == 0)
+    cpu_context.jcccontext.update_flag_opnds(["c", "z", "n", "v"], operands)
+
+    logger.debug("0x%X <-> 0x%X = 0x%X", term_1, term_2, result)
 
 
 @opcode
-def CMN(cpu_context, ip, mnem, opvalues):
+def CMN(cpu_context, instruction):
     """Compare negative"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value_a = operands[1].value
+    value_b = operands[2].value
+    result = value_a + value_b
+    width = get_max_operand_size(operands)
+
+    mask = utils.get_mask(width)
+    cpu_context.registers.c = int(result > mask)
+    cpu_context.registers.z = int(result & mask == 0)
+    cpu_context.registers.n = utils.sign_bit(result, width)
+    cpu_context.registers.v = int(utils.sign_bit(~(value_a ^ value_b) & (value_b ^ result), width) == 0)
+    cpu_context.jcccontext.update_flag_opnds(["c", "z", "n", "v"], operands)
+
+    logger.debug("0x%X <-> 0x%X = 0x%X", value_a, value_b, result)
 
 
 """
@@ -1431,33 +1092,88 @@ final results of a bitwise operation can be tested by a CBZ, CBNZ, TBZ, or TBNZ 
 
 
 @opcode
-def AND(cpu_context, ip, mnem, opvalues):
+def AND(cpu_context, instruction):
     """Bitwise AND"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    result = opvalue2 & opvalue3
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    logger.debug("0x%X & 0x%X = 0x%X", opvalue2, opvalue3, result)
+    operands[0].value = result
+
+
+def TST(cpu_context, instruction):
+    """Test bits (same as ANDS, but result is discarded)"""
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    result = opvalue2 & opvalue3
+
+    width = get_max_operand_size(operands)
+    cpu_context.registers.z = int(result == 0)
+    cpu_context.registers.n = utils.sign_bit(result, width)
+    cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    logger.debug("0x%X & 0x%X = 0x%X", opvalue2, opvalue3, result)
 
 
 @opcode
-def ANDS(cpu_context, ip, mnem, opvalues):
-    """Bitwise AND and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def EOR(cpu_context, ip, mnem, opvalues):
+def EOR(cpu_context, instruction):
     """Bitwise exclusive OR"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    result = opvalue2 ^ opvalue3
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    logger.debug("0x%X ^ 0x%X = 0x%X", opvalue2, opvalue3, result)
+    operands[0].value = result
 
 
 @opcode
-def ORR(cpu_context, ip, mnem, opvalues):
+def TEQ(cpu_context, instruction):
+    """Test Equivalence (same as EORS, except the result is discarded)"""
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    result = opvalue2 ^ opvalue3
+
+    width = get_max_operand_size(operands)
+    cpu_context.registers.z = int(result == 0)
+    cpu_context.registers.n = utils.sign_bit(result, width)
+    cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    logger.debug("0x%X ^ 0x%X = 0x%X", opvalue2, opvalue3, result)
+
+
+@opcode
+def ORR(cpu_context, instruction):
     """Bitwise inclusive OR"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    result = opvalue2 | opvalue3
 
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
 
-@opcode
-def TST(cpu_context, ip, mnem, opvalues):
-    """Test bits"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("0x%X | 0x%X = 0x%X", opvalue2, opvalue3, result)
+    operands[0].value = result
 
 
 """
@@ -1465,28 +1181,7 @@ Move (wide immediate)
 The Move (wide immediate) instructions insert a 16-bit immediate, or inverted immediate, into a 16-bit aligned
 position in the destination register. The value of the other bits in the destination register depends on the variant used.
 The optional shift amount can be any multiple of 16 that is smaller than the register size.
-"""
 
-
-@opcode
-def MOVZ(cpu_context, ip, mnem, opvalues):
-    """Move wide with zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def MOVN(cpu_context, ip, mnem, opvalues):
-    """Move wide with NOT"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def MOVK(cpu_context, ip, mnem, opvalues):
-    """Move wide with keep"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-"""
 Move (immediate)
 The Move (immediate) instructions are aliases for a single MOVZ, MOVN, or ORR (immediate with zero register),
 instruction to load an immediate value into the destination register. An assembler must permit a signed or unsigned
@@ -1497,33 +1192,69 @@ immediate is output as a signed or an unsigned value.
 If there is a choice between the MOVZ, MOVN, and ORR instruction to encode the immediate, then an assembler must
 prefer MOVZ to MOVN, and MOVZ or MOVN to ORR, to ensure reversability. A disassembler must output ORR (immediate with
 zero register) MOVZ, and MOVN, as a MOV mnemonic except that the underlying instruction must be used when:
-* ORR has an immediate that can be generated by a MOVZ or MOVN instruction.
-* A MOVN instruction has an immediate that can be encoded by MOVZ.
-* MOVZ #0 or MOVN #0 have a shift amount other than LSL #0.
+• ORR has an immediate that can be generated by a MOVZ or MOVN instruction.
+• A MOVN instruction has an immediate that can be encoded by MOVZ.
+• MOVZ #0 or MOVN #0 have a shift amount other than LSL #0.
 """
 
 
+@opcode("mov")
+@opcode("movz")
+def MOV(cpu_context, instruction):
+    """Move wide with zero"""
+    operands = instruction.operands
+    result = operands[1].value
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    operands[0].value = result
+
+
 @opcode
-def MOV(cpu_context, ip, mnem, opvalues):
-    """
-    Move (inverted wide immediate)
-    Move (wide immediate)
-    Move (bitmask immediate)
-    """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def MOVN(cpu_context, instruction):
+    """Move wide with NOT"""
+    operands = instruction.operands
+    result = ~operands[1].value
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    operands[0].value = result
+
+
+@opcode
+def MOVK(cpu_context, instruction):
+    """Move wide with keep"""
+    operands = instruction.operands
+
+    # TODO: Is it always lsl?
+    shift_mask = {
+        0: 0xFFFFFFFFFFFF0000,
+        16: 0xFFFFFFFF0000FFFF,
+        32: 0xFFFF0000FFFFFFFF,
+        48: 0x0000FFFFFFFFFFFF,
+    }[operands[1].shift_count]
+    operands[0].value = (operands[0].value & shift_mask) | operands[1].value
 
 
 """
 PC-relative address calculation
 The ADR instruction adds a signed, 21-bit immediate to the value of the program counter that fetched this instruction,
 and then writes the result to a general-purpose register. This permits the calculation of any byte address within
-1MB of the current PC.
+±1MB of the current PC.
 
 The ADRP instruction shifts a signed, 21-bit immediate left by 12 bits, adds it to the value of the program counter with
 the bottom 12 bits cleared to zero, and then writes the result to a general-purpose register. This permits the
 calculation of the address at a 4KB aligned memory region. In conjunction with an ADD (immediate) instruction, or
 a Load/Store instruction with a 12-bit immediate offset, this allows for the calculation of, or access to, any address
-within 4GB of the current PC.
+within ±4GB of the current PC.
 
 Note
 The term page used in the ADRP description is short-hand for the 4KB memory region, and is not related to the virtual
@@ -1532,15 +1263,28 @@ memory translation granule size.
 
 
 @opcode
-def ADRP(cpu_context, ip, mnem, opvalues):
+def ADRP(cpu_context, instruction):
     """Compute address of 4KB page at a PC-relative offset"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    pc = cpu_context.registers.pc
+    pc = pc & 0xFFFFFFFFFFFFF000  # Zero out bottom 12 bits of PC
+    opvalue2 = operands[1].value
+    result = pc + 0x1000*opvalue2
+
+    logger.debug("0x%X + 0x1000*0x%X = 0x%X", pc, opvalue2, result)
+    operands[0].value = result
 
 
 @opcode
-def ADR(cpu_context, ip, mnem, opvalues):
+def ADR(cpu_context, instruction):
     """Compute address of label at a PC-relative offset."""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    pc = cpu_context.registers.pc
+    opvalue2 = operands[1].value
+    result = pc + opvalue2
+
+    logger.debug("0x%X + 0x%X = 0x%X", pc, opvalue2, result)
+    operands[0].value = result
 
 
 """
@@ -1548,29 +1292,29 @@ Bitfield move
 The Bitfield move instructions copy a field of constant width from bit 0 in the source register to a constant bit
 position in the destination register, or from a constant bit position in the source register to bit 0 in the destination
 register. The remaining bits in the destination register are set as follows:
-* For BFM, the remaining bits are unchanged.
-* For UBFM the lower bits, if any, and upper bits, if any, are set to zero.
-* For SBFM, the lower bits, if any, are set to zero, and the upper bits, if any, are set to a copy of the
+• For BFM, the remaining bits are unchanged.
+• For UBFM the lower bits, if any, and upper bits, if any, are set to zero.
+• For SBFM, the lower bits, if any, are set to zero, and the upper bits, if any, are set to a copy of the
   most-significant bit in the copied field.
 """
 
 
 @opcode
-def BFM(cpu_context, ip, mnem, opvalues):
+def BFM(cpu_context, instruction):
     """Bitfield move"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SBFM(cpu_context, ip, mnem, opvalues):
+def SBFM(cpu_context, instruction):
     """Signed bitfield move"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UBFM(cpu_context, ip, mnem, opvalues):
+def UBFM(cpu_context, instruction):
     """Unsigned bitfield move (32-bit)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1581,45 +1325,45 @@ shows the Bitfield insert and extract aliases.
 
 
 @opcode
-def BFC(cpu_context, ip, mnem, opvalues):
+def BFC(cpu_context, instruction):
     """Bitfield insert clear"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def BFI(cpu_context, ip, mnem, opvalues):
+def BFI(cpu_context, instruction):
     """Bitfield insert"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def BFXIL(cpu_context, ip, mnem, opvalues):
+def BFXIL(cpu_context, instruction):
     """Bitfield extract and insert low"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SBFIZ(cpu_context, ip, mnem, opvalues):
+def SBFIZ(cpu_context, instruction):
     """Signed bitfield insert in zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SBFX(cpu_context, ip, mnem, opvalues):
+def SBFX(cpu_context, instruction):
     """Signed bitfield extract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UBFIZ(cpu_context, ip, mnem, opvalues):
+def UBFIZ(cpu_context, instruction):
     """Unsigned bitfield insert in zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UBFX(cpu_context, ip, mnem, opvalues):
+def UBFX(cpu_context, instruction):
     """Unsigned bitfield extract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1631,9 +1375,9 @@ destination register.
 
 
 @opcode
-def EXTR(cpu_context, ip, mnem, opvalues):
+def EXTR(cpu_context, instruction):
     """Extract register from pair"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1645,27 +1389,102 @@ inclusive.
 
 
 @opcode
-def ASR(cpu_context, ip, mnem, opvalues):
+def ASR(cpu_context, instruction):
     """Arithmetic shift right"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[1].value
+    count = operands[2].value
+
+    width = get_max_operand_size(operands)
+    carry, result = arm_utils.asr(value, count, width=width)
+
+    if instruction.flag_update:
+        if count:  # C register is unaffected if the shift value is 0
+            cpu_context.registers.c = carry
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n"], operands)
+
+    logger.debug("(0x%X >> 0x%X) = 0x%X", value, count, result)
+    operands[0].value = result
 
 
 @opcode
-def LSL(cpu_context, ip, mnem, opvalues):
+def LSL(cpu_context, instruction):
     """Logical shift left"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[1].value
+    count = operands[2].value
+
+    width = get_max_operand_size(operands)
+    carry, result = arm_utils.lsl(value, count, width=width)
+
+    if instruction.flag_update:
+        if count:
+            cpu_context.registers.c = carry
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n"], operands)
+
+    logger.debug("(0x%X << 0x%X) = 0x%X", value, count, result)
+    operands[0].value = result
 
 
 @opcode
-def LSR(cpu_context, ip, mnem, opvalues):
+def LSR(cpu_context, instruction):
     """Logical shift right"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[1].value
+    count = operands[2].value
+
+    width = get_max_operand_size(operands)
+    carry, result = arm_utils.lsr(value, count, width=width)
+
+    if instruction.flag_update:
+        if count:
+            cpu_context.registers.c = carry
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n"], operands)
+
+    logger.debug("(0x%X >> 0x%X) = 0x%X", value, count, result)
+    operands[0].value = result
 
 
 @opcode
-def ROR(cpu_context, ip, mnem, opvalues):
+def ROR(cpu_context, instruction):
     """Rotate right"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    value = operands[1].value
+    count = operands[2].value
+
+    width = get_max_operand_size(operands)
+    carry, result = arm_utils.ror(value, count, width=width)
+
+    if instruction.flag_update:
+        if count:
+            cpu_context.registers.c = carry
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n"], operands)
+
+    logger.debug("(0x%X ror 0x%X) = 0x%X", value, count, result)
+    operands[0].value = result
+
+
+@opcode
+def EOR(cpu_context, instruction):
+    """XOR operands"""
+    operands = instruction.operands
+    result = operands[1].value ^ operands[2].value
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    operands[0].value = result
 
 
 """
@@ -1675,33 +1494,17 @@ The Sign-extend and Zero-extend instructions are implemented as aliases of the B
 
 
 @opcode
-def SXTB(cpu_context, ip, mnem, opvalues):
-    """Sign-extend byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def SXT(cpu_context, instruction):
+    """Sign-extend"""
+    operands = instruction.operands
+    operands[0].value = utils.sign_extend(operands[1].value & 0xffff, 2, 4)
 
 
 @opcode
-def SXTH(cpu_context, ip, mnem, opvalues):
-    """Sign-extend halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def SXTW(cpu_context, ip, mnem, opvalues):
-    """Sign-extend word"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def UXTB(cpu_context, ip, mnem, opvalues):
-    """Unsigned extend byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def UXTH(cpu_context, ip, mnem, opvalues):
-    """Unsigned extend halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def UXT(cpu_context, instruction):
+    """Zero-extend"""
+    operands = instruction.operands
+    operands[0].value = operands[1].value & 0xffff
 
 
 """
@@ -1753,59 +1556,28 @@ extend operators. For example:
 """
 
 
-@opcode
-def NEG(cpu_context, ip, mnem, opvalues):
-    """Negate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+@opcode("neg")
+@opcode("ngc")
+def NEG(cpu_context, instruction):
+    """Negate (and set flags)"""
+    operands = instruction.operands
+    value = operands[1].value
+    if instruction.root_mnem == "ngc":
+        value += int(not cpu_context.registers.c)
 
+    result = -value
 
-@opcode
-def NEGS(cpu_context, ip, mnem, opvalues):
-    """Negate and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    if instruction.flag_update:
+        width = operands[1].width
+        mask = utils.get_mask(width)
+        cpu_context.registers.c = int(result & mask != 0)
+        cpu_context.registers.z = int(result & mask == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.registers.v = int(utils.sign_bit(value, width) and not utils.sign_bit(result, width))
+        cpu_context.jcccontext.update_flag_opnds(["c", "z", "n", "v"], operands)
 
-
-"""
-Arithmetic with carry
-The Arithmetic with carry instructions accept two source registers, with the carry flag as an additional input to the
-calculation. They do not support shifting of the second source register.
-"""
-
-
-@opcode
-def ADC(cpu_context, ip, mnem, opvalues):
-    """Add with carry"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def ADCS(cpu_context, ip, mnem, opvalues):
-    """Add with carry and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def SBC(cpu_context, ip, mnem, opvalues):
-    """Subtract with carry"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def SBCS(cpu_context, ip, mnem, opvalues):
-    """Subtract with carry and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def NGC(cpu_context, ip, mnem, opvalues):
-    """Negate with carry"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def NGCS(cpu_context, ip, mnem, opvalues):
-    """Negate with carry and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("-0x%X -> 0x%X -> %s", value, result, operands[0].text)
+    operands[0].value = result
 
 
 """
@@ -1820,27 +1592,27 @@ immediate value.
 
 
 @opcode
-def CFINV(cpu_context, ip, mnem, opvalues):
+def CFINV(cpu_context, instruction):
     """Invert value of the PSTATE.C bit"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    cpu_context.registers.c = int(not cpu_context.registers.c)
 
 
 @opcode
-def RMIF(cpu_context, ip, mnem, opvalues):
+def RMIF(cpu_context, instruction):
     """Rotate, mask insert flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SETF8(cpu_context, ip, mnem, opvalues):
+def SETF8(cpu_context, instruction):
     """Evaluation of 8-bit flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SETF16(cpu_context, ip, mnem, opvalues):
+def SETF16(cpu_context, instruction):
     """Evaluation of 16-bit flags SETF8,"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1862,33 +1634,33 @@ operation can usually directly control a CBZ, CBNZ, TBZ, or TBNZ conditional bra
 
 
 @opcode
-def BIC(cpu_context, ip, mnem, opvalues):
+def BIC(cpu_context, instruction):
     """Bitwise bit clear"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def BICS(cpu_context, ip, mnem, opvalues):
+def BICS(cpu_context, instruction):
     """Bitwise bit clear and set flags"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def EON(cpu_context, ip, mnem, opvalues):
+def EON(cpu_context, instruction):
     """Bitwise exclusive OR NOT"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MVN(cpu_context, ip, mnem, opvalues):
+def MVN(cpu_context, instruction):
     """Bitwise NOT"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ORN(cpu_context, ip, mnem, opvalues):
+def ORN(cpu_context, instruction):
     """Bitwise inclusive OR NOT"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1900,27 +1672,27 @@ or rotate at bit[63] or bit[31].
 
 
 @opcode
-def ASRV(cpu_context, ip, mnem, opvalues):
+def ASRV(cpu_context, instruction):
     """Arithmetic shift right variable"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LSLV(cpu_context, ip, mnem, opvalues):
+def LSLV(cpu_context, instruction):
     """Logical shift left variable"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def LSRV(cpu_context, ip, mnem, opvalues):
+def LSRV(cpu_context, instruction):
     """Logical shift right variable"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RORV(cpu_context, ip, mnem, opvalues):
+def RORV(cpu_context, instruction):
     """Rotate right variable"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -1933,93 +1705,123 @@ upper 64 bits.
 
 
 @opcode
-def MADD(cpu_context, ip, mnem, opvalues):
+def MADD(cpu_context, instruction):
     """Multiply-add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MSUB(cpu_context, ip, mnem, opvalues):
+def MSUB(cpu_context, instruction):
     """Multiply-subtract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MNEG(cpu_context, ip, mnem, opvalues):
+def MNEG(cpu_context, instruction):
     """Multiply-negate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MUL(cpu_context, ip, mnem, opvalues):
+def MUL(cpu_context, instruction):
     """Multiply"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    term_1 = operands[1].value
+    term_2 = operands[2].value
+    result = term_1 * term_2
+
+    if instruction.flag_update:
+        width = get_max_operand_size(operands)
+        cpu_context.registers.z = int(result == 0)
+        cpu_context.registers.n = utils.sign_bit(result, width)
+        cpu_context.jcccontext.update_flag_opnds(["z", "n"], operands)
+
+    logger.debug("0x%X * 0x%X = 0x%X", term_1, term_2, result)
+    operands[0].value = result
 
 
 @opcode
-def SMADDL(cpu_context, ip, mnem, opvalues):
+def SMADDL(cpu_context, instruction):
     """Signed multiply-add long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMSUBL(cpu_context, ip, mnem, opvalues):
+def SMSUBL(cpu_context, instruction):
     """Signed multiply-subtract long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMNEGL(cpu_context, ip, mnem, opvalues):
+def SMNEGL(cpu_context, instruction):
     """Signed multiply-negate long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMULL(cpu_context, ip, mnem, opvalues):
+def SMULL(cpu_context, instruction):
     """Signed multiply long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMULH(cpu_context, ip, mnem, opvalues):
+def SMULH(cpu_context, instruction):
     """Signed multiply high"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMADDL(cpu_context, ip, mnem, opvalues):
+def UMADDL(cpu_context, instruction):
     """Unsigned multiply-add long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    opvalue2 = operands[1].value
+    opvalue3 = operands[2].value
+    opvalue4 = operands[3].value
+    result = (opvalue2 * opvalue3) + opvalue4
+
+    logger.debug("(0x%X * 0x%X) + 0x%X = 0x%X", opvalue2, opvalue2, opvalue4, result)
+    operands[0].value = result
 
 
 @opcode
-def UMSUBL(cpu_context, ip, mnem, opvalues):
+def UMSUBL(cpu_context, instruction):
     """Unsigned multiply-subtract long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMNEGL(cpu_context, ip, mnem, opvalues):
+def UMNEGL(cpu_context, instruction):
     """Unsigned multiply-negate long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMULL(cpu_context, ip, mnem, opvalues):
+def UMULL(cpu_context, instruction):
     """Unsigned multiply long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    operands = instruction.operands
+    term_1 = operands[-2].value
+    term_2 = operands[-1].value
+    result = term_1 * term_2
+
+    logger.debug("0x%X * 0x%X = 0x%X", term_1, term_2, result)
+
+    if len(operands) > 3:
+        operands[0].value = result & 0xffffffff
+        operands[1].value = (result >> 32) & 0xffffffff
+    else:
+        operands[0].value = result
 
 
 @opcode
-def UMULH(cpu_context, ip, mnem, opvalues):
+def UMULH(cpu_context, instruction):
     """Unsigned multiply high"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
 Divide
 The Divide instructions compute the quotient of a division, rounded towards zero. The remainder can then be
-computed as (numerator - (quotient  denominator)), using the MSUB instruction.
+computed as (numerator - (quotient × denominator)), using the MSUB instruction.
 
 If a signed integer division (INT_MIN / -1) is performed where INT_MIN is the most negative integer value
 representable in the selected register size, then the result overflows the signed integer range. No indication of this
@@ -2031,15 +1833,15 @@ by zero occurred.
 
 
 @opcode
-def SDIV(cpu_context, ip, mnem, opvalues):
+def SDIV(cpu_context, instruction):
     """Signed divide"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UDIV(cpu_context, ip, mnem, opvalues):
+def UDIV(cpu_context, instruction):
     """Unsigned divide"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2059,51 +1861,15 @@ All implementations of ARMv8.1 architecture and later are required to implement 
 
 
 @opcode
-def CRC32B(cpu_context, ip, mnem, opvalues):
-    """CRC-32 sum from byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def CRC32(cpu_context, instruction):
+    """CRC-32 sum"""
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CRC32H(cpu_context, ip, mnem, opvalues):
-    """CRC-32 sum from halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32W(cpu_context, ip, mnem, opvalues):
-    """CRC-32 sum from word"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32X(cpu_context, ip, mnem, opvalues):
-    """CRC-32 sum from doubleword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32CB(cpu_context, ip, mnem, opvalues):
-    """CRC-32C sum from byte"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32CH(cpu_context, ip, mnem, opvalues):
-    """CRC-32C sum from halfword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32CW(cpu_context, ip, mnem, opvalues):
-    """CRC-32C sum from word"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
-
-
-@opcode
-def CRC32CX(cpu_context, ip, mnem, opvalues):
-    """CRC-32C sum from doubleword"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+def CRC32C(cpu_context, instruction):
+    """CRC-32C sum"""
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2112,45 +1878,45 @@ Bit operation
 
 
 @opcode
-def CLS(cpu_context, ip, mnem, opvalues):
+def CLS(cpu_context, instruction):
     """Count leading sign bits"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CLZ(cpu_context, ip, mnem, opvalues):
+def CLZ(cpu_context, instruction):
     """Count leading zero bits"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RBIT(cpu_context, ip, mnem, opvalues):
+def RBIT(cpu_context, instruction):
     """Reverse bit order"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def REV(cpu_context, ip, mnem, opvalues):
+def REV(cpu_context, instruction):
     """Reverse bytes in register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def REV16(cpu_context, ip, mnem, opvalues):
+def REV16(cpu_context, instruction):
     """Reverse bytes in halfwords"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def REV32(cpu_context, ip, mnem, opvalues):
+def REV32(cpu_context, instruction):
     """Reverses bytes in words"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def REV64(cpu_context, ip, mnem, opvalues):
+def REV64(cpu_context, instruction):
     """Reverse bytes in register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2166,57 +1932,57 @@ select instructions.
 
 
 @opcode
-def CSEL(cpu_context, ip, mnem, opvalues):
+def CSEL(cpu_context, instruction):
     """Conditional select"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CSINC(cpu_context, ip, mnem, opvalues):
+def CSINC(cpu_context, instruction):
     """Conditional select increment"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CSINV(cpu_context, ip, mnem, opvalues):
+def CSINV(cpu_context, instruction):
     """Conditional select inversion"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CSNEG(cpu_context, ip, mnem, opvalues):
+def CSNEG(cpu_context, instruction):
     """Conditional select negation"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CSET(cpu_context, ip, mnem, opvalues):
+def CSET(cpu_context, instruction):
     """Conditional set"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CSETM(cpu_context, ip, mnem, opvalues):
+def CSETM(cpu_context, instruction):
     """Conditional set mask"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CINC(cpu_context, ip, mnem, opvalues):
+def CINC(cpu_context, instruction):
     """Conditional increment"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CINV(cpu_context, ip, mnem, opvalues):
+def CINV(cpu_context, instruction):
     """Conditional invert"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CNEG(cpu_context, ip, mnem, opvalues):
+def CNEG(cpu_context, instruction):
     """Conditional negate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2229,21 +1995,21 @@ compares the source register to a small 5-bit unsigned value.
 
 
 @opcode
-def CCMN(cpu_context, ip, mnem, opvalues):
+def CCMN(cpu_context, instruction):
     """
     Conditional compare negative (register)
     Conditional compare negative (immediate)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CCMP(cpu_context, ip, mnem, opvalues):
+def CCMP(cpu_context, instruction):
     """
     Conditional compare (register)
     Conditional compare (immediate)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2270,19 +2036,19 @@ Note
 When ARMv8.2-FP16 is not implemented, the only half-precision instructions that are supported are floating-point
 conversions between half-precision, single-precision, and double-precision.
 
-The floating-point value must be expressible as ( n/16  2r), where n is an integer in the range 16 = n = 31 and r is
+The floating-point value must be expressible as (± n/16 × 2r), where n is an integer in the range 16 = n = 31 and r is
 an integer in the range of -3 = r = 4, that is a normalized binary floating-point encoding with one sign bit, four bits
 of fraction, and a 3-bit exponent.
 """
 
 
 @opcode
-def FMOV(cpu_context, ip, mnem, opvalues):
+def FMOV(cpu_context, instruction):
     """
     Floating-point move register without conversion
     Floating-point move to or from general-purpose register without conversion
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2293,9 +2059,9 @@ precision, using the current rounding mode as specified by FPCR.RMode.
 
 
 @opcode
-def FCVT(cpu_context, ip, mnem, opvalues):
+def FCVT(cpu_context, instruction):
     """Floating-point convert precision (scalar)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2326,93 +2092,93 @@ not generate an Input Denormal exception.
 
 
 @opcode
-def FCVTAS(cpu_context, ip, mnem, opvalues):
+def FCVTAS(cpu_context, instruction):
     """Floating-point scalar convert to signed integer, rounding to nearest with ties to away (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTAU(cpu_context, ip, mnem, opvalues):
+def FCVTAU(cpu_context, instruction):
     """Floating-point scalar convert to unsigned integer, rounding to nearest with ties to away (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTMS(cpu_context, ip, mnem, opvalues):
+def FCVTMS(cpu_context, instruction):
     """Floating-point scalar convert to signed integer, rounding toward minus infinity (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTMU(cpu_context, ip, mnem, opvalues):
+def FCVTMU(cpu_context, instruction):
     """Floating-point scalar convert to unsigned integer, rounding toward minus infinity (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTNS(cpu_context, ip, mnem, opvalues):
+def FCVTNS(cpu_context, instruction):
     """Floating-point scalar convert to signed integer, rounding to nearest with ties to even (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTNU(cpu_context, ip, mnem, opvalues):
+def FCVTNU(cpu_context, instruction):
     """Floating-point scalar convert to unsigned integer, rounding to nearest with ties to even (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTPS(cpu_context, ip, mnem, opvalues):
+def FCVTPS(cpu_context, instruction):
     """Floating-point scalar convert to signed integer, rounding toward positive infinity (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTPU(cpu_context, ip, mnem, opvalues):
+def FCVTPU(cpu_context, instruction):
     """Floating-point scalar convert to unsigned integer, rounding toward positive infinity (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTZS(cpu_context, ip, mnem, opvalues):
+def FCVTZS(cpu_context, instruction):
     """
     Floating-point scalar convert to signed integer, rounding toward zero (scalar form)
     Floating-point scalar convert to signed fixed-point, rounding toward zero (scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTZU(cpu_context, ip, mnem, opvalues):
+def FCVTZU(cpu_context, instruction):
     """
     Floating-point scalar convert to unsigned integer, rounding toward zero (scalar form)
     Floating-point scalar convert to unsigned fixed-point, rounding toward zero (scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FJCVTZS(cpu_context, ip, mnem, opvalues):
+def FJCVTZS(cpu_context, instruction):
     """Floating-point Javascript convert to signed fixed-point, rounding toward zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SCVTF(cpu_context, ip, mnem, opvalues):
+def SCVTF(cpu_context, instruction):
     """
     Signed integer scalar convert to floating-point, using the current rounding mode (scalar form)
     Signed integer fixed-point convert to floating-point, using the current rounding mode (scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UCVTF(cpu_context, ip, mnem, opvalues):
+def UCVTF(cpu_context, instruction):
     """
     Unsigned integer scalar convert to floating-point, using the current rounding mode (scalar form)
     Unsigned integer fixed-point convert to floating-point, using the current rounding mode (scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2421,9 +2187,9 @@ The Floating-point round to integer instructions round a floating-point value to
 the same size.
 
 For these instructions:
-* A zero input gives a zero result with the same sign.
-* An infinite input gives an infinite result with the same sign.
-* A NaN is propagated as in normal floating-point arithmetic.
+• A zero input gives a zero result with the same sign.
+• An infinite input gives an infinite result with the same sign.
+• A NaN is propagated as in normal floating-point arithmetic.
 
 These instructions can cause the following floating-point exceptions:
 
@@ -2444,45 +2210,45 @@ not generate an Input Denormal exception.
 
 
 @opcode
-def FRINTA(cpu_context, ip, mnem, opvalues):
+def FRINTA(cpu_context, instruction):
     """Floating-point round to integer, to nearest with ties to away"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTI(cpu_context, ip, mnem, opvalues):
+def FRINTI(cpu_context, instruction):
     """Floating-point round to integer, using current rounding mode"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTM(cpu_context, ip, mnem, opvalues):
+def FRINTM(cpu_context, instruction):
     """Floating-point round to integer, toward minus infinity"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTN(cpu_context, ip, mnem, opvalues):
+def FRINTN(cpu_context, instruction):
     """Floating-point round to integer, to nearest with ties to even"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTP(cpu_context, ip, mnem, opvalues):
+def FRINTP(cpu_context, instruction):
     """Floating-point round to integer, toward positive infinity"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTX(cpu_context, ip, mnem, opvalues):
+def FRINTX(cpu_context, instruction):
     """Floating-point round to integer exact, using current rounding mode"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRINTZ(cpu_context, ip, mnem, opvalues):
+def FRINTZ(cpu_context, instruction):
     """Floating-point round to integer, toward zero"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2491,27 +2257,27 @@ Floating-point multiply-add
 
 
 @opcode
-def FMADD(cpu_context, ip, mnem, opvalues):
+def FMADD(cpu_context, instruction):
     """Floating-point scalar fused multiply-add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMSUB(cpu_context, ip, mnem, opvalues):
+def FMSUB(cpu_context, instruction):
     """Floating-point scalar fused multiply-subtract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FNMADD(cpu_context, ip, mnem, opvalues):
+def FNMADD(cpu_context, instruction):
     """Floating-point scalar negated fused multiply-add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FNMSUB(cpu_context, ip, mnem, opvalues):
+def FNMSUB(cpu_context, instruction):
     """Floating-point scalar negated fused multiply-subtract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2520,21 +2286,21 @@ Floating-point arithmetic (one source)
 
 
 @opcode
-def FABS(cpu_context, ip, mnem, opvalues):
+def FABS(cpu_context, instruction):
     """Floating-point scalar absolute value"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FNEG(cpu_context, ip, mnem, opvalues):
+def FNEG(cpu_context, instruction):
     """Floating-point scalar negate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FSQRT(cpu_context, ip, mnem, opvalues):
+def FSQRT(cpu_context, instruction):
     """Floating-point scalar square root"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2543,33 +2309,33 @@ Floating-point arithmetic (two sources)
 
 
 @opcode
-def FADD(cpu_context, ip, mnem, opvalues):
+def FADD(cpu_context, instruction):
     """Floating-point scalar add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FDIV(cpu_context, ip, mnem, opvalues):
+def FDIV(cpu_context, instruction):
     """Floating-point scalar divide"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMUL(cpu_context, ip, mnem, opvalues):
+def FMUL(cpu_context, instruction):
     """Floating-point scalar multiply"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FNMUL(cpu_context, ip, mnem, opvalues):
+def FNMUL(cpu_context, instruction):
     """Floating-point scalar multiply-negate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FSUB(cpu_context, ip, mnem, opvalues):
+def FSUB(cpu_context, instruction):
     """Floating-point scalar subtract"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2587,27 +2353,27 @@ the result is then identical to min(x,y) and max(x,y).
 
 
 @opcode
-def FMAX(cpu_context, ip, mnem, opvalues):
+def FMAX(cpu_context, instruction):
     """Floating-point scalar maximum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMAXNM(cpu_context, ip, mnem, opvalues):
+def FMAXNM(cpu_context, instruction):
     """Floating-point scalar maximum number"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMIN(cpu_context, ip, mnem, opvalues):
+def FMIN(cpu_context, instruction):
     """Floating-point scalar minimum"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMINNM(cpu_context, ip, mnem, opvalues):
+def FMINNM(cpu_context, instruction):
     """Floating-point scalar minimum number"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2631,27 +2397,27 @@ exception if either of the source operands is any type of NaN.
 
 
 @opcode
-def FCMP(cpu_context, ip, mnem, opvalues):
+def FCMP(cpu_context, instruction):
     """Floating-point quiet compare"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMPE(cpu_context, ip, mnem, opvalues):
+def FCMPE(cpu_context, instruction):
     """Floating-point signaling compare"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCCMP(cpu_context, ip, mnem, opvalues):
+def FCCMP(cpu_context, instruction):
     """Floating-point conditional quiet compare"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCCMPE(cpu_context, ip, mnem, opvalues):
+def FCCMPE(cpu_context, instruction):
     """Floating-point conditional signaling compare"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2660,9 +2426,9 @@ Floating-point conditional select
 
 
 @opcode
-def FCSEL(cpu_context, ip, mnem, opvalues):
+def FCSEL(cpu_context, instruction):
     """Floating-point scalar conditional select"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2673,33 +2439,33 @@ instructions described in Floating-point move (register) on page C3-207.
 
 
 @opcode
-def DUP(cpu_context, ip, mnem, opvalues):
+def DUP(cpu_context, instruction):
     """
     Duplicate vector element to vector or scalar
     Duplicate general-purpose register to vector
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def INSa(cpu_context, ip, mnem, opvalues):
+def INSa(cpu_context, instruction):
     """
     Insert vector element from another vector element
     Insert vector element from general-purpose register INS (general) on page C7-16
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMOV(cpu_context, ip, mnem, opvalues):
+def UMOV(cpu_context, instruction):
     """Unsigned move vector element to general-purpose register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMOV(cpu_context, ip, mnem, opvalues):
+def SMOV(cpu_context, instruction):
     """Signed move vector element to general-purpose register"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2708,267 +2474,267 @@ SIMD arithmetic
 
 
 @opcode
-def BIF(cpu_context, ip, mnem, opvalues):
+def BIF(cpu_context, instruction):
     """Bitwise insert if false (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def BIT(cpu_context, ip, mnem, opvalues):
+def BIT(cpu_context, instruction):
     """Bitwise insert if true (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def BSL(cpu_context, ip, mnem, opvalues):
+def BSL(cpu_context, instruction):
     """Bitwise select (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FABD(cpu_context, ip, mnem, opvalues):
+def FABD(cpu_context, instruction):
     """Floating-point absolute difference (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMLA(cpu_context, ip, mnem, opvalues):
+def FMLA(cpu_context, instruction):
     """Floating-point fused multiply-add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMLAL(cpu_context, ip, mnem, opvalues):
+def FMLAL(cpu_context, instruction):
     """FMLAL2 Floating-point fused multiply-add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMLS(cpu_context, ip, mnem, opvalues):
+def FMLS(cpu_context, instruction):
     """Floating-point fused multiply-subtract (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMLSL(cpu_context, ip, mnem, opvalues):
+def FMLSL(cpu_context, instruction):
     """FMLSL2 Floating-point fused multiply-subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMULX(cpu_context, ip, mnem, opvalues):
+def FMULX(cpu_context, instruction):
     """Floating-point multiply extended (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRECPS(cpu_context, ip, mnem, opvalues):
+def FRECPS(cpu_context, instruction):
     """Floating-point reciprocal step (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRSQRTS(cpu_context, ip, mnem, opvalues):
+def FRSQRTS(cpu_context, instruction):
     """Floating-point reciprocal square root step (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MLA(cpu_context, ip, mnem, opvalues):
+def MLA(cpu_context, instruction):
     """Multiply-add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MLS(cpu_context, ip, mnem, opvalues):
+def MLS(cpu_context, instruction):
     """Multiply-subtract (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def PMUL(cpu_context, ip, mnem, opvalues):
+def PMUL(cpu_context, instruction):
     """Polynomial multiply (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABA(cpu_context, ip, mnem, opvalues):
+def SABA(cpu_context, instruction):
     """Signed absolute difference and accumulate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABD(cpu_context, ip, mnem, opvalues):
+def SABD(cpu_context, instruction):
     """Signed absolute difference (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHADD(cpu_context, ip, mnem, opvalues):
+def SHADD(cpu_context, instruction):
     """Signed halving add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHSUB(cpu_context, ip, mnem, opvalues):
+def SHSUB(cpu_context, instruction):
     """Signed halving subtract (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMAX(cpu_context, ip, mnem, opvalues):
+def SMAX(cpu_context, instruction):
     """Signed maximum (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMIN(cpu_context, ip, mnem, opvalues):
+def SMIN(cpu_context, instruction):
     """Signed minimum (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQADD(cpu_context, ip, mnem, opvalues):
+def SQADD(cpu_context, instruction):
     """Signed saturating add (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMULH(cpu_context, ip, mnem, opvalues):
+def SQDMULH(cpu_context, instruction):
     """Signed saturating doubling multiply returning high half (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRSHL(cpu_context, ip, mnem, opvalues):
+def SQRSHL(cpu_context, instruction):
     """Signed saturating rounding shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRDMLAH(cpu_context, ip, mnem, opvalues):
+def SQRDMLAH(cpu_context, instruction):
     """Signed saturating rounding doubling multiply accumulate returning high half"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRDMLSH(cpu_context, ip, mnem, opvalues):
+def SQRDMLSH(cpu_context, instruction):
     """Signed saturating rounding doubling multiply subtract returning high half"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRDMULH(cpu_context, ip, mnem, opvalues):
+def SQRDMULH(cpu_context, instruction):
     """Signed saturating rounding doubling multiply returning high half (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHL(cpu_context, ip, mnem, opvalues):
+def SQSHL(cpu_context, instruction):
     """Signed saturating shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSUB(cpu_context, ip, mnem, opvalues):
+def SQSUB(cpu_context, instruction):
     """Signed saturating subtract (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SRHADD(cpu_context, ip, mnem, opvalues):
+def SRHADD(cpu_context, instruction):
     """Signed rounding halving add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SRSHL(cpu_context, ip, mnem, opvalues):
+def SRSHL(cpu_context, instruction):
     """Signed rounding shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSHL(cpu_context, ip, mnem, opvalues):
+def SSHL(cpu_context, instruction):
     """Signed shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABA(cpu_context, ip, mnem, opvalues):
+def UABA(cpu_context, instruction):
     """Unsigned absolute difference and accumulate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABD(cpu_context, ip, mnem, opvalues):
+def UABD(cpu_context, instruction):
     """Unsigned absolute difference (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UHADD(cpu_context, ip, mnem, opvalues):
+def UHADD(cpu_context, instruction):
     """Unsigned halving add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UHSUB(cpu_context, ip, mnem, opvalues):
+def UHSUB(cpu_context, instruction):
     """Unsigned halving subtract (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMAX(cpu_context, ip, mnem, opvalues):
+def UMAX(cpu_context, instruction):
     """Unsigned maximum (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMIN(cpu_context, ip, mnem, opvalues):
+def UMIN(cpu_context, instruction):
     """Unsigned minimum (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQADD(cpu_context, ip, mnem, opvalues):
+def UQADD(cpu_context, instruction):
     """Unsigned saturating add (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQRSHL(cpu_context, ip, mnem, opvalues):
+def UQRSHL(cpu_context, instruction):
     """Unsigned saturating rounding shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQSHL(cpu_context, ip, mnem, opvalues):
+def UQSHL(cpu_context, instruction):
     """Unsigned saturating shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQSUB(cpu_context, ip, mnem, opvalues):
+def UQSUB(cpu_context, instruction):
     """Unsigned saturating subtract (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URHADD(cpu_context, ip, mnem, opvalues):
+def URHADD(cpu_context, instruction):
     """Unsigned rounding halving add (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URSHL(cpu_context, ip, mnem, opvalues):
+def URSHL(cpu_context, instruction):
     """Unsigned rounding shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USHL(cpu_context, ip, mnem, opvalues):
+def USHL(cpu_context, instruction):
     """Unsigned shift left (register) (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -2983,111 +2749,111 @@ opposite comparison, HS, GE, HI, or GT.
 
 
 @opcode
-def CMEQ(cpu_context, ip, mnem, opvalues):
+def CMEQ(cpu_context, instruction):
     """
     Compare bitwise equal (vector and scalar form)
     Compare bitwise equal to zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMHS(cpu_context, ip, mnem, opvalues):
+def CMHS(cpu_context, instruction):
     """Compare unsigned higher or same (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMGE(cpu_context, ip, mnem, opvalues):
+def CMGE(cpu_context, instruction):
     """
     Compare signed greater than or equal (vector and scalar form)
     Compare signed greater than or equal to zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMHI(cpu_context, ip, mnem, opvalues):
+def CMHI(cpu_context, instruction):
     """Compare unsigned higher (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMGT(cpu_context, ip, mnem, opvalues):
+def CMGT(cpu_context, instruction):
     """
     Compare signed greater than (vector and scalar form)
     Compare signed greater than zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMLE(cpu_context, ip, mnem, opvalues):
+def CMLE(cpu_context, instruction):
     """Compare signed less than or equal to zero (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMLT(cpu_context, ip, mnem, opvalues):
+def CMLT(cpu_context, instruction):
     """Compare signed less than zero (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CMTST(cpu_context, ip, mnem, opvalues):
+def CMTST(cpu_context, instruction):
     """Compare bitwise test bits nonzero (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMEQ(cpu_context, ip, mnem, opvalues):
+def FCMEQ(cpu_context, instruction):
     """
     Floating-point compare equal (vector and scalar form)
     Floating-point compare equal to zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMGE(cpu_context, ip, mnem, opvalues):
+def FCMGE(cpu_context, instruction):
     """
     Floating-point compare greater than or equal (vector and scalar form)
     Floating-point compare greater than or equal to zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMGT(cpu_context, ip, mnem, opvalues):
+def FCMGT(cpu_context, instruction):
     """
     Floating-point compare greater than (vector and scalar form)
     Floating-point compare greater than zero (vector and scalar form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMLE(cpu_context, ip, mnem, opvalues):
+def FCMLE(cpu_context, instruction):
     """Floating-point compare less than or equal to zero (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMLT(cpu_context, ip, mnem, opvalues):
+def FCMLT(cpu_context, instruction):
     """Floating-point compare less than zero (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FACGE(cpu_context, ip, mnem, opvalues):
+def FACGE(cpu_context, instruction):
     """Floating-point absolute compare greater than or equal (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FACGT(cpu_context, ip, mnem, opvalues):
+def FACGT(cpu_context, instruction):
     """Floating-point absolute compare greater than (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3096,303 +2862,303 @@ SIMD widening and narrowing arithmetic  pg 217
 
 
 @opcode
-def ADDHN(cpu_context, ip, mnem, opvalues):
+def ADDHN(cpu_context, instruction):
     """Add returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ADDHN2(cpu_context, ip, mnem, opvalues):
+def ADDHN2(cpu_context, instruction):
     """Add returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def PMULL(cpu_context, ip, mnem, opvalues):
+def PMULL(cpu_context, instruction):
     """Polynomial multiply long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def PMULL2(cpu_context, ip, mnem, opvalues):
+def PMULL2(cpu_context, instruction):
     """Polynomial multiply long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RADDHN(cpu_context, ip, mnem, opvalues):
+def RADDHN(cpu_context, instruction):
     """Rounding add returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RADDHN2(cpu_context, ip, mnem, opvalues):
+def RADDHN2(cpu_context, instruction):
     """Rounding add returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RSUBHN(cpu_context, ip, mnem, opvalues):
+def RSUBHN(cpu_context, instruction):
     """Rounding subtract returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RSUBHN2(cpu_context, ip, mnem, opvalues):
+def RSUBHN2(cpu_context, instruction):
     """Rounding subtract returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABAL(cpu_context, ip, mnem, opvalues):
+def SABAL(cpu_context, instruction):
     """Signed absolute difference and accumulate long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABAL2(cpu_context, ip, mnem, opvalues):
+def SABAL2(cpu_context, instruction):
     """Signed absolute difference and accumulate long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABDL(cpu_context, ip, mnem, opvalues):
+def SABDL(cpu_context, instruction):
     """Signed absolute difference long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SABDL2(cpu_context, ip, mnem, opvalues):
+def SABDL2(cpu_context, instruction):
     """Signed absolute difference long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDL(cpu_context, ip, mnem, opvalues):
+def SADDL(cpu_context, instruction):
     """Signed add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDL2(cpu_context, ip, mnem, opvalues):
+def SADDL2(cpu_context, instruction):
     """Signed add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDW(cpu_context, ip, mnem, opvalues):
+def SADDW(cpu_context, instruction):
     """Signed add wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDW2(cpu_context, ip, mnem, opvalues):
+def SADDW2(cpu_context, instruction):
     """Signed add wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMLAL(cpu_context, ip, mnem, opvalues):
+def SMLAL(cpu_context, instruction):
     """Signed multiply-add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMLAL2(cpu_context, ip, mnem, opvalues):
+def SMLAL2(cpu_context, instruction):
     """Signed multiply-add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMLSL(cpu_context, ip, mnem, opvalues):
+def SMLSL(cpu_context, instruction):
     """Signed multiply-subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMLSL2(cpu_context, ip, mnem, opvalues):
+def SMLSL2(cpu_context, instruction):
     """Signed multiply-subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMULL2(cpu_context, ip, mnem, opvalues):
+def SMULL2(cpu_context, instruction):
     """Signed multiply long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMLAL(cpu_context, ip, mnem, opvalues):
+def SQDMLAL(cpu_context, instruction):
     """Signed saturating doubling multiply-add long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMLAL2(cpu_context, ip, mnem, opvalues):
+def SQDMLAL2(cpu_context, instruction):
     """Signed saturating doubling multiply-add long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMLSL(cpu_context, ip, mnem, opvalues):
+def SQDMLSL(cpu_context, instruction):
     """Signed saturating doubling multiply-subtract long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMLSL2(cpu_context, ip, mnem, opvalues):
+def SQDMLSL2(cpu_context, instruction):
     """Signed saturating doubling multiply-subtract long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMULL(cpu_context, ip, mnem, opvalues):
+def SQDMULL(cpu_context, instruction):
     """Signed saturating doubling multiply long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQDMULL2(cpu_context, ip, mnem, opvalues):
+def SQDMULL2(cpu_context, instruction):
     """Signed saturating doubling multiply long (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSUBL(cpu_context, ip, mnem, opvalues):
+def SSUBL(cpu_context, instruction):
     """Signed subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSUBL2(cpu_context, ip, mnem, opvalues):
+def SSUBL2(cpu_context, instruction):
     """Signed subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSUBW(cpu_context, ip, mnem, opvalues):
+def SSUBW(cpu_context, instruction):
     """Signed subtract wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSUBW2(cpu_context, ip, mnem, opvalues):
+def SSUBW2(cpu_context, instruction):
     """Signed subtract wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SUBHN(cpu_context, ip, mnem, opvalues):
+def SUBHN(cpu_context, instruction):
     """Subtract returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SUBHN2(cpu_context, ip, mnem, opvalues):
+def SUBHN2(cpu_context, instruction):
     """Subtract returning high, narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABAL(cpu_context, ip, mnem, opvalues):
+def UABAL(cpu_context, instruction):
     """Unsigned absolute difference and accumulate long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABAL2(cpu_context, ip, mnem, opvalues):
+def UABAL2(cpu_context, instruction):
     """Unsigned absolute difference and accumulate long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABDL(cpu_context, ip, mnem, opvalues):
+def UABDL(cpu_context, instruction):
     """Unsigned absolute difference long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UABDL2(cpu_context, ip, mnem, opvalues):
+def UABDL2(cpu_context, instruction):
     """Unsigned absolute difference long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDL(cpu_context, ip, mnem, opvalues):
+def UADDL(cpu_context, instruction):
     """Unsigned add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDL2(cpu_context, ip, mnem, opvalues):
+def UADDL2(cpu_context, instruction):
     """Unsigned add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDW(cpu_context, ip, mnem, opvalues):
+def UADDW(cpu_context, instruction):
     """Unsigned add wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDW2(cpu_context, ip, mnem, opvalues):
+def UADDW2(cpu_context, instruction):
     """Unsigned add wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMLAL(cpu_context, ip, mnem, opvalues):
+def UMLAL(cpu_context, instruction):
     """Unsigned multiply-add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMLAL2(cpu_context, ip, mnem, opvalues):
+def UMLAL2(cpu_context, instruction):
     """Unsigned multiply-add long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMLSL(cpu_context, ip, mnem, opvalues):
+def UMLSL(cpu_context, instruction):
     """Unsigned multiply-subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMLSL2(cpu_context, ip, mnem, opvalues):
+def UMLSL2(cpu_context, instruction):
     """Unsigned multiply-subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMULL2(cpu_context, ip, mnem, opvalues):
+def UMULL2(cpu_context, instruction):
     """Unsigned multiply long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USUBL(cpu_context, ip, mnem, opvalues):
+def USUBL(cpu_context, instruction):
     """Unsigned subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USUBL2(cpu_context, ip, mnem, opvalues):
+def USUBL2(cpu_context, instruction):
     """Unsigned subtract long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USUBW(cpu_context, ip, mnem, opvalues):
+def USUBW(cpu_context, instruction):
     """Unsigned subtract wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USUBW2(cpu_context, ip, mnem, opvalues):
+def USUBW2(cpu_context, instruction):
     """Unsigned subtract wide (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3401,207 +3167,207 @@ SIMD unary arithmetic
 
 
 @opcode
-def ABS(cpu_context, ip, mnem, opvalues):
+def ABS(cpu_context, instruction):
     """Absolute value (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def CNT(cpu_context, ip, mnem, opvalues):
+def CNT(cpu_context, instruction):
     """Population count per byte (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTL(cpu_context, ip, mnem, opvalues):
+def FCVTL(cpu_context, instruction):
     """Floating-point convert to higher precision long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTL2(cpu_context, ip, mnem, opvalues):
+def FCVTL2(cpu_context, instruction):
     """Floating-point convert to higher precision long (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTN(cpu_context, ip, mnem, opvalues):
+def FCVTN(cpu_context, instruction):
     """Floating-point convert to lower precision narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTN2(cpu_context, ip, mnem, opvalues):
+def FCVTN2(cpu_context, instruction):
     """Floating-point convert to lower precision narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTXN(cpu_context, ip, mnem, opvalues):
+def FCVTXN(cpu_context, instruction):
     """Floating-point convert to lower precision narrow, rounding to odd (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCVTXN2(cpu_context, ip, mnem, opvalues):
+def FCVTXN2(cpu_context, instruction):
     """Floating-point convert to lower precision narrow, rounding to odd (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRECPE(cpu_context, ip, mnem, opvalues):
+def FRECPE(cpu_context, instruction):
     """Floating-point reciprocal estimate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRECPX(cpu_context, ip, mnem, opvalues):
+def FRECPX(cpu_context, instruction):
     """Floating-point reciprocal square root (scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FRSQRTE(cpu_context, ip, mnem, opvalues):
+def FRSQRTE(cpu_context, instruction):
     """Floating-point reciprocal square root estimate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def NOT(cpu_context, ip, mnem, opvalues):
+def NOT(cpu_context, instruction):
     """Bitwise"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADALP(cpu_context, ip, mnem, opvalues):
+def SADALP(cpu_context, instruction):
     """Signed add and accumulate long pairwise (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDLP(cpu_context, ip, mnem, opvalues):
+def SADDLP(cpu_context, instruction):
     """Signed add long pairwise (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQABS(cpu_context, ip, mnem, opvalues):
+def SQABS(cpu_context, instruction):
     """Signed saturating absolute value (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQNEG(cpu_context, ip, mnem, opvalues):
+def SQNEG(cpu_context, instruction):
     """Signed saturating negate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQXTN(cpu_context, ip, mnem, opvalues):
+def SQXTN(cpu_context, instruction):
     """Signed saturating extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQXTN2(cpu_context, ip, mnem, opvalues):
+def SQXTN2(cpu_context, instruction):
     """Signed saturating extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQXTUN(cpu_context, ip, mnem, opvalues):
+def SQXTUN(cpu_context, instruction):
     """Signed saturating extract unsigned narrow (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQXTUN2(cpu_context, ip, mnem, opvalues):
+def SQXTUN2(cpu_context, instruction):
     """Signed saturating extract unsigned narrow (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SUQADD(cpu_context, ip, mnem, opvalues):
+def SUQADD(cpu_context, instruction):
     """Signed saturating accumulate of unsigned value (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SXTL(cpu_context, ip, mnem, opvalues):
+def SXTL(cpu_context, instruction):
     """Signed extend long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SXTL2(cpu_context, ip, mnem, opvalues):
+def SXTL2(cpu_context, instruction):
     """Signed extend long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADALP(cpu_context, ip, mnem, opvalues):
+def UADALP(cpu_context, instruction):
     """Unsigned add and accumulate long pairwise (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDLP(cpu_context, ip, mnem, opvalues):
+def UADDLP(cpu_context, instruction):
     """Unsigned add long pairwise (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQXTN(cpu_context, ip, mnem, opvalues):
+def UQXTN(cpu_context, instruction):
     """Unsigned saturating extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQXTN2(cpu_context, ip, mnem, opvalues):
+def UQXTN2(cpu_context, instruction):
     """Unsigned saturating extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URECPE(cpu_context, ip, mnem, opvalues):
+def URECPE(cpu_context, instruction):
     """Unsigned reciprocal estimate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URSQRTE(cpu_context, ip, mnem, opvalues):
+def URSQRTE(cpu_context, instruction):
     """Unsigned reciprocal square root estimate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USQADD(cpu_context, ip, mnem, opvalues):
+def USQADD(cpu_context, instruction):
     """Unsigned saturating accumulate of signed value (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UXTL(cpu_context, ip, mnem, opvalues):
+def UXTL(cpu_context, instruction):
     """Unsigned extend long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UXTL2(cpu_context, ip, mnem, opvalues):
+def UXTL2(cpu_context, instruction):
     """Unsigned extend long"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def XTN(cpu_context, ip, mnem, opvalues):
+def XTN(cpu_context, instruction):
     """Extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def XTN2(cpu_context, ip, mnem, opvalues):
+def XTN2(cpu_context, instruction):
     """Extract narrow (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3610,15 +3376,15 @@ SIMD by element arithmetic
 
 
 @opcode
-def FMLAL2(cpu_context, ip, mnem, opvalues):
+def FMLAL2(cpu_context, instruction):
     """Floating-point fused multiply-add long (vector form) FMLAL,"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMLSL2(cpu_context, ip, mnem, opvalues):
+def FMLSL2(cpu_context, instruction):
     """Floating-point fused multiply-subtract long (vector form) FMLSL,"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3627,45 +3393,45 @@ SIMD permute
 
 
 @opcode
-def EXT(cpu_context, ip, mnem, opvalues):
+def EXT(cpu_context, instruction):
     """Extract vector from a pair of vectors"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def TRN1(cpu_context, ip, mnem, opvalues):
+def TRN1(cpu_context, instruction):
     """Transpose vectors (primary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def TRN2(cpu_context, ip, mnem, opvalues):
+def TRN2(cpu_context, instruction):
     """Transpose vectors (secondary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UZP1(cpu_context, ip, mnem, opvalues):
+def UZP1(cpu_context, instruction):
     """Unzip vectors (primary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UZP2(cpu_context, ip, mnem, opvalues):
+def UZP2(cpu_context, instruction):
     """Unzip vectors (secondary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ZIP1(cpu_context, ip, mnem, opvalues):
+def ZIP1(cpu_context, instruction):
     """Zip vectors (primary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def ZIP2(cpu_context, ip, mnem, opvalues):
+def ZIP2(cpu_context, instruction):
     """Zip vectors (secondary)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3674,15 +3440,15 @@ SIMD immediate
 
 
 @opcode
-def MOVI(cpu_context, ip, mnem, opvalues):
+def MOVI(cpu_context, instruction):
     """Move immediate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def MVNI(cpu_context, ip, mnem, opvalues):
+def MVNI(cpu_context, instruction):
     """Move inverted immediate"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3691,207 +3457,207 @@ SIMD shift (immediate)
 
 
 @opcode
-def RSHRN(cpu_context, ip, mnem, opvalues):
+def RSHRN(cpu_context, instruction):
     """Rounding shift right narrow immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def RSHRN2(cpu_context, ip, mnem, opvalues):
+def RSHRN2(cpu_context, instruction):
     """Rounding shift right narrow immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHL(cpu_context, ip, mnem, opvalues):
+def SHL(cpu_context, instruction):
     """Shift left immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHLL(cpu_context, ip, mnem, opvalues):
+def SHLL(cpu_context, instruction):
     """Shift left long (by element size) (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHLL2(cpu_context, ip, mnem, opvalues):
+def SHLL2(cpu_context, instruction):
     """Shift left long (by element size) (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHRN(cpu_context, ip, mnem, opvalues):
+def SHRN(cpu_context, instruction):
     """Shift right narrow immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SHRN2(cpu_context, ip, mnem, opvalues):
+def SHRN2(cpu_context, instruction):
     """Shift right narrow immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SLI(cpu_context, ip, mnem, opvalues):
+def SLI(cpu_context, instruction):
     """Shift left and insert immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRSHRN(cpu_context, ip, mnem, opvalues):
+def SQRSHRN(cpu_context, instruction):
     """Signed saturating rounded shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRSHRN2(cpu_context, ip, mnem, opvalues):
+def SQRSHRN2(cpu_context, instruction):
     """Signed saturating rounded shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRSHRUN(cpu_context, ip, mnem, opvalues):
+def SQRSHRUN(cpu_context, instruction):
     """Signed saturating shift right unsigned narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQRSHRUN2(cpu_context, ip, mnem, opvalues):
+def SQRSHRUN2(cpu_context, instruction):
     """Signed saturating shift right unsigned narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHLU(cpu_context, ip, mnem, opvalues):
+def SQSHLU(cpu_context, instruction):
     """Signed saturating shift left unsigned immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHRN(cpu_context, ip, mnem, opvalues):
+def SQSHRN(cpu_context, instruction):
     """Signed saturating shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHRN2(cpu_context, ip, mnem, opvalues):
+def SQSHRN2(cpu_context, instruction):
     """Signed saturating shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHRUN(cpu_context, ip, mnem, opvalues):
+def SQSHRUN(cpu_context, instruction):
     """Signed saturating shift right unsigned narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SQSHRUN2(cpu_context, ip, mnem, opvalues):
+def SQSHRUN2(cpu_context, instruction):
     """Signed saturating shift right unsigned narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SRI(cpu_context, ip, mnem, opvalues):
+def SRI(cpu_context, instruction):
     """Shift right and insert immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SRSHR(cpu_context, ip, mnem, opvalues):
+def SRSHR(cpu_context, instruction):
     """Signed rounding shift right immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SRSRA(cpu_context, ip, mnem, opvalues):
+def SRSRA(cpu_context, instruction):
     """Signed rounding shift right and accumulate immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSHLL(cpu_context, ip, mnem, opvalues):
+def SSHLL(cpu_context, instruction):
     """Signed shift left long immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSHLL2(cpu_context, ip, mnem, opvalues):
+def SSHLL2(cpu_context, instruction):
     """Signed shift left long immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSHR(cpu_context, ip, mnem, opvalues):
+def SSHR(cpu_context, instruction):
     """Signed shift right immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SSRA(cpu_context, ip, mnem, opvalues):
+def SSRA(cpu_context, instruction):
     """Signed integer shift right and accumulate immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQRSHRN(cpu_context, ip, mnem, opvalues):
+def UQRSHRN(cpu_context, instruction):
     """Unsigned saturating rounded shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQRSHRN2(cpu_context, ip, mnem, opvalues):
+def UQRSHRN2(cpu_context, instruction):
     """Unsigned saturating rounded shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQSHRN(cpu_context, ip, mnem, opvalues):
+def UQSHRN(cpu_context, instruction):
     """Unsigned saturating shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UQSHRN2(cpu_context, ip, mnem, opvalues):
+def UQSHRN2(cpu_context, instruction):
     """Unsigned saturating shift right narrow immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URSHR(cpu_context, ip, mnem, opvalues):
+def URSHR(cpu_context, instruction):
     """Unsigned rounding shift right immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def URSRA(cpu_context, ip, mnem, opvalues):
+def URSRA(cpu_context, instruction):
     """Unsigned integer rounding shift right and accumulate immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USHLL(cpu_context, ip, mnem, opvalues):
+def USHLL(cpu_context, instruction):
     """Unsigned shift left long immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USHLL2(cpu_context, ip, mnem, opvalues):
+def USHLL2(cpu_context, instruction):
     """Unsigned shift left long immediate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USHR(cpu_context, ip, mnem, opvalues):
+def USHR(cpu_context, instruction):
     """Unsigned shift right immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def USRA(cpu_context, ip, mnem, opvalues):
+def USRA(cpu_context, instruction):
     """Unsigned shift right and accumulate immediate (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3902,69 +3668,69 @@ lanes of the input vector. They deliver a single scalar result.
 
 
 @opcode
-def ADDV(cpu_context, ip, mnem, opvalues):
+def ADDV(cpu_context, instruction):
     """Add (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMAXNMV(cpu_context, ip, mnem, opvalues):
+def FMAXNMV(cpu_context, instruction):
     """Floating-point maximum number (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMAXV(cpu_context, ip, mnem, opvalues):
+def FMAXV(cpu_context, instruction):
     """Floating-point maximum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMINNMV(cpu_context, ip, mnem, opvalues):
+def FMINNMV(cpu_context, instruction):
     """Floating-point minimum number (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMINV(cpu_context, ip, mnem, opvalues):
+def FMINV(cpu_context, instruction):
     """Floating-point minimum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SADDLV(cpu_context, ip, mnem, opvalues):
+def SADDLV(cpu_context, instruction):
     """Signed add long (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMAXV(cpu_context, ip, mnem, opvalues):
+def SMAXV(cpu_context, instruction):
     """Signed maximum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMINV(cpu_context, ip, mnem, opvalues):
+def SMINV(cpu_context, instruction):
     """Signed minimum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UADDLV(cpu_context, ip, mnem, opvalues):
+def UADDLV(cpu_context, instruction):
     """Unsigned add long (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMAXV(cpu_context, ip, mnem, opvalues):
+def UMAXV(cpu_context, instruction):
     """Unsigned maximum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMINV(cpu_context, ip, mnem, opvalues):
+def UMINV(cpu_context, instruction):
     """Unsigned minimum (across vector)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -3975,63 +3741,63 @@ result.
 
 
 @opcode
-def ADDP(cpu_context, ip, mnem, opvalues):
+def ADDP(cpu_context, instruction):
     """Add pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FADDP(cpu_context, ip, mnem, opvalues):
+def FADDP(cpu_context, instruction):
     """Floating-point add pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMAXNMP(cpu_context, ip, mnem, opvalues):
+def FMAXNMP(cpu_context, instruction):
     """Floating-point maximum number pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMAXP(cpu_context, ip, mnem, opvalues):
+def FMAXP(cpu_context, instruction):
     """Floating-point maximum pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMINNMP(cpu_context, ip, mnem, opvalues):
+def FMINNMP(cpu_context, instruction):
     """Floating-point minimum number pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FMINP(cpu_context, ip, mnem, opvalues):
+def FMINP(cpu_context, instruction):
     """Floating-point minimum pairwise (vector and scalar form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMAXP(cpu_context, ip, mnem, opvalues):
+def SMAXP(cpu_context, instruction):
     """Signed maximum pairwise"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def SMINP(cpu_context, ip, mnem, opvalues):
+def SMINP(cpu_context, instruction):
     """Signed minimum pairwise"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMAXP(cpu_context, ip, mnem, opvalues):
+def UMAXP(cpu_context, instruction):
     """Unsigned maximum pairwise"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UMINP(cpu_context, ip, mnem, opvalues):
+def UMINP(cpu_context, instruction):
     """Unsigned minimum pairwise"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -4053,21 +3819,21 @@ each element of the first vector and this single element from the second vector.
 
 
 @opcode
-def SDOT(cpu_context, ip, mnem, opvalues):
+def SDOT(cpu_context, instruction):
     """
     Signed dot product (vector form)
     Signed dot product (indexed form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def UDOT(cpu_context, ip, mnem, opvalues):
+def UDOT(cpu_context, instruction):
     """
     Unsigned dot product (vector form)
     Unsigned dot product (indexed form)
     """
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -4076,15 +3842,15 @@ SIMD table lookup
 
 
 @opcode
-def TBL(cpu_context, ip, mnem, opvalues):
+def TBL(cpu_context, instruction):
     """Table vector lookup"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def TBX(cpu_context, ip, mnem, opvalues):
+def TBX(cpu_context, instruction):
     """Table vector lookup extension"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 """
@@ -4099,20 +3865,21 @@ also provide half-precision versions, otherwise the half-precision encodings are
 
 
 @opcode
-def FCADD(cpu_context, ip, mnem, opvalues):
+def FCADD(cpu_context, instruction):
     """Floating-point complex add"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 @opcode
-def FCMLA(cpu_context, ip, mnem, opvalues):
+def FCMLA(cpu_context, instruction):
     """Floating-point complex multiply accumulate (vector form)"""
-    logger.debug("{} instruction not currently implemented.".format(mnem))
+    logger.debug("%s instruction not currently implemented.", instruction.mnem)
 
 
 # Global helper functions
 
 
+# TODO: Move to Instruction.
 def get_max_operand_size(operands):
     """
     Given the list of named tuples containing the operand value and bit width, determine the largest bit width.
@@ -4122,14 +3889,3 @@ def get_max_operand_size(operands):
     :return: largest operand width
     """
     return max(operand.width for operand in operands)
-
-
-def get_min_operand_size(operands):
-    """
-    Given the list of named tuples containing the operand value and bit width, determine the smallest bit width.
-
-    :param operands: list of Operand objects
-
-    :return: smallest operand width
-    """
-    return min(operand.width for operand in operands)

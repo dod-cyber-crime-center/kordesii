@@ -1,13 +1,18 @@
 
 import collections
+import inspect
 import logging
+import warnings
 from copy import deepcopy
 from typing import Generator, Optional, Tuple, List, Iterable
 
 import ida_funcs
+import idaapi
 
 from kordesii import utils
 from kordesii.utils.function_tracing import call_hooks
+from kordesii.utils.function_tracing.x86_64 import x86_64ProcessorContext
+from kordesii.utils.function_tracing.ARM import ARMProcessorContext
 from kordesii.utils.function_tracing.cpu_context import ProcessorContext
 from kordesii.utils.function_tracing.flowchart import Flowchart
 
@@ -35,8 +40,18 @@ class Emulator(object):
             this will cause emulation to run slower.
             So this option allows you to turn it off when the feature is not necessary.
         """
+        # Determine the appropriate class to use for generated contexts based on arch name.
+        self.arch = idaapi.get_inf_structure().procName
+        if self.arch == "metapc":
+            self._context_class = x86_64ProcessorContext
+        elif self.arch == "ARM":
+            self._context_class = ARMProcessorContext
+        else:
+            raise NotImplementedError(f"Architecture not supported: {self.arch}")
+
         self._call_hooks = call_hooks.BUILTINS.copy()
         self._instruction_hooks = collections.defaultdict(list)
+        self._opcode_hooks = self._context_class.OPCODES.copy()
         self.max_instructions = max_instructions
         self.branch_tracking = branch_tracking
         self.disabled_rep = False
@@ -56,17 +71,16 @@ class Emulator(object):
             NOTE: All the "rep*" opcodes will be disabled if the name is "rep".
         """
         name = name.lower()
-        context = self.new_context()
 
-        if name in context.OPCODES:
-            del context.OPCODES[name]
+        if name in self._opcode_hooks:
+            del self._opcode_hooks[name]
         elif name in self._call_hooks:
             del self._call_hooks[name]
         elif name.startswith("rep"):
             self.disabled_rep = True
 
     def new_context(self) -> ProcessorContext:
-        return ProcessorContext.from_arch(self)
+        return self._context_class(self)
 
     def hook_call(self, name_or_start_ea, func):
         """
@@ -90,13 +104,44 @@ class Emulator(object):
 
         :param opcode_or_ea: name of the opcode or address of the instruction to hook (e.g. "pop")
         :param func: Function to run while before or after emulating the instruction.
-            Function must accept 4 arguments: cpu_context, instruction_pointer, mnemonic, operands
+            Function must accept 2 arguments: cpu_context, instruction
         :param pre: Whether to run the function before or after the instruction has been emulated.
             (defaults to before)
         """
+        # Convert callbacks using the older signature to the newer.
+        sig = inspect.signature(func)
+        num_parameters = len(sig.parameters)
+        if num_parameters == 4:
+            warnings.warn(
+                "Instruction callbacks using 4 parameters is deprecated. "
+                "Please update your callback to use 2 parameters: cpu_context and instruction",
+                DeprecationWarning
+            )
+            orig_func = func
+            func = lambda ctx, insn: orig_func(ctx, insn.ip, insn.mnem, insn.operands)
+        elif num_parameters != 2:
+            raise TypeError(f"Instruction hook should only accept 2 parameters. Got {num_parameters}")
+
         if isinstance(opcode_or_ea, str):
             opcode_or_ea = opcode_or_ea.lower()
         self._instruction_hooks[(opcode_or_ea, pre)].append(func)
+
+    def hook_opcode(self, opcode, func):
+        """
+        Sets the callback function which implements the emulation for the given opcode.
+
+        WARNING: Only one hook can be implemented for each opcode. If you set a hook, this will
+        replace any existing implementation for the life of this Emulator instance.
+        You probably want to be using `hook_instruction()` instead.
+
+        NOTE: If you are hooking an opcode to overwrite a buggy implementation, please
+        consider contributing a bugfix. :)
+
+        :param opcode: name of the opcode to implement. (e.g. "pop")
+        :param func: Function to run to emulate the opcode.
+            Function must accept 2 arguments: cpu_context, instruction
+        """
+        self._opcode_hooks[opcode.lower()] = func
 
     def emulate_call(self, name_or_start_ea):
         """
@@ -122,13 +167,14 @@ class Emulator(object):
 
     def clear_hooks(self):
         """Clears all currently set hooks (including builtin ones)."""
+        self.reset_hooks()
         self._call_hooks = {}
-        self._instruction_hooks = collections.defaultdict(list)
 
     def reset_hooks(self):
         """Resets hooks back to the default builtin ones."""
         self._call_hooks = call_hooks.BUILTINS.copy()
         self._instruction_hooks = collections.defaultdict(list)
+        self._opcode_hooks = self._context_class.OPCODES.copy()
 
     def get_call_hook(self, func_name_or_start_ea):
         """
@@ -159,6 +205,14 @@ class Emulator(object):
             opcode_or_ea = opcode_or_ea.lower()
 
         return self._instruction_hooks.get((opcode_or_ea, pre), [])
+
+    def get_opcode_hook(self, opcode) -> Optional[callable]:
+        """
+        Gets the opcode implementation for the given opcode mneomic.
+        :param opcode: Name of the opcode to get opcode from.
+        :return: The function callback or None if there is not hook.
+        """
+        return self._opcode_hooks.get(opcode.lower())
 
     def execute(self, start: int, end: int = None, *, context: ProcessorContext = None) -> ProcessorContext:
         """
@@ -323,9 +377,10 @@ class Emulator(object):
                     init_context=init_context,
                     _first_call=False
                 ):
-                    # increase the sp to account for the return address that gets pushed
-                    # onto the stack so that we are aligned correctly.
-                    context.sp -= context.byteness
+                    if issubclass(self._context_class, x86_64ProcessorContext):
+                        # increase the sp to account for the return address that gets pushed
+                        # onto the stack so that we are aligned correctly.
+                        context.sp -= context.byteness
 
                     # yield a context containing the caller executed first.
                     yield context
@@ -357,6 +412,17 @@ class Emulator(object):
         :param int ea: ea of interest
         :param int depth: Number of calls up the stack to pull context from.
             (defaults to 0, meaning a empty context will be generated at the top of the current function.)
+        :param bool exhaustive:
+            If true, all paths for each call level depth is processed.
+            If follow_loops is also true, this will ensure loops are followed at each call level depth.
+            If false, only the first path for each depth is processed.
+            If follow_loops is also true, loops will only be followed for the first call level.
+                All other levels will use the non-follow_loops method.
+        :param bool follow_loops:
+            If true, loops will be followed during emulation and only one possible
+            path will be emulated per call level.
+            If false, emulation will be forced down a specific path of flowchart blocks in order
+            to get to the given ea address.
         :param init_context: Initial context to use to start emulation.
 
         :return: cpu_context or None
@@ -542,9 +608,9 @@ class Emulator(object):
             context.execute(func_obj.start_ea, end=func_obj.end_ea, max_instructions=self.max_instructions)
 
             if return_type is not None or return_size is not None:
-                result = context.read_data(context.registers.rax, size=return_size, data_type=return_type)
+                result = context.read_data(context.ret, size=return_size, data_type=return_type)
             else:
-                result = context.registers.rax
+                result = context.ret
 
             logger.debug(f'Returned: {repr(result)}')
             self.branch_tracking = orig_branch_tracking

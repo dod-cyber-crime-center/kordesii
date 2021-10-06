@@ -16,9 +16,7 @@ from .exceptions import *
 from .constants import *
 
 # TODO: Can these be generalized for all architectures?
+# TODO: Move the STACK_BASE variable into the Emulator and remove RSP_OFFSET and RBP_OFFSET entirely.
 from .x86_64 import STACK_BASE, RSP_OFFSET, RBP_OFFSET
 from .x86_64 import x86_64ProcessorContext
 from .ARM import ARMProcessorContext
-
-# Import architecture packages to ensure they are registered.
-from . import x86_64, ARM

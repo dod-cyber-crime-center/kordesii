@@ -141,7 +141,7 @@ class RegisterMap(object):
         return register[reg_name]
 
     def __getitem__(self, reg_name):
-        return self.__getattr__(reg_name)
+        return self.__getattr__(reg_name.lower())
 
     def __setattr__(self, reg_name, value):
         try:
@@ -151,7 +151,7 @@ class RegisterMap(object):
         register[reg_name] = value
 
     def __setitem__(self, reg_name, value):
-        self.__setattr__(reg_name, value)
+        self.__setattr__(reg_name.lower(), value)
 
     @property
     def names(self):

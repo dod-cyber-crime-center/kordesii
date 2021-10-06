@@ -169,6 +169,7 @@ class FunctionArg(object):
         """True if argument is on the stack."""
         return self._funcarg_obj.argloc.atype() == ida_typeinf.ALOC_STACK
 
+    # TODO: Refactor to be more processor agnostic
     @property
     def addr(self):
         """Retrieves the address of the argument (if a memory/stack address)"""
@@ -178,23 +179,27 @@ class FunctionArg(object):
         if loc_type == ida_typeinf.ALOC_STACK:
             func = ida_funcs.get_func(self._func_sig.start_ea)
 
+            if utils.is_x86_64():
+                retaddr_size = self._cpu_context.byteness
+            else:
+                retaddr_size = 0
+
             # If we are in the function, we need to account for changes made to the stack.
             if self._cpu_context.ip == self._func_sig.start_ea \
                     or (func and func.contains(self._cpu_context.ip)):
                 # Determine adjustment of stack based on what IDA reports as the current
                 # ESP plus the size of the saved return address.
                 # (More reliable and cross compatible than using ebp.)
+                # TODO: This might be a x86 only thing. Need to make ARM version.
                 if func:
                     sp_adjust = ida_frame.get_spd(func, self._cpu_context.ip)  # this is negative
                 else:
                     sp_adjust = 0
-                retaddr_size = self._cpu_context.byteness
                 return self._cpu_context.sp - sp_adjust + retaddr_size + argloc.stkoff()
 
             # If we are in the caller, but in the middle of hooking the call instruction we need
             # to account for the pushed in return address.
             elif self._cpu_context.hooking_call == self._func_sig.start_ea:
-                retaddr_size = self._cpu_context.byteness
                 return self._cpu_context.sp + retaddr_size + argloc.stkoff()
 
             # Otherwise, we are in the caller and should base the address off the current stack.

@@ -13,6 +13,7 @@ and trace instructions within a function.
 - [Emulating Subroutines](#emulating-subroutines)
 - [Hooking Functions](#hooking-functions)
 - [Hooking Instructions](#hooking-instructions)
+- [Hooking Opcodes](#hooking-opcodes)
 - [Pointer History](#pointer-history)
 - [Variables](#variables)
 - [Objects](#objects)
@@ -458,14 +459,47 @@ emulator = function_tracing.Emulator()
 
 
 pushes = []
-def push_hook(context, ip, mnem, operands):
-    pushes.append(operands[0].value)
+def push_hook(context, instruction):
+    pushes.append(instruction.operands[0].value)
 
 
 # Hook instructions with "push" opcode to be run before instruction is emulated.
 # pre boolean is used to determine if the hook should run before or after the instruction is emulated.
 emulator.hook_instruction("push", push_hook, pre=True) 
 ```
+
+
+## Hooking Opcodes
+
+The implementation for emulating a specific instruction opcode can be replaced or added
+through the use of the `hook_opcode()` function of the `Emulator` object.
+
+This will allow providing a custom implementation or add missing opcodes.
+
+For postfixed based architectures like ARM, setting the base opcode will replace the implementations
+for all variants of the opcode.
+(e.g. setting `ldr` will hook `ldreq`, `ldrsh`, etc.)
+
+```python
+from kordesii.utils import function_tracing
+from kordesii.utils.function_tracing import utils
+
+emulator = function_tracing.Emulator()
+
+
+def push(context, instruction):
+    """Implements emulation of a "push" instruction."""
+    operand = instruction.operands[0]
+    context.sp -= context.byteness
+    value_bytes = utils.struct_pack(operand.value, width=operand.width)
+    context.memory.write(context.sp, value_bytes)
+
+# Hook "push" instruction emulation to use our custom implementation (replacing the builtin one)
+emulator.hook_opcode("push", push)
+```
+
+*WARNING: As opposed to `hook_instruction()`, this will completely replace any existing implementation for that opcode. As well, only one hook can be provided for each opcode.*
+
 
 
 ## Pointer History

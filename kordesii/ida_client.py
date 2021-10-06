@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import threading
+import warnings
 
 import dill
 import Pyro4
@@ -31,6 +32,7 @@ _run_in_ida_funcs = {}       # Registration of functions decorated as run_in_ida
 
 def run_in_ida(func):
     """Decorates a function to make available within the IDA proxy."""
+    warnings.warn("IDA Proxy is deprecated in favor of using Dragodis.", DeprecationWarning)
     # Keep track of decorated functions, so we can allow decorated
     # functions to call each other.
     # But only allow for functions that are within the same module to
@@ -218,6 +220,7 @@ class IDA(object):
         :param input_path: Path to file to examine.
         :param keep_idb: Whether to keep the idb around after stopping.
         """
+        warnings.warn("IDA Proxy is deprecated in favor of using Dragodis.", DeprecationWarning)
         self.input_path = input_path
         # Keep idb if requested or an idb already was there.
         self.keep_idb = keep_idb or os.path.exists(input_path + ".idb") or os.path.exists(input_path + ".i64")

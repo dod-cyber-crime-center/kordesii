@@ -7,6 +7,9 @@ import pytest
 import kordesii
 
 
+pytestmark = pytest.mark.xfail(reason="IDA Proxy is deprecated.")
+
+
 def test_basic(strings_exe):
     """Tests some basic functionality and stability."""
     strings_exe = str(strings_exe)

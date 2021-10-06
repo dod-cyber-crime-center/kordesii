@@ -5,6 +5,7 @@ Interface for operand management.
 import collections
 import logging
 from copy import deepcopy
+from typing import Optional
 
 import ida_frame
 import ida_nalt
@@ -16,34 +17,13 @@ import numpy
 
 from kordesii.utils.function_tracing import utils
 from kordesii.utils.function_tracing.exceptions import FunctionTracingError
+from .x86_64 import ida_intel
 
 logger = logging.getLogger(__name__)
 
 
-class Operand(object):
+class Operand:
     """Stores information for a given operand for a specific CPU context state."""
-
-    TYPE_DICT = {
-        0: 1,  # dt_byte -> 8 bit
-        1: 2,  # dt_word -> 16 bit
-        2: 4,  # dt_dword -> 32 bit
-        3: 4,  # dt_float -> 4 bytes
-        4: 8,  # dt_double -> 8 bytes
-        5: 0,  # dt_tbyte -> variable
-        6: 0,  # packed real format for mc68040
-        7: 8,  # dt_qword -> 64 bit
-        8: 16,  # dt_byte16 -> 128 bit
-        9: 0,  # dt_code -> ptr to code (not used?)
-        10: 0,  # dt_void -> none
-        11: 6,  # dt_fword -> 48 bit
-        12: 0,  # dt_bitfild -> bit field (mc680x0)
-        13: 4,  # dt_string -> pointer to asciiz string
-        14: 4,  # dt_unicode -> pointer to unicode string
-        # 15: 3, # dt_3byte -> no longer used
-        16: 0,  # dt_ldbl -> long double (which may be different from tbyte)
-        17: 32,  # dt_byte32 -> 256 bit
-        18: 64,  # dt_byte64 -> 512 bit
-    }
 
     def __init__(self, cpu_context, ip, idx, _type=None):
         """
@@ -55,17 +35,22 @@ class Operand(object):
         """
         self.ip = ip
         self.idx = idx
-        self.type = _type if _type is not None else idc.get_operand_type(ip, idx)
+
+        if _type is not None:
+            self.type = _type
+        else:
+            self.type = idc.get_operand_type(ip, idx)
+
         self.text = idc.print_operand(ip, idx)
         self._cpu_context = cpu_context
         self._width = None
         self.__insn = None
 
     def __repr__(self):
-        string = "<Operand 0x{:0x}:{} : {} = {!r}".format(self.ip, self.idx, self.text, self.value)
+        string = f"<{self.__class__.__name__} 0x{self.ip:0x}:{self.idx} : {self.text} = {self.value!r}"
         if self.addr is not None:
-            string += " : &{} = 0x{:0x}".format(self.text, self.addr)
-        string += " : width = {}>".format(self.width)
+            string += f" : &{self.text} = 0x{self.addr:0x}"
+        string += f" : width = {self.width}>"
         return string
 
     def __deepcopy__(self, memo):
@@ -85,7 +70,7 @@ class Operand(object):
         return tif
 
     @property
-    def _insn(self):
+    def _insn(self) -> ida_ua.insn_t:
         if self.__insn:
             return self.__insn
         insn = ida_ua.insn_t()
@@ -96,8 +81,26 @@ class Operand(object):
         return self.__insn
 
     @property
-    def _op(self):
+    def _op(self) -> ida_ua.op_t:
         return self._insn.ops[self.idx]
+
+    def _record_stack_variable(self, addr):
+        """
+        Record the stack variable encountered at the given address.
+        """
+        # Ignore if base is 0, because that means we don't have enough information to designate this to a variable.
+        if self.base:
+            stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
+            if stack_var:
+                frame_id = idc.get_frame_id(self.ip)
+                member, stack_offset = stack_var
+                # If the offset in the member object is different than the given stack_offset
+                # then we are indexing into a variable.
+                # We need to adjust the address to be pointing to the base variable address.
+                var_addr = addr - (stack_offset - member.soff)
+                self._cpu_context.variables.add(
+                    var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip
+                )
 
     @property
     def width(self):
@@ -106,9 +109,8 @@ class Operand(object):
 
         :return: size of data type
         """
-        if self._width is not None:
-            return self._width
-        self._width = self.TYPE_DICT[self._op.dtype]
+        if self._width is None:
+            self._width = ida_ua.get_dtype_size(self._op.dtype)
         return self._width
 
     @property
@@ -157,117 +159,26 @@ class Operand(object):
         return utils.is_func_ptr(self.addr or self.value)
 
     @property
-    def offset(self):
+    def offset(self) -> Optional[int]:
         """The offset value if the operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        return utils.signed(self._op.addr, utils.get_bits())
+        return None
 
     @property
-    def scale(self):
-        """The scaling factor of the index if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        return utils.sib_scale(self._op)
-
-    @property
-    def base(self):
+    def base(self) -> Optional[int]:
         """The value of the base register if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        base_reg = utils.reg2str(utils.x86_base_reg(self._insn, self._op))
-        value = self._cpu_context.registers[base_reg]
-        return utils.signed(value, utils.get_bits())
+        return None
 
     @property
-    def index(self):
-        """The value of the index register if operand is a displacement."""
-        if not self.has_phrase:
-            return None
-        index_reg = utils.x86_index_reg(self._insn, self._op)
-        if index_reg == -1:
-            return 0
-        index_reg = utils.reg2str(index_reg)
-        value = self._cpu_context.registers[index_reg]
-        return utils.signed(value, utils.get_bits())
-
-    def _calc_displacement(self):
-        """
-        Calculate the displacement offset of the operand's text.
-
-        e.g:
-            word ptr [rdi+rbx]
-
-        :return int: calculated value
-        """
-        addr = self.base + self.index * self.scale + self.offset
-        logger.debug(
-            "Calculating operand: %s -> 0x%X + 0x%X*0x%X %s 0x%X = 0x%X" % (
-                self.text,
-                self.base,
-                self.index,
-                self.scale,
-                "-" if self.offset < 0 else "+",
-                abs(self.offset),
-                addr
-            )
-        )
-        if addr < 0:
-            logger.debug("Address is negative, resorting to address of 0.")
-            addr = 0
-
-        # Before returning, record the stack variable that we have encountered.
-        # Ignore if base is 0, because that means we don't have enough information to designate this to a variable.
-        if self.base:
-            stack_var = ida_frame.get_stkvar(self._insn, self._op, self.offset)
-            if stack_var:
-                frame_id = idc.get_frame_id(self.ip)
-                member, stack_offset = stack_var
-                # If the offset in the member object is different than the given stack_offset
-                # then we are indexing into a variable.
-                # We need to adjust the address to be pointing to the base variable address.
-                var_addr = addr - (stack_offset - member.soff)
-                self._cpu_context.variables.add(
-                    var_addr, frame_id=frame_id, stack_offset=member.soff, reference=self.ip
-                )
-
-        return addr
-
-    @property
-    def addr(self):
+    def addr(self) -> Optional[int]:
         """
         Retrieves the referenced memory address of the operand.
 
-        :return int: Memory address or None if operand is not a memory reference.
-        """
-        addr = None
-        if self.has_phrase:
-            # These need to be handled in the same way even if they don't contain the same types of data...
-            addr = self._calc_displacement()
-        elif self.type == idc.o_mem:
-            addr = self._op.addr
-            # Record the global variable before we return.
-            self._cpu_context.variables.add(addr, reference=self.ip)
-        return addr
-
-    @property
-    def base_addr(self):
-        """
-        Retrieves the referenced memory address of the operand minus any indexing that
-        has occurred.
-
-        This is useful for pulling out the un-offseted address within a loop.
-        e.g. "movzx   edx, [ebp+ecx*2+var_8]"
-        where ecx is the loop index starting at a non-zero value.
+        This should be overwritten by architecture specific Operand implementations
+        if this property is applicable.
 
         :return int: Memory address or None if operand is not a memory reference.
         """
-        addr = self.addr
-        if addr is None:
-            return None
-        if self.has_phrase:
-            addr -= self.index * self.scale
-        return addr
+        return None
 
     @property
     def value(self):
@@ -294,20 +205,11 @@ class Operand(object):
                 self._cpu_context.variables[value].add_reference(self.ip)
             return value
 
-        # TODO: Determine if this is still necessary.
-        # FS, GS (at least) registers are identified as memory addresses.  We need to identify them as registers
-        # and handle them as such
-        if self.type == idc.o_mem:
-            if "fs" in self.text:
-                return self._cpu_context.registers.fs
-            elif "gs" in self.text:
-                return self._cpu_context.registers.gs
-
         # If a memory reference, return read in memory.
         if self.is_memory_reference:
             addr = self.addr
 
-            # Record referenc if address is a variable address.
+            # Record reference if address is a variable address.
             if addr in self._cpu_context.variables:
                 self._cpu_context.variables[addr].add_reference(self.ip)
 
@@ -335,6 +237,10 @@ class Operand(object):
         """
         Set the operand to the specified value within the cpu_context.
         """
+        # Value may be signed.
+        if isinstance(value, int) and value < 0:
+            value = utils.unsigned(value, bit_width=self.width * 8)
+
         # If we are writing to an immediate, I believe they want to write to the memory at the immediate.
         # TODO: Should we fail instead?
         if self.is_immediate:
@@ -347,35 +253,20 @@ class Operand(object):
             # Convert the value from string to integer...
             if isinstance(value, str):
                 value = utils.struct_unpack(value)
-
-            # On 64-bit, the destination register must be set to 0 first (per documentation)
-            # TODO: Check if this happens regardless of the source size
-            if idc.__EA64__ and self.width == 4:  # Only do this for 32-bit setting
-                reg64 = utils.convert_reg(self.text, 8)
-                self._cpu_context.registers[reg64] = 0
-
             self._cpu_context.registers[self.text] = value
             return
 
-        # TODO: Determine if this is still necessary.
-        # FS, GS (at least) registers are identified as memory addresses.  We need to identify them as registers
-        # and handle them as such
-        if self.type == idc.o_mem:
-            if "fs" in self.text:
-                self._cpu_context.registers.fs = value
-                return
-            elif "gs" in self.text:
-                self._cpu_context.registers.gs = value
-                return
-
         if self.is_memory_reference:
+            # FIXME: Usage of numpy is most likely symptomatic of a bug in an opcode
+            #   implementation passing in bad data.
+            #   Update this to just is "isinstance" and then fix the buggy opcode.
             # For data written to the frame or memory, this data MUST be a byte string.
             if numpy.issubdtype(type(value), numpy.integer):
                 value = utils.struct_pack(value, width=self.width)
             self._cpu_context.mem_write(self.addr, value)
             return
 
-        raise FunctionTracingError("Invalid operand type: {}".format(self.type), ip=self.ip)
+        raise FunctionTracingError(f"Invalid operand type: {self.type}", ip=self.ip)
 
 
 # This is a "lite" version of the Operand class that only allows access only to a few attributes, is read only,

@@ -42,6 +42,8 @@ __all__ = [
     "lines",
     "get_string",
     "find_destination",
+    "is_x86_64",
+    "is_ARM",
 ]
 
 
@@ -359,3 +361,23 @@ def find_destination(start, instruction_limit=None) -> Optional[int]:
             else:
                 return None
     return None
+
+
+def is_x86_64():
+    """
+    Does input file contain instructions of an Intel x86 or x64 processor
+
+    :return bool: True if an Intel x86 or x64, False otherwise
+    """
+    info = idaapi.get_inf_structure()
+    return info.procName == "metapc"
+
+
+def is_ARM():
+    """
+    Does input file contain instructions of an ARM processor (32 or 64 bit)
+
+    :return bool: True if an ARM processor, False otherwise
+    """
+    info = idaapi.get_inf_structure()
+    return info.procName == "ARM"

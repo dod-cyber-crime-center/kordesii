@@ -1,11 +1,34 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+
 ## [Unreleased]
+
+### Added
+- *function_tracing*
+    - Added support for the ARM architecture. (NOTE: This is still in its beta stage, please report any issues.)
+    - Added `.instruction` attribute to ProcessorContext. This returns an `Instruction` object used
+      to obtain dynamic information about the instruction the context is current pointing at.
+    - Added support for replacing or adding the implementation of an instruction opcode using `hook_opcode()`.
+          (See [documenation](docs/CPUEmulation.md#hooking-opcodes) for more information.)
 
 ### Changed
 - *function_tracing*
-    - Change value of `EMPTY` for FPU registers to `0.0` instead of `None`
+    - Changed signature for instruction hook callbacks. 
+        - Callbacks should now accept only 2 arguments: the cpu context and instruction object.
+    - Refactorings to better support multiple architectures.
+- Updated server dependencies.
+    
+
+### Deprecated
+- IDA Proxy utility is deprecated in favor of using [dragodis](3github.com/Defense-Cyber-Crime-Center/Dragodis).
+- *function_tracing*
+    - Instruction hook callbacks using 4 parameters is deprecated and should be changed to the 2 parameter format: cpu context and instruction object.
+
+
+### Fixed
+- *function_tracing*
+    - Fixed bug in `fst` FPU opcode causing a `struct.error`
 
 
 ## [2.3.0] - 2021-06-04

@@ -31,13 +31,13 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         'click',
-        'dill',
+        'dill',  # DEPRECATED
         'numpy',
         'pyelftools',
         'pefile>=2019.4.18',
         'pycryptodome',
         'requests',
-        'Pyro4',
+        'Pyro4',  # DEPRECATED
         'pyyaml',
         'tabulate',
         'yara-python',
@@ -47,12 +47,12 @@ setup(
         'six',
 
         # For the server and API
-        'flask~=1.1.0',
-        'pygments~=2.2.0',
+        'flask<2.0.0',
+        'pygments<3.0.0',
     ],
     extras_require={
         'testing': [
-            'pytest',
+            'pytest>=3.0.0',
             'pytest-console-scripts',
         ]
     },

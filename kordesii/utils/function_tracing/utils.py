@@ -1,13 +1,14 @@
 ﻿"""
 This file contains utility functions utilized throughout the function_tracing package.
 """
+from __future__ import annotations
 
 import logging
 import re
 import string
 import struct
+from typing import TYPE_CHECKING
 
-import ida_allins
 import ida_funcs
 import ida_hexrays
 import ida_ida
@@ -15,11 +16,14 @@ import ida_idp
 import ida_nalt
 import ida_typeinf
 import idaapi
-import idautils
 import idc
 
 from .exceptions import FunctionTracingError
-from .operands import Operand
+from ..utils import is_x86_64, is_ARM  # TODO: Remove usage where possible.
+
+if TYPE_CHECKING:
+    from .operands import Operand
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +32,37 @@ class SetTypeException(Exception):
     pass
 
 
-def signed(n, bit_width):
+def signed(n, bit_width=None):
     """
     Convert an unsigned integer to a signed integer
 
     :param uint n: value to convert
-    :param int bit_width: byte width of n
+    :param int bit_width: bit width of n
+        Defaults to architecture addressing size.
 
     :return int: signed conversion
     """
+    if bit_width is None:
+        bit_width = get_bits()
     if n >> (bit_width - 1):  # Is the hi-bit set?
         return n - (1 << bit_width)
 
     return n
+
+
+def unsigned(n, bit_width=None):
+    """
+    Convert a signed integer to an unsigned integer
+
+    :param sint n: value to convert
+    :param in bit_width: bit width of n
+        Defaults to architecture addressing size.
+
+    :return int: unsigned conversion
+    """
+    if bit_width is None:
+        bit_width = get_bits()
+    return n & ((1 << bit_width) - 1)
 
 
 def sign_bit(value, width):
@@ -231,7 +253,7 @@ def get_mask(size):
 
     :return: mask of width size
     """
-    return 2 ** (8 * size) - 1
+    return (1 << (8 * size)) - 1
 
 
 def get_bits():
@@ -290,9 +312,12 @@ def _get_decompiled_function(offset: int) -> "ida_hexrays.cfuncptr_t":
     :return: a cfuncptr_t object or None
     """
     # This requires Hexrays decompiler, load it and make sure it's available before continuing.
-    if not idaapi.init_hexrays_plugin():
-        idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
-    if not idaapi.init_hexrays_plugin():
+    if not ida_hexrays.init_hexrays_plugin():
+        if is_x86_64():
+            idc.load_and_run_plugin("hexrays", 0) or idc.load_and_run_plugin("hexx64", 0)
+        else:
+            idc.load_and_run_plugin("hexarm", 0) or idc.load_and_run_plugin("hexarm64", 0)
+    if not ida_hexrays.init_hexrays_plugin():
         raise RuntimeError("Unable to load Hexrays decompiler.")
 
     decompiled = None
@@ -476,6 +501,18 @@ def get_function_name(func_ea):
     return func_name
 
 
+def sanitize_func_name(func_name):
+    """Sanitizes the IDA function names to it's core name."""
+    # remove the extra "_" IDA likes to add to the function name.
+    if func_name.startswith("_"):
+        func_name = func_name[1:]
+
+    # Remove the numbered suffix IDA likes to add to duplicate function names.
+    func_name = re.sub("_[0-9]+$", "", func_name)
+
+    return func_name
+
+
 def is_func_ptr(offset: int) -> bool:
     """Returns true if the given offset is a function pointer."""
     # As a first check, simply see if the offset is the start of a function.
@@ -520,192 +557,3 @@ def reg2str(register, width=None):
     if not width:
         width = 8 if idc.__EA64__ else 4
     return ida_idp.get_reg_name(register, width)
-
-
-## The following functions are ports from the Hex-Rays SDK.  Unfortunately, much of the information found online
-## incorrectly interpreted these functions and actually don't work properly.  Not entirely sure why the following
-## isn't exposed to Python...
-
-
-def insn_jcc(insn):
-    """Determine if an instruction is a Jcc (jump) instruction"""
-    return insn.itype in (
-        ida_allins.NN_ja,
-        ida_allins.NN_jae,
-        ida_allins.NN_jb,
-        ida_allins.NN_jbe,
-        ida_allins.NN_jc,
-        ida_allins.NN_je,
-        ida_allins.NN_jg,
-        ida_allins.NN_jge,
-        ida_allins.NN_jl,
-        ida_allins.NN_jle,
-        ida_allins.NN_jna,
-        ida_allins.NN_jnae,
-        ida_allins.NN_jnb,
-        ida_allins.NN_jnbe,
-        ida_allins.NN_jnc,
-        ida_allins.NN_jne,
-        ida_allins.NN_jng,
-        ida_allins.NN_jnge,
-        ida_allins.NN_jnl,
-        ida_allins.NN_jnle,
-        ida_allins.NN_jno,
-        ida_allins.NN_jnp,
-        ida_allins.NN_jns,
-        ida_allins.NN_jnz,
-        ida_allins.NN_jo,
-        ida_allins.NN_jp,
-        ida_allins.NN_jpe,
-        ida_allins.NN_jpo,
-        ida_allins.NN_js,
-        ida_allins.NN_jz,
-    )
-
-
-def insn_default_opsize_64(insn):
-    """Determine, based on the instruction type, if the instruction, by default, is 64-bit"""
-    if insn_jcc(insn):
-        return True
-
-    return insn.itype in (
-        # use ss
-        ida_allins.NN_pop,
-        ida_allins.NN_popf,
-        ida_allins.NN_popfq,
-        ida_allins.NN_push,
-        ida_allins.NN_pushf,
-        ida_allins.NN_pushfq,
-        ida_allins.NN_retn,
-        ida_allins.NN_retf,
-        ida_allins.NN_retnq,
-        ida_allins.NN_retfq,
-        ida_allins.NN_call,
-        ida_allins.NN_callfi,
-        ida_allins.NN_callni,
-        ida_allins.NN_enter,
-        ida_allins.NN_enterq,
-        ida_allins.NN_leave,
-        ida_allins.NN_leaveq,
-        # near branches
-        ida_allins.NN_jcxz,
-        ida_allins.NN_jecxz,
-        ida_allins.NN_jrcxz,
-        ida_allins.NN_jmp,
-        ida_allins.NN_jmpni,
-        ida_allins.NN_jmpshort,
-        ida_allins.NN_loop,
-        ida_allins.NN_loopq,
-        ida_allins.NN_loope,
-        ida_allins.NN_loopqe,
-        ida_allins.NN_loopne,
-        ida_allins.NN_loopqne,
-    )
-
-
-def ad16(insn):
-    """Determine if the current addressing is 16-bit"""
-    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00001000)
-    return p == 0x00001000 or p == 0x00000008
-
-
-def op16(insn):
-    """Determine if the current operand size is 32-bit"""
-    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00000800)
-    return p == 0x00000800 or p == 0x00000008 or p == 0x00000010 and (insn.insnpref & 8) == 0
-
-
-def op32(insn):
-    """Determine if the current operand size is 32-bit"""
-    p = insn.auxpref & (0x00000008 | 0x00000010 | 0x00000800)
-    return p == 0 or p == (0x00000008 | 0x00000800) or p == (0x00000010 | 0x00000800) and (insn.insnpref & 8) == 0
-
-
-def op64(insn):
-    """Determine if the current operand size is 64-bit"""
-    if not idc.__EA64__:
-        return False
-
-    return (insn.auxpref & 0x00000010) != 0 and (
-        (insn.insnpref & 8) != 0 or (insn.auxpref & 0x00000800) != 0 and insn_default_opsize_64(insn)
-    )
-
-
-def has_sib(op):
-    """Return boolean representation of specflag1 which indicates if there is a SIB or not"""
-    return bool(op.specflag1)
-
-
-def sib_base(insn, op):
-    """Calculate the base register number for a phrase/displacment"""
-    sib = op.specflag2  # specflag2 holds the SIB if there is one
-    base = sib & 7
-    if idc.__EA64__ and (insn.insnpref & 1):  # Do we need to convert the base to a 64-bit register number?
-        base |= 8  # Upconvert to 64-bit register number if not already
-
-    return base
-
-
-def sib_index(insn, op):
-    """Calculate the index register number for a phrase/displacement"""
-    sib = op.specflag2  # specflag2 holds the SIB if there is one
-    index = (sib >> 3) & 7
-    if idc.__EA64__ and (insn.insnpref & 2):  # Do we need to conver the index to a 64-bit register number?
-        index |= 8  # Upconvert to 64-bit register number if not already
-
-    return index
-
-
-def sib_scale(op):
-    """Calculate the scale for the index register (default to 1 if the value is 0)"""
-    return 1 << ((op.specflag2 >> 6) & 3)
-
-
-def x86_base_reg(insn, op):
-    """Get the base register of the operand with a displacement (handle 16-bit as well for completeness)"""
-    if has_sib(op):
-        return sib_base(insn, op)  # base register encoded in the SIB
-
-    if not ad16(insn):
-        return op.phrase  # "phrase" contains the base register number
-
-    if signed(op.phrase, get_bits()) == -1:
-        return idautils.procregs.sp.reg  # return "*SP" register number (4)
-
-    if op.phrase in (0, 1, 7):  # ([BX+SI], [BX+DI], [BX])
-        return ida_idp.str2reg("RBX")  # All versions of *BX return 3
-
-    if op.phrase in (2, 3, 6):  # ([BP+SI], [BP+DI], [BP])
-        return ida_idp.str2reg("RBP")  # All versions of *BP return 5
-
-    if op.phrase == 4:  # [SI]
-        return ida_idp.str2reg("RSI")
-
-    if op.phrase == 5:  # [DI]
-        return ida_idp.str2reg("RDI")
-
-    raise ValueError("Unable to parse x86 base register from instruction")
-
-
-def x86_index_reg(insn, op):
-    """Get the index register (if there is one) (handle 16-bit as well for completeness)"""
-    if has_sib(op):
-        idx = sib_index(insn, op)
-        if idx != 4:
-            return idx
-
-        return -1  # There is no index register
-
-    if not ad16(insn):
-        return -1
-
-    if op.phrase in (0, 2):  # ([BX+SI], [BP+SI])
-        return ida_idp.str2reg("RSI")
-
-    if op.phrase in (1, 3):  # ([BX+DI], [BP+DI])
-        return ida_idp.str2reg("RDI")
-
-    if op.phrase in (4, 5, 6, 7):  # ([SI], [DI], [BP], [BX])
-        return -1
-
-    raise ValueError("Unable to parse x86 index register from instruction")

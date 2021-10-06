@@ -36,8 +36,11 @@ logger = logging.getLogger(__name__)
 @opcode("fisubr")
 @opcode("fsubp")
 @opcode("fsubrp")
-def _compute(cpu_context, ip, mnem, operands):
+def _compute(cpu_context, instruction):
     """Perform add/sub/mul/div computation on floating point numbers."""
+    mnem = instruction.mnem
+    operands = instruction.operands
+
     # Determine operator.
     if "add" in mnem:
         op, op_str = operator.add, "+"
@@ -78,7 +81,7 @@ def _compute(cpu_context, ip, mnem, operands):
         logger.debug("ZERO DIVISION detected. TODO")
         result = cpu_context.registers.fpu.NaN
     except TypeError:
-        # (occurs if one of the terms was None)
+        # (occurs if one of the terms was EMPTY)
         logger.debug("EMPTY value detected. TODO")
         result = cpu_context.registers.fpu.NaN
 
@@ -97,19 +100,29 @@ def _compute(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def FABS(cpu_context, ip, mnem, operands):
+def FABS(cpu_context, instruction):
     """Absolute value of st(0)"""
     term = cpu_context.registers.st0
-    result = abs(term)
+    try:
+        result = abs(term)
+    except TypeError:
+        # (occurs if term was EMPTY)
+        logger.debug("EMPTY value detected. TODO")
+        return
     cpu_context.registers.st0 = result
     logger.debug("abs(%f) = %f", term, result)
 
 
 @opcode
-def FCHS(cpu_context, ip, mnem, operands):
+def FCHS(cpu_context, instruction):
     """Change the sign of st(0)"""
     term = cpu_context.registers.st0
-    result = -term
+    try:
+        result = -term
+    except TypeError:
+        # (occurs if term was EMPTY)
+        logger.debug("EMPTY value detected. TODO")
+        return
     cpu_context.registers.st0 = result
     logger.debug("-(%f) = %f", term, result)
 
@@ -127,8 +140,11 @@ def FCHS(cpu_context, ip, mnem, operands):
 @opcode("ficom")
 @opcode("ficomp")
 @opcode("ftst")
-def FCOM(cpu_context, ip, mnem, operands):
+def FCOM(cpu_context, instruction):
     """Compare st0 to a floating point value."""
+    mnem = instruction.mnem
+    operands = instruction.operands
+
     if not operands:
         term1 = cpu_context.registers.st0
         term2 = 0.0 if mnem == "ftst" else cpu_context.registers.st1
@@ -142,15 +158,16 @@ def FCOM(cpu_context, ip, mnem, operands):
         logger.debug("Unexpected number of operands: %d", len(operands))
         return
 
-    # TODO: If either value is empty (ie. None) we must set C3, C2, and C0 to None
-    invalid = (None, cpu_context.registers.fpu.NaN)
-
     if "comi" in mnem:
         flags = ["zf", "pf", "cf"]
     else:
         flags = ["c3", "c2", "c0"]
 
-    if term1 in invalid or term2 in invalid:
+    def invalid(num):
+        """Check if number is NaN or EMPTY."""
+        return num != num or num == cpu_context.registers.fpu.EMPTY
+
+    if invalid(term1) or invalid(term2):
         cpu_context.registers[flags[0]] = 1
         cpu_context.registers[flags[1]] = 1
         cpu_context.registers[flags[2]] = 1
@@ -174,7 +191,7 @@ def FCOM(cpu_context, ip, mnem, operands):
     if mnem.endswith("pp"):
         cpu_context.registers.fpu.pop()
 
-    logger.debug("Comparing: %f <-> %f", term1, term2)
+    logger.debug(f"Comparing: {term1} <-> {term2}")
 
 
 @opcode("fcmovb")
@@ -185,9 +202,10 @@ def FCOM(cpu_context, ip, mnem, operands):
 @opcode("fcmovne")
 @opcode("fcmovnbe")
 @opcode("fcmovnu")
-def FCMOV(cpu_context, ip, mnem, operands):
+def FCMOV(cpu_context, instruction):
     """Conditional move based on CPU flags."""
-    condition_str = mnem[5:]
+    operands = instruction.operands
+    condition_str = instruction.mnem[5:]
     condition = False
 
     if "b" in condition_str:
@@ -219,8 +237,11 @@ def FCMOV(cpu_context, ip, mnem, operands):
 @opcode("fldl2t")
 @opcode("fldlg2")
 @opcode("fldln2")
-def FLD(cpu_context, ip, mnem, operands):
+def FLD(cpu_context, instruction):
     """Load (push) real or integer number into stack."""
+    mnem = instruction.mnem
+    operands = instruction.operands
+
     value = orig_value = operands[0].value if operands else None
     if mnem == "fld":
         value = utils.int_to_float(value)
@@ -250,9 +271,9 @@ def FLD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def FLDCW(cpu_context, ip, mnem, operands):
+def FLDCW(cpu_context, instruction):
     """Load control word from memory."""
-    value = operands[0].value
+    value = instruction.operands[0].value
     cpu_context.registers.fpu.control_word = value
     logger.debug("Load control word: %x", value)
 
@@ -261,9 +282,16 @@ def FLDCW(cpu_context, ip, mnem, operands):
 @opcode("fstp")
 @opcode("fist")
 @opcode("fistp")
-def FST(cpu_context, ip, mnem, operands):
+def FST(cpu_context, instruction):
     """Store (pop) real or integer number from stack into into memory"""
+    mnem = instruction.mnem
+    operands = instruction.operands
+
     value = orig_value = cpu_context.registers.st0
+    # If EMPTY, value would be garbage data, so just use 0.0
+    if value == cpu_context.registers.fpu.EMPTY:
+        value = 0.0
+
     if "i" in mnem:
         # Round integer.
         # TODO: Technically we are suppose to round the number according to the rounding mode of rc.
@@ -278,20 +306,23 @@ def FST(cpu_context, ip, mnem, operands):
 
 @opcode("fstcw")
 @opcode("fnstcw")
-def FSTCW(cpu_context, ip, mnem, operands):
+def FSTCW(cpu_context, instruction):
     """Store control word into memory."""
+    operands = instruction.operands
     value = cpu_context.registers.fpu.control_word
     operands[0].value = value
     logger.debug("Store control word: %x -> %s", value, operands[0].text)
 
 
 @opcode
-def FXAM(cpu_context, ip, mnem, operands):
+def FXAM(cpu_context, instruction):
     """Examine the content of st0."""
     st0 = cpu_context.registers.st0
 
-    cpu_context.registers.c1 = int(st0 < 0)  # sign bit
-    if st0 == cpu_context.registers.fpu.NaN:
+    if st0 != cpu_context.registers.fpu.EMPTY:
+        cpu_context.registers.c1 = int(st0 < 0)  # sign bit
+
+    if st0 != st0:  # check for NaN
         cpu_context.registers.c3 = 0
         cpu_context.registers.c2 = 0
         cpu_context.registers.c0 = 1
@@ -303,7 +334,7 @@ def FXAM(cpu_context, ip, mnem, operands):
         cpu_context.registers.c3 = 1
         cpu_context.registers.c2 = 0
         cpu_context.registers.c0 = 0
-    elif st0 is None:
+    elif st0 == cpu_context.registers.fpu.EMPTY:
         cpu_context.registers.c3 = 1
         cpu_context.registers.c2 = 0
         cpu_context.registers.c0 = 1
@@ -322,9 +353,12 @@ def FXAM(cpu_context, ip, mnem, operands):
 
 # TODO: This is suppose to exception if st0 is empty.
 @opcode
-def FXCH(cpu_context, ip, mnem, operands):
+def FXCH(cpu_context, instruction):
     """Exchange the top data register with another data register"""
+    operands = instruction.operands
     st0 = cpu_context.registers.st0
+    if st0 == cpu_context.registers.fpu.EMPTY:
+        st0 = 0.0
 
     if operands:
         opvalue = operands[0].value
@@ -337,7 +371,7 @@ def FXCH(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SAHF(cpu_context, ip, mnem, operands):
+def SAHF(cpu_context, instruction):
     """Transfer status word flags into CPU's flag register."""
     cpu_context.registers.zf = cpu_context.registers.c3
     cpu_context.registers.pf = cpu_context.registers.c2

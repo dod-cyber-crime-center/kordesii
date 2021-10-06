@@ -8,13 +8,16 @@ import warnings
 from typing import Iterable, Tuple
 
 import ida_bytes
+import ida_idp
 import ida_name
+import ida_ua
 import idaapi
 import idautils
 import idc
 
 from kordesii.utils.flowchart import Flowchart
 from kordesii.utils.function_creator import create_function_precise
+from kordesii import utils
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,7 @@ class Function(object):
         self._identifier = identifier
         self.function_obj = idaapi.get_func(ea)
         if not self.function_obj:
-            if create_if_not_exists:
+            if create_if_not_exists and utils.is_x86_64():  # Function creator only supports x86
                 if create_function_precise(ea, False):
                     self.function_obj = idaapi.get_func(ea)
                     logger.debug(
@@ -192,14 +195,18 @@ class Function(object):
     def calls_to(self) -> Iterable[int]:
         """Iterates addresses that call this function."""
         for ea in self.xrefs_to:
-            if idc.print_insn_mnem(ea) == "call":
+            insn = ida_ua.insn_t()
+            ida_ua.decode_insn(insn, ea)
+            if ida_idp.is_call_insn(insn):
                 yield ea
 
     @property
     def calls_from(self) -> Iterable[Tuple[int, int]]:
         """Iterates call address and callee address of the calls within this function."""
         for ea in self.heads():
-            if idc.print_insn_mnem(ea) == "call":
+            insn = ida_ua.insn_t()
+            ida_ua.decode_insn(insn, ea)
+            if ida_idp.is_call_insn(insn):
                 for xref in idautils.XrefsFrom(ea, idaapi.XREF_FAR):
                     func_ea = xref.to
                     if func_ea:

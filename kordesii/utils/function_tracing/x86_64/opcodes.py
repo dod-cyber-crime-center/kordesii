@@ -6,12 +6,12 @@ Add any instructions that need to be handled below.  The function should be decl
 # Using the same function for multiple instructions:
 @opcode("add")
 @opcode("adc")
-def _add(cpu_context, ip, mnem, operands):
+def _add(cpu_context, instruction):
     print "IN ADD"
 
 # Using a single function for an opcode
 @opcode
-def MOV(cpu_context, ip, mnem, operands):
+def MOV(cpu_context, instruction):
     print "IN MOV"
 
 WARNING:
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 @opcode
-def AAA(cpu_context, ip, mnem, operands):
+def AAA(cpu_context, instruction):
     """ ASCII Adjust AX After Addition """
     if cpu_context.bitness == 64:
         logger.debug("Opcode not valid for 64-bit")
@@ -59,7 +59,7 @@ def AAA(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def AAD(cpu_context, ip, mnem, operands):
+def AAD(cpu_context, instruction):
     """ ASCII Adjust AX Before Division """
     if cpu_context.bitness == 64:
         logger.debug("Opcode not valid for 64-bit")
@@ -67,6 +67,7 @@ def AAD(cpu_context, ip, mnem, operands):
 
     orig_ax = cpu_context.registers.ax
 
+    operands = instruction.operands
     base = operands[0].value if operands else 10
     al = cpu_context.registers.al
     ah = cpu_context.registers.ah
@@ -77,7 +78,7 @@ def AAD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def AAM(cpu_context, ip, mnem, operands):
+def AAM(cpu_context, instruction):
     """ ASCII Adjust AX After Multiply """
     if cpu_context.bitness == 64:
         logger.debug("Opcode not valid for 64-bit")
@@ -85,6 +86,7 @@ def AAM(cpu_context, ip, mnem, operands):
 
     orig_ax = cpu_context.registers.ax
 
+    operands = instruction.operands
     base = operands[0].value if operands else 10
     al = cpu_context.registers.al
     cpu_context.registers.ah = al // base
@@ -94,7 +96,7 @@ def AAM(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def AAS(cpu_context, ip, mnem, operands):
+def AAS(cpu_context, instruction):
     """ ASCII Adjust AX After Subtraction """
     if cpu_context.bitness == 64:
         logger.debug("Opcode not valid for 64-bit")
@@ -117,14 +119,15 @@ def AAS(cpu_context, ip, mnem, operands):
 
 @opcode("adc")
 @opcode("add")
-def _add(cpu_context, ip, mnem, operands):
+def _add(cpu_context, instruction):
     """
     Handle both ADC and ADD here since the only difference is the flags.
     """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     result = opvalue1 + opvalue2
-    if mnem == "adc":
+    if instruction.mnem == "adc":
         result += cpu_context.registers.cf
     width = get_max_operand_size(operands)
 
@@ -143,8 +146,9 @@ def _add(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def AND(cpu_context, ip, mnem, operands):
+def AND(cpu_context, instruction):
     """ AND logic operator """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     result = opvalue1 & opvalue2
@@ -163,8 +167,9 @@ def AND(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def BSWAP(cpu_context, ip, mnem, operands):
+def BSWAP(cpu_context, instruction):
     """ byte Swap """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     width = operands[0].width
     result = swap_bytes(opvalue1, width)
@@ -172,97 +177,46 @@ def BSWAP(cpu_context, ip, mnem, operands):
     operands[0].value = result
 
 
-def _sanitize_func_name(func_name):
-    """Sanitizes the IDA function names to it's core name."""
-    # remove the extra "_" IDA likes to add to the function name.
-    if func_name.startswith("_"):
-        func_name = func_name[1:]
-
-    # Remove the numbered suffix IDA likes to add to duplicate function names.
-    func_name = re.sub("_[0-9]+$", "", func_name)
-
-    return func_name
-
-
 @opcode
-def CALL(cpu_context, ip, mnem, operands):
+def CALL(cpu_context, instruction):
     """
     CALL function
 
     Attempt to determine the number of arguments passed to the function which are purged on return
     """
+    operands = instruction.operands
     # Function pointer can be a memory reference or immediate.
     func_ea = operands[0].addr or operands[0].value
     func_name = utils.get_function_name(func_ea)
 
-    logger.debug("call %s", func_name or "0x%X".format(func_ea))
+    logger.debug("call %s", func_name or f"0x{func_ea:X}")
 
     # If a valid function pointer, collect call history and emulate effects.
     if operands[0].is_func_ptr:
         # Push return address on the stack and set the ip to the function's start address.
-        cpu_context.registers.rsp -= cpu_context.byteness
-        ret_addr = idc.next_head(ip)
-        cpu_context.mem_write(
-            cpu_context.registers.rsp, utils.struct_pack(ret_addr, width=cpu_context.byteness))
-        # Tell context that we are currently emulating a function hook.
-        # This information is import for things like pulling out function arguments out correctly.
-        cpu_context.hooking_call = func_ea
+        cpu_context.sp -= cpu_context.byteness
+        ret_addr = idc.next_head(instruction.ip)
+        cpu_context.mem_write(cpu_context.sp, utils.struct_pack(ret_addr, width=cpu_context.byteness))
 
-        # Report on function call and their arguments.
-        arg_objs = cpu_context.get_function_arg_objects(func_ea)
-        args = [arg_obj.value for arg_obj in arg_objs]
-        cpu_context.func_calls[ip] = (func_name, args)
+        instruction.execute_call_hooks(func_name, func_ea)
 
-        # Emulate the effects of any known builtin functions.
-        func = cpu_context.emulator.get_call_hook(func_ea)
-        if not func:
-            func = cpu_context.emulator.get_call_hook(func_name)
-            if not func:
-                # Try one more time with a sanitized name.
-                func_name = _sanitize_func_name(func_name)
-                func = cpu_context.emulator.get_call_hook(func_name)
-        if func:
-            try:
-                logger.debug(
-                    "Emulating %s(%s)",
-                    func_name,
-                    ", ".join(f"{arg_obj.name}={hex(arg_obj.value)}" for arg_obj in arg_objs)
-                )
-                logger.debug("Running hook: %r", func)
-                ret = func(cpu_context, func_name, args)
-                if ret is True:
-                    ret = 1
-                elif ret is False:
-                    ret = 0
-                # Set return value to rax
-                if ret is not None:
-                    if not isinstance(ret, int):
-                        raise TypeError(f"Invalid return type. Expected 'int' but got '{type(ret)}'")
-                    logger.debug("Setting 0x%x into rax", ret)
-                    cpu_context.registers.rax = ret
-            except RuntimeError:
-                raise  # Allow RuntimeError exceptions to be thrown.
-            except Exception as e:
-                logger.debug("Failed to emulate builtin function: %s() with error: %s", func_name, e)
-
-        # Pop return address from the stack, set ip to return address, and reset hooking flag.
-        cpu_context.registers.rsp += cpu_context.byteness
+        # Pop return address from the stack, set ip to return address.
+        cpu_context.sp += cpu_context.byteness
         cpu_context.ip = ret_addr
-        cpu_context.hooking_call = None
 
     if idc.__EA64__:
         return
 
     # Cleanup the stack based on the sp_delta calculation reported by IDA.
-    sp_adjust = idc.get_sp_delta(idc.next_head(ip))
+    sp_adjust = idc.get_sp_delta(idc.next_head(instruction.ip))
     # If sp_adjust is None, that means the next instruction is not in a function.
     # There is no way to determine the stack adjustment
     if sp_adjust is not None:
-        cpu_context.registers.rsp += sp_adjust
+        cpu_context.sp += sp_adjust
 
 
 @opcode
-def CDQ(cpu_context, ip, mnem, operands):
+def CDQ(cpu_context, instruction):
     """ Convert DWORD to QWORD with sign extension """
     if cpu_context.registers.eax >> 31:
         result = 0xFFFFFFFF
@@ -274,26 +228,27 @@ def CDQ(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CLC(cpu_context, ip, mnem, operands):
+def CLC(cpu_context, instruction):
     """ Clear Carry Flag """
     cpu_context.registers.cf = 0
 
 
 @opcode
-def CLD(cpu_context, ip, mnem, operands):
+def CLD(cpu_context, instruction):
     """ Clear Direction Flag """
     cpu_context.registers.df = 0
 
 
 @opcode
-def CMC(cpu_context, ip, mnem, operands):
+def CMC(cpu_context, instruction):
     """ Complement Carry Flag """
     cpu_context.registers.cf = int(not cpu_context.registers.cf)
 
 
 @opcode
-def CMP(cpu_context, ip, mnem, operands):
+def CMP(cpu_context, instruction):
     """ Compare to values """
+    operands = instruction.operands
     width = get_min_operand_size(operands)
     mask = utils.get_mask(width)
     opvalue1 = operands[0].value & mask
@@ -313,7 +268,7 @@ def CMP(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CMPS(cpu_context, ip, mnem, operands):
+def CMPS(cpu_context, instruction):
     """
     Nothing really to do for CMPS
     """
@@ -321,7 +276,7 @@ def CMPS(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CMPSB(cpu_context, ip, mnem, operands):
+def CMPSB(cpu_context, instruction):
     """
     TODO: Does this really need to be implemented for our purposes???
     """
@@ -329,7 +284,7 @@ def CMPSB(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CMPSW(cpu_context, ip, mnem, operands):
+def CMPSW(cpu_context, instruction):
     """
     TODO: Does this really need to be implemented for our purposes???
     """
@@ -337,7 +292,7 @@ def CMPSW(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CMPSD(cpu_context, ip, mnem, operands):
+def CMPSD(cpu_context, instruction):
     """
     TODO: Does this really need to be implemented for our purposes???
     """
@@ -345,7 +300,7 @@ def CMPSD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CQO(cpu_context, ip, mnem, operands):
+def CQO(cpu_context, instruction):
     """ Convert QWORD to DQWORD with sign extension """
     # Only works in 64-bit mode
     if cpu_context.bitness != 64:
@@ -362,8 +317,9 @@ def CQO(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CVTDQ2PD(cpu_context, ip, mnem, operands):
+def CVTDQ2PD(cpu_context, instruction):
     """ Convert Packed Doubleword Integers to Packed Double-Precision Floating-Point Values """
+    operands = instruction.operands
     opvalue2 = operands[1].value
     dword0 = opvalue2 & 0xFFFFFFFF
     dword1 = (opvalue2 & 0xFFFFFFFF) >> 32
@@ -375,8 +331,9 @@ def CVTDQ2PD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CVTSI2SD(cpu_context, ip, mnem, operands):
+def CVTSI2SD(cpu_context, instruction):
     """ Convert Doubleword Int to Scalar Double-Precision Floating-Point """
+    operands = instruction.operands
     opvalue2 = operands[1].value
     result = utils.float_to_int(opvalue2)
     logger.debug("int 0x%X -> float equivalent 0x%X", opvalue2, result)
@@ -384,8 +341,9 @@ def CVTSI2SD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CVTTSD2SI(cpu_context, ip, mnem, operands):
+def CVTTSD2SI(cpu_context, instruction):
     """ Convert with Truncation Scalar Double-Precision Floating-Point Value to Signed Integer """
+    operands = instruction.operands
     opvalue2 = operands[1].value
     # width = operands[0].width
     result = int(utils.int_to_float(opvalue2))
@@ -394,7 +352,7 @@ def CVTTSD2SI(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def CWD(cpu_context, ip, mnem, operands):
+def CWD(cpu_context, instruction):
     """ Convert WORD to DWORD with sign extension """
     if cpu_context.registers.ax >> 15:
         result = 0xFFFF
@@ -406,8 +364,9 @@ def CWD(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def DEC(cpu_context, ip, mnem, operands):
+def DEC(cpu_context, instruction):
     """ Decrement """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     width = operands[0].width
     mask = utils.get_mask(width)
@@ -426,7 +385,7 @@ def DEC(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def DIV(cpu_context, ip, mnem, operands):
+def DIV(cpu_context, instruction):
     """
     Divide
 
@@ -435,6 +394,7 @@ def DIV(cpu_context, ip, mnem, operands):
     RAX_REG_SIZE_MAP = {8: "rax", 4: "eax", 2: "ax", 1: "al"}
     RDX_REG_SIZE_MAP = {8: "rdx", 4: "edx", 2: "dx"}
 
+    operands = instruction.operands
     divisor = operands[0].value
     width = operands[0].width
     if divisor == 0:
@@ -461,13 +421,14 @@ def DIV(cpu_context, ip, mnem, operands):
 
         
 @opcode
-def IDIV(cpu_context, ip, mnem, operands):
+def IDIV(cpu_context, instruction):
     """
     Signed Division
     """
     RAX_REG_SIZE_MAP = {8: "rax", 4: "eax", 2: "ax", 1: "al"}
     RDX_REG_SIZE_MAP = {8: "rdx", 4: "edx", 2: "dx"}
-    
+
+    operands = instruction.operands
     width = operands[0].width
     b_width = width * 8
     divisor = utils.signed(operands[0].value, b_width)
@@ -493,12 +454,13 @@ def IDIV(cpu_context, ip, mnem, operands):
         
 
 @opcode
-def DIVSD(cpu_context, ip, mnem, operands):
+def DIVSD(cpu_context, instruction):
     """
     Divide Scalar Double-Precision Floating-Point Value
 
     op1 / op2 -> op1
     """
+    operands = instruction.operands
     opvalue1 = utils.int_to_float(operands[0].value)
     opvalue2 = utils.int_to_float(operands[1].value)
     # Because there is no guarantee that the registers/memory have been properly initialized, ignore DIV / 0 errors.
@@ -513,7 +475,7 @@ def DIVSD(cpu_context, ip, mnem, operands):
     operands[0].value = result
 
 
-def _mul(cpu_context, ip, mnem, operands):
+def _mul(cpu_context, instruction):
     """
     Handle MUL instruction and 1-operand IMUL instruction as the same.
     """
@@ -522,6 +484,7 @@ def _mul(cpu_context, ip, mnem, operands):
 
     dx_reg = None
     dx_result = None
+    operands = instruction.operands
     width = get_max_operand_size(operands)
     mask = utils.get_mask(width)
     multiplier1 = cpu_context.registers[RAX_REG_SIZE_MAP[width]]
@@ -532,7 +495,7 @@ def _mul(cpu_context, ip, mnem, operands):
     if width == 1:
         ax_reg = RAX_REG_SIZE_MAP[2]
         ax_result = result
-        if mnem.upper() == "MUL":
+        if instruction.mnem == "mul":
             cpu_context.registers.cf = 0
             cpu_context.registers.of = 0
     else:
@@ -540,7 +503,7 @@ def _mul(cpu_context, ip, mnem, operands):
         dx_reg = RDX_REG_SIZE_MAP[width]
         dx_result = (result & (utils.get_mask(width) << (width * 8))) >> (width * 8)
         ax_result = result & utils.get_mask(width)
-        if mnem.upper() == "MUL":
+        if instruction.mnem == "mul":
             if result >> (width * 8):
                 cpu_context.registers.cf = 1
                 cpu_context.registers.of = 1
@@ -548,7 +511,7 @@ def _mul(cpu_context, ip, mnem, operands):
                 cpu_context.registers.cf = 0
                 cpu_context.registers.of = 0
 
-    if mnem.upper() == "IMUL":
+    if instruction.mnem == "imul":
         cpu_context.registers.cf = int(
             not (
                 (not utils.sign_bit(multiplier1, width) and multiplier2 & mask == 0)
@@ -575,7 +538,7 @@ def _mul(cpu_context, ip, mnem, operands):
 
 # TODO: Clean up mul, imul, and _mul
 @opcode
-def IMUL(cpu_context, ip, mnem, operands):
+def IMUL(cpu_context, instruction):
     """ Signed Multiplication
 
     ; Single operand form
@@ -589,10 +552,11 @@ def IMUL(cpu_context, ip, mnem, operands):
                         ; the destination operand (op 0)
 
     """
+    operands = instruction.operands
     width = get_max_operand_size(operands)
     op_count = len(operands)
     if op_count == 1:
-        _mul(cpu_context, ip, mnem, operands)
+        _mul(cpu_context, instruction)
         return
     elif op_count == 2:
         multiplier1 = operands[0].value
@@ -624,8 +588,9 @@ def IMUL(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def INC(cpu_context, ip, mnem, operands):
+def INC(cpu_context, instruction):
     """ Increment """
+    operands = instruction.operands
     opvalue1 = operands[0].value
 
     result = opvalue1 + 1
@@ -645,8 +610,9 @@ def INC(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def JMP(cpu_context, ip, mnem, operands):
+def JMP(cpu_context, instruction):
     """ Unconditional jump """
+    operands = instruction.operands
     jump_target = operands[0].value
     cpu_context.ip = jump_target
 
@@ -665,9 +631,9 @@ def JMP(cpu_context, ip, mnem, operands):
 # determine if we have test_opnds and abort fixing the context if we don't.
 @opcode("ja")
 @opcode("jnbe")
-def JA_JNBE(cpu_context, ip, mnem, operands):
+def JA_JNBE(cpu_context, instruction):
     """ Jump Above (CF=0 && ZF=0) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.cf == 0 and cpu_context.registers.zf == 0
     if jump:
         cpu_context.ip = jump_target
@@ -675,7 +641,7 @@ def JA_JNBE(cpu_context, ip, mnem, operands):
     if not cpu_context.emulator.branch_tracking:
         return
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -703,9 +669,9 @@ def JA_JNBE(cpu_context, ip, mnem, operands):
 @opcode("jae")
 @opcode("jnb")
 @opcode("jnc")
-def JAE_JNB(cpu_context, ip, mnem, operands):
+def JAE_JNB(cpu_context, instruction):
     """ Jump Above or Equal / Jump Not Below / Jump Not Carry (CF=0) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.cf == 0
     if jump:
         cpu_context.ip = jump_target
@@ -713,7 +679,7 @@ def JAE_JNB(cpu_context, ip, mnem, operands):
     if not cpu_context.emulator.branch_tracking:
         return
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -742,9 +708,9 @@ def JAE_JNB(cpu_context, ip, mnem, operands):
 @opcode("jb")
 @opcode("jc")
 @opcode("jnae")
-def JB_JNAE(cpu_context, ip, mnem, operands):
+def JB_JNAE(cpu_context, instruction):
     """ Jump Below / Jump Carry / Jump Not Above or Equal (CF=1) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.cf
     if jump:
         cpu_context.ip = jump_target
@@ -755,7 +721,7 @@ def JB_JNAE(cpu_context, ip, mnem, operands):
     # Don't know the data for either path specifically, but inferences can be made that the jump target will contain
     # a value in the first operand that is less than the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -783,9 +749,9 @@ def JB_JNAE(cpu_context, ip, mnem, operands):
 
 @opcode("jbe")
 @opcode("jna")
-def JBE_JNA(cpu_context, ip, mnem, operands):
+def JBE_JNA(cpu_context, instruction):
     """ Jump Below or Equal / Jump Not Above (CF=1 || ZF=1) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.cf or cpu_context.registers.zf
     if jump:
         cpu_context.ip = jump_target
@@ -796,7 +762,7 @@ def JBE_JNA(cpu_context, ip, mnem, operands):
     # Don't know the data for either path specifically, but inferences can be made that the jump target will contain
     # a value in the first operand that is less than or equal to the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -824,9 +790,9 @@ def JBE_JNA(cpu_context, ip, mnem, operands):
 
 @opcode("je")
 @opcode("jz")
-def JE_JZ(cpu_context, ip, mnem, operands):
+def JE_JZ(cpu_context, instruction):
     """ Jump Equal / Jump Zero (ZF=1) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.zf
     if jump:
         cpu_context.ip = jump_target
@@ -836,7 +802,7 @@ def JE_JZ(cpu_context, ip, mnem, operands):
 
     # Jump target contains the known data which is either 0 or the value of the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -884,9 +850,9 @@ def JE_JZ(cpu_context, ip, mnem, operands):
 
 @opcode("jg")
 @opcode("jnle")
-def JG_JNLE(cpu_context, ip, mnem, operands):
+def JG_JNLE(cpu_context, instruction):
     """ Jump Greater / Jump Not Less or Equal (ZF=0 && SF=OF) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.zf == 0 and cpu_context.registers.sf == cpu_context.registers.of
     if jump:
         cpu_context.ip = jump_target
@@ -894,7 +860,7 @@ def JG_JNLE(cpu_context, ip, mnem, operands):
     if not cpu_context.emulator.branch_tracking:
         return
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -925,9 +891,9 @@ def JG_JNLE(cpu_context, ip, mnem, operands):
 
 @opcode("jge")
 @opcode("jnl")
-def JGE_JNL(cpu_context, ip, mnem, operands):
+def JGE_JNL(cpu_context, instruction):
     """ Jump Greater or Equal (SF=OF) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.sf == cpu_context.registers.of
     if jump:
         cpu_context.ip = jump_target
@@ -938,7 +904,7 @@ def JGE_JNL(cpu_context, ip, mnem, operands):
     # Don't know the data for either path specifically, but inferences can be made that the jump target will contain
     # a value in the first operand that is larger than or equal to the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -966,9 +932,9 @@ def JGE_JNL(cpu_context, ip, mnem, operands):
 
 @opcode("jl")
 @opcode("jnge")
-def JL_JNGE(cpu_context, ip, mnem, operands):
+def JL_JNGE(cpu_context, instruction):
     """ Jump Less (SF!=OF) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.sf != cpu_context.registers.of
     if jump:
         cpu_context.ip = jump_target
@@ -979,7 +945,7 @@ def JL_JNGE(cpu_context, ip, mnem, operands):
     # Don't know the data for either path specifically, but inferences can be made that the jump target will contain
     # a value in the first operand that is less than the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -1007,9 +973,9 @@ def JL_JNGE(cpu_context, ip, mnem, operands):
 
 @opcode("jle")
 @opcode("jng")
-def JLE_JNG(cpu_context, ip, mnem, operands):
+def JLE_JNG(cpu_context, instruction):
     """ Jump Less or Equal (ZF=1 || SF!=OF) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.zf or cpu_context.registers.sf != cpu_context.registers.of
     if jump:
         cpu_context.ip = jump_target
@@ -1020,7 +986,7 @@ def JLE_JNG(cpu_context, ip, mnem, operands):
    # Don't know the data for either path specifically, but inferences can be made that the jump target will contain
     # a value in the first operand that is less than or equal to the second operand of the compare operation.
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -1048,9 +1014,9 @@ def JLE_JNG(cpu_context, ip, mnem, operands):
 
 @opcode("jne")
 @opcode("jnz")
-def JNE_JNZ(cpu_context, ip, mnem, operands):
+def JNE_JNZ(cpu_context, instruction):
     """ Jump Not Equal (ZF=0) """
-    jump_target = operands[0].value
+    jump_target = instruction.operands[0].value
     jump = cpu_context.registers.zf == 0
     if jump:
         cpu_context.ip = jump_target
@@ -1058,7 +1024,7 @@ def JNE_JNZ(cpu_context, ip, mnem, operands):
     if not cpu_context.emulator.branch_tracking:
         return
 
-    code_refs = list(idautils.CodeRefsFrom(ip, 1))
+    code_refs = list(idautils.CodeRefsFrom(instruction.ip, 1))
     code_refs.remove(jump_target)
     next_inst = code_refs[0]
 
@@ -1111,54 +1077,55 @@ def JNE_JNZ(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def JNO(cpu_context, ip, mnem, operands):
+def JNO(cpu_context, instruction):
     """ Jump Not Overflow (OF=0) """
     if not cpu_context.registers.of:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode("jnp")
 @opcode("jpo")
-def JNP_JPO(cpu_context, ip, mnem, operands):
+def JNP_JPO(cpu_context, instruction):
     """ Jump Not Parity (PF=0) """
     if not cpu_context.registers.pf:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode
-def JNS(cpu_context, ip, mnem, operands):
+def JNS(cpu_context, instruction):
     """ Jump Not Sign (SF=0) """
     if not cpu_context.registers.sf:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode
-def JO(cpu_context, ip, mnem, operands):
+def JO(cpu_context, instruction):
     """ Jump Overflow (OF=1) """
     if cpu_context.registers.of:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode("jp")
 @opcode("jpe")
-def JP_JPE(cpu_context, ip, mnem, operands):
+def JP_JPE(cpu_context, instruction):
     """ Jump Parity (PF=1) """
     if cpu_context.registers.pf:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode
-def JS(cpu_context, ip, mnem, operands):
+def JS(cpu_context, instruction):
     """ Jump Sign (SF=1) """
     if cpu_context.registers.sf:
-        cpu_context.ip = operands[0].value
+        cpu_context.ip = instruction.operands[0].value
 
 
 @opcode
-def LEA(cpu_context, ip, mnem, operands):
+def LEA(cpu_context, instruction):
     """
     Handle the LEA instruction.
     """
+    operands = instruction.operands
     address = operands[1].addr
     logger.debug("Copy address 0x%X into %s", address, operands[0].text)
     operands[0].value = address
@@ -1172,7 +1139,7 @@ def LEA(cpu_context, ip, mnem, operands):
 @opcode("movdqu")
 @opcode("movupd")
 @opcode("movups")
-def _mov(cpu_context, ip, mnem, operands):
+def _mov(cpu_context, instruction):
     """
     Handle the MOV, MOVZX, MOVA*, MOVD*, MOVU* instructions in the same manner.
 
@@ -1181,6 +1148,7 @@ def _mov(cpu_context, ip, mnem, operands):
     NOTE: Since the widths are already taken into account when the operand values are retrieved
     or set, the logic for most mov* instructions are the same.
     """
+    operands = instruction.operands
     opvalue2 = operands[1].value
     logger.debug("Copy 0x%X into %s", opvalue2, operands[0].text)
     operands[0].value = opvalue2
@@ -1188,8 +1156,9 @@ def _mov(cpu_context, ip, mnem, operands):
 
 @opcode("movsx")
 @opcode("movsxd")
-def _movsx(cpu_context, ip, mnem, operands):
+def _movsx(cpu_context, instruction):
     """ Move with Sign Extend """
+    operands = instruction.operands
     opvalue2 = operands[1].value
     logger.debug("Sign-extend 0x%X into %s", opvalue2, operands[0].text)
     size = utils.sign_extend(opvalue2, operands[1].width, operands[0].width)
@@ -1200,14 +1169,15 @@ def _movsx(cpu_context, ip, mnem, operands):
 @opcode("movsb")
 @opcode("movsw")
 @opcode("movsd")
-def movs(cpu_context, ip, mnem, operands):
+def movs(cpu_context, instruction):
     """
     Move Scalar Double-Precision Floating-Point Value
     OR
     Move Data from String to String
     """
+    operands = instruction.operands
     # movsd op1 op2
-    if mnem == "movsd" and len(operands) == 2:
+    if instruction.mnem == "movsd" and len(operands) == 2:
         op1, op2 = operands
         data = op2.value
         if op1.is_register:
@@ -1227,7 +1197,7 @@ def movs(cpu_context, ip, mnem, operands):
         # IDA sometimes provides a single "fake" operand to help determine the size.
         width = operands[0].width if operands else 4
 
-        size = {"movs": width, "movsb": 1, "movsw": 2, "movsd": 4}[mnem]
+        size = {"movs": width, "movsb": 1, "movsw": 2, "movsd": 4}[instruction.mnem]
         src_ptr = cpu_context.registers[src]
         dst_ptr = cpu_context.registers[dst]
         logger.debug("0x%X -> 0x%X", src_ptr, dst_ptr)
@@ -1243,30 +1213,33 @@ def movs(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def MOVD(cpu_context, ip, mnem, operands):
+def MOVD(cpu_context, instruction):
     """ Move Dword """
+    operands = instruction.operands
     opvalue2 = operands[1].value & 0xFFFFFFFF
     logger.debug("Copy 0x%X into %s", opvalue2, operands[0].text)
     operands[0].value = opvalue2
 
 
 @opcode
-def MOVQ(cpu_context, ip, mnem, operands):
+def MOVQ(cpu_context, instruction):
     """ Move Quadword """
+    operands = instruction.operands
     opvalue2 = operands[1].value & 0xFFFFFFFFFFFFFFFF
     logger.debug("Copy 0x%X into %s", opvalue2, operands[0].text)
     operands[0].value = opvalue2
 
 
 @opcode
-def MUL(cpu_context, ip, mnem, operands):
+def MUL(cpu_context, instruction):
     """ Multiplication """
-    _mul(cpu_context, ip, mnem, operands)
+    _mul(cpu_context, instruction)
 
 
 @opcode
-def NEG(cpu_context, ip, mnem, operands):
+def NEG(cpu_context, instruction):
     """ Negate """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     result = -opvalue1
     width = operands[0].width
@@ -1285,8 +1258,9 @@ def NEG(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def NOT(cpu_context, ip, mnem, operands):
+def NOT(cpu_context, instruction):
     """ NOT Logic Operator """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     result = ~opvalue1
     logger.debug("0x%X -> 0x%X", opvalue1, result)
@@ -1294,8 +1268,9 @@ def NOT(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def OR(cpu_context, ip, mnem, operands):
+def OR(cpu_context, instruction):
     """ OR Logic Operator """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1314,8 +1289,9 @@ def OR(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def POP(cpu_context, ip, mnem, operands):
+def POP(cpu_context, instruction):
     """ POP stack value """
+    operands = instruction.operands
     result = utils.struct_unpack(cpu_context.mem_read(cpu_context.sp, cpu_context.byteness))
     cpu_context.sp += cpu_context.byteness
     logger.debug("Popped value 0x%X into %s", result, operands[0].text)
@@ -1324,7 +1300,7 @@ def POP(cpu_context, ip, mnem, operands):
 
 @opcode("popa")
 @opcode("popad")
-def POPA(cpu_context, ip, mnem, operands):
+def POPA(cpu_context, instruction):
     """
     POPA (valid only for x86)
 
@@ -1333,7 +1309,7 @@ def POPA(cpu_context, ip, mnem, operands):
     """
     # NOTE Some assemblers may force size based on operand size instead of mnem.
     # However, IDA should set the proper mnemonic for us.
-    if mnem.endswith("d"):
+    if instruction.mnem.endswith("d"):
         reg_order = ["edi", "esi", "ebp", "esp", "ebx", "edx", "ecx", "eax"]
     else:
         reg_order = ["di", "si", "bp", "sp", "bx", "dx", "cx", "ax"]
@@ -1350,7 +1326,7 @@ def POPA(cpu_context, ip, mnem, operands):
 @opcode("popf")
 @opcode("popfd")
 @opcode("popfq")
-def POPF(cpu_context, ip, mnem, operands):
+def POPF(cpu_context, instruction):
     """ Pop FLAGS/EFLAGS register off the stack """
     flags = utils.struct_unpack(cpu_context.mem_read(cpu_context.sp, cpu_context.byteness))
     cpu_context.sp += cpu_context.byteness
@@ -1364,9 +1340,9 @@ def POPF(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def PUSH(cpu_context, ip, mnem, operands):
+def PUSH(cpu_context, instruction):
     """ PUSH """
-    operand = operands[0]
+    operand = instruction.operands[0]
     logger.debug("Pushing 0x%X onto stack", operand.value)
     cpu_context.registers.rsp -= cpu_context.byteness
     cpu_context.mem_write(cpu_context.registers.esp, utils.struct_pack(operand.value, width=operand.width))
@@ -1374,11 +1350,11 @@ def PUSH(cpu_context, ip, mnem, operands):
 
 @opcode("pusha")
 @opcode("pushad")
-def PUSHA(cpu_context, ip, mnem, operands):
+def PUSHA(cpu_context, instruction):
     """ Push all general-purpose registers (valid only for x86) """
     # NOTE Some assemblers may force size based on operand size instead of mnem.
     # However, IDA should set the proper mnemonic for us.
-    if mnem.endswith("d"):
+    if instruction.mnem.endswith("d"):
         reg_order = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"]
         orig_esp = cpu_context.registers.esp
     else:
@@ -1395,7 +1371,7 @@ def PUSHA(cpu_context, ip, mnem, operands):
 @opcode("pushf")
 @opcode("pushfd")
 @opcode("pushfq")
-def PUSHF(cpu_context, ip, mnem, operands):
+def PUSHF(cpu_context, instruction):
     """ Push FLAGS/EFLAGS register onto the stack """
     if cpu_context.bitness == 16:
         flags = cpu_context.registers.flags
@@ -1413,8 +1389,9 @@ def PUSHF(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def RCR(cpu_context, ip, mnem, operands):
+def RCR(cpu_context, instruction):
     """ Rotate Carry Right """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1446,8 +1423,9 @@ def RCR(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def RCL(cpu_context, ip, mnem, operands):
+def RCL(cpu_context, instruction):
     """ Rotate Carry Left """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1479,8 +1457,9 @@ def RCL(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def ROL(cpu_context, ip, mnem, operands):
+def ROL(cpu_context, instruction):
     """ Rotate Left """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1513,8 +1492,9 @@ def ROL(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def ROR(cpu_context, ip, mnem, operands):
+def ROR(cpu_context, instruction):
     """ Rotate Right """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1548,8 +1528,9 @@ def ROR(cpu_context, ip, mnem, operands):
 
 @opcode("sal")
 @opcode("shl")
-def sal_shl(cpu_context, ip, mnem, operands):
+def sal_shl(cpu_context, instruction):
     """ Shift Arithmetic Left """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1583,8 +1564,9 @@ def sal_shl(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SAR(cpu_context, ip, mnem, operands):
+def SAR(cpu_context, instruction):
     """ Shift Arithmetic Right """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1617,8 +1599,9 @@ def SAR(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SBB(cpu_context, ip, mnem, operands):
+def SBB(cpu_context, instruction):
     """ Subtract with Borrow/Carry """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1641,13 +1624,14 @@ def SBB(cpu_context, ip, mnem, operands):
 @opcode("scasb")
 @opcode("scasw")
 @opcode("scasd")
-def scas(cpu_context, ip, mnem, operands):
+def scas(cpu_context, instruction):
     """ Scan string """
     if cpu_context.bitness == 16:
         edi_reg = "di"
     else:
         edi_reg = "edi"
 
+    mnem = instruction.mnem
     if mnem.endswith("b"):
         width = 1
     elif mnem.endswith("w"):
@@ -1655,7 +1639,7 @@ def scas(cpu_context, ip, mnem, operands):
     elif mnem.endswith("d"):
         width = 4
     else:
-        width = operands[0].width
+        width = instruction.operands[0].width
 
     eax_reg = {1: "al", 2: "ax", 4: "eax"}[width]
 
@@ -1684,40 +1668,45 @@ def scas(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SETNA(cpu_context, ip, mnem, operands):
+def SETNA(cpu_context, instruction):
     """ Set if Not Above """
+    operands = instruction.operands
     result = int(cpu_context.registers.zf or cpu_context.registers.cf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETLE(cpu_context, ip, mnem, operands):
+def SETLE(cpu_context, instruction):
     """ Set if Less than or Equal """
+    operands = instruction.operands
     result = int(cpu_context.registers.zf or (cpu_context.registers.sf != cpu_context.registers.of))
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETGE(cpu_context, ip, mnem, operands):
+def SETGE(cpu_context, instruction):
     """ Set if Greater than or Equal """
+    operands = instruction.operands
     result = int(cpu_context.registers.sf == cpu_context.registers.of)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETG(cpu_context, ip, mnem, operands):
+def SETG(cpu_context, instruction):
     """ Set if Greather than """
+    operands = instruction.operands
     result = int(cpu_context.registers.zf and (cpu_context.registers.sf == cpu_context.registers.of))
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETE(cpu_context, ip, mnem, operands):
+def SETE(cpu_context, instruction):
     """ Set if Equal """
+    operands = instruction.operands
     result = int(cpu_context.registers.zf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
@@ -1725,44 +1714,48 @@ def SETE(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SETC(cpu_context, ip, mnem, operands):
+def SETC(cpu_context, instruction):
     """ Set if Carry """
+    operands = instruction.operands
     result = int(cpu_context.registers.cf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETBE(cpu_context, ip, mnem, operands):
+def SETBE(cpu_context, instruction):
     """ Set if Below or Equal """
+    operands = instruction.operands
     result = int(cpu_context.registers.cf and cpu_context.registers.zf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETB(cpu_context, ip, mnem, operands):
+def SETB(cpu_context, instruction):
     """ Set if Below """
-    SETC(cpu_context, ip, mnem, operands)
+    SETC(cpu_context, instruction)
 
 
 @opcode
-def SETAE(cpu_context, ip, mnem, operands):
+def SETAE(cpu_context, instruction):
     """ Set if Above or Equal """
-    SETC(cpu_context, ip, mnem, operands)
+    SETC(cpu_context, instruction)
 
 
 @opcode
-def SETA(cpu_context, ip, mnem, operands):
+def SETA(cpu_context, instruction):
     """ Set if Above """
+    operands = instruction.operands
     result = int(not (cpu_context.registers.cf | cpu_context.registers.zf))
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETPS(cpu_context, ip, mnem, operands):
+def SETPS(cpu_context, instruction):
     """ Set if Not??? Parity """
+    operands = instruction.operands
     result = int(cpu_context.registers.sf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
@@ -1770,8 +1763,9 @@ def SETPS(cpu_context, ip, mnem, operands):
 
 @opcode("setp")
 @opcode("setpe")
-def setp(cpu_context, ip, mnem, operands):
+def setp(cpu_context, instruction):
     """ Set if Parity """
+    operands = instruction.operands
     result = int(cpu_context.registers.pf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
@@ -1779,40 +1773,45 @@ def setp(cpu_context, ip, mnem, operands):
 
 @opcode("setnp")
 @opcode("setpo")
-def setnp(cpu_context, ip, mnem, operands):
+def setnp(cpu_context, instruction):
     """ Set if Not Parity """
+    operands = instruction.operands
     result = int(not cpu_context.registers.pf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETO(cpu_context, ip, mnem, operands):
+def SETO(cpu_context, instruction):
     """ Set if Overflow """
+    operands = instruction.operands
     result = int(cpu_context.registers.of)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNS(cpu_context, ip, mnem, operands):
+def SETNS(cpu_context, instruction):
     """ Set if Not Sign """
+    operands = instruction.operands
     result = int(not cpu_context.registers.sf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNO(cpu_context, ip, mnem, operands):
+def SETNO(cpu_context, instruction):
     """ Set if Not Overflow """
+    operands = instruction.operands
     result = int(not cpu_context.registers.of)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNL(cpu_context, ip, mnem, operands):
+def SETNL(cpu_context, instruction):
     """ Set if Not Less """
+    operands = instruction.operands
     result = int(cpu_context.registers.sf == cpu_context.registers.of)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
@@ -1820,84 +1819,90 @@ def SETNL(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SETNGE(cpu_context, ip, mnem, operands):
+def SETNGE(cpu_context, instruction):
     """ Set if Not Greater Than or Equal """
+    operands = instruction.operands
     result = int(cpu_context.registers.sf != cpu_context.registers.of)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNG(cpu_context, ip, mnem, operands):
+def SETNG(cpu_context, instruction):
     """ Set if Not Greater """
+    operands = instruction.operands
     result = int(cpu_context.registers.zf or (cpu_context.registers.sf != cpu_context.registers.of))
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNE(cpu_context, ip, mnem, operands):
+def SETNE(cpu_context, instruction):
     """ Set if Not Equal """
+    operands = instruction.operands
     result = int(not cpu_context.registers.zf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNC(cpu_context, ip, mnem, operands):
+def SETNC(cpu_context, instruction):
     """ Set if Not Carry """
+    operands = instruction.operands
     result = int(not cpu_context.registers.cf)
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNBE(cpu_context, ip, mnem, operands):
+def SETNBE(cpu_context, instruction):
     """ Set if Not Below or Equal """
+    operands = instruction.operands
     result = int(not (cpu_context.registers.cf | cpu_context.registers.zf))
     logger.debug("Setting %s to 0x%X", operands[0].text, result)
     operands[0].value = result
 
 
 @opcode
-def SETNB(cpu_context, ip, mnem, operands):
+def SETNB(cpu_context, instruction):
     """ Set if Not Below """
-    SETNC(cpu_context, ip, mnem, operands)
+    SETNC(cpu_context, instruction)
 
 
 @opcode
-def SETNAE(cpu_context, ip, mnem, operands):
+def SETNAE(cpu_context, instruction):
     """ Set if Not Above or Equal """
-    SETC(cpu_context, ip, mnem, operands)
+    SETC(cpu_context, instruction)
 
 
 @opcode
-def SETL(cpu_context, ip, mnem, operands):
+def SETL(cpu_context, instruction):
     """ Set if Less Than """
-    SETNGE(cpu_context, ip, mnem, operands)
+    SETNGE(cpu_context, instruction)
 
 
 @opcode
-def SETNLE(cpu_context, ip, mnem, operands):
+def SETNLE(cpu_context, instruction):
     """ Set if Not Less Than or Equal """
-    SETG(cpu_context, ip, mnem, operands)
+    SETG(cpu_context, instruction)
 
 
 @opcode
-def SETNZ(cpu_context, ip, mnem, operands):
+def SETNZ(cpu_context, instruction):
     """ Set if Not Zero """
-    SETNE(cpu_context, ip, mnem, operands)
+    SETNE(cpu_context, instruction)
 
 
 @opcode
-def SETZ(cpu_context, ip, mnem, operands):
+def SETZ(cpu_context, instruction):
     """ Set if Zero """
-    SETE(cpu_context, ip, mnem, operands)
+    SETE(cpu_context, instruction)
 
 
 @opcode
-def SHR(cpu_context, ip, mnem, operands):
+def SHR(cpu_context, instruction):
     """ Shift Right """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1928,7 +1933,7 @@ def SHR(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def STD(cpu_context, ip, mnem, operands):
+def STD(cpu_context, instruction):
     """ Set Direction Flag """
     cpu_context.registers.df = 1
 
@@ -1937,7 +1942,7 @@ def STD(cpu_context, ip, mnem, operands):
 @opcode("stosw")
 @opcode("stosd")
 @opcode("stosq")
-def STOSx(cpu_context, ip, mnem, operands):
+def STOSx(cpu_context, instruction):
     """ STOre value in {R,E}AX, AX, AL in the address pointed to by {R,E}DI"""
     # Make a mapping for the opcode to define what registers we are working with.
     RAX_REG_SIZE_MAP = {8: "rax", 4: "eax", 2: "ax", 1: "al"}
@@ -1945,10 +1950,10 @@ def STOSx(cpu_context, ip, mnem, operands):
 
     # Recreate the dst and src operands, since IDA hides them.
     # (We can't use operands, because they are fake and hidden.)
-    dst_opnd = Operand(cpu_context, ip, 0)
+    dst_opnd = Operand(cpu_context, instruction.ip, 0)
     dst_opnd.text = RDI_REG_SIZE_MAP.get(dst_opnd.width, "edi")
     dst_opnd.type = idc.o_reg
-    src_opnd = Operand(cpu_context, ip, 1)
+    src_opnd = Operand(cpu_context, instruction.ip, 1)
     src_opnd.text = RAX_REG_SIZE_MAP[src_opnd.width]
     src_opnd.type = idc.o_reg
 
@@ -1962,8 +1967,9 @@ def STOSx(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def SUB(cpu_context, ip, mnem, operands):
+def SUB(cpu_context, instruction):
     """ Subtract """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -1984,8 +1990,9 @@ def SUB(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def TEST(cpu_context, ip, mnem, operands):
+def TEST(cpu_context, instruction):
     """ Test values for equality """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)
@@ -2005,8 +2012,9 @@ def TEST(cpu_context, ip, mnem, operands):
 
 
 @opcode
-def XCHG(cpu_context, ip, mnem, operands):
+def XCHG(cpu_context, instruction):
     """ Exchange two values """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     logger.debug("exchange 0x%X and 0x%X", opvalue1, opvalue2)
@@ -2016,8 +2024,9 @@ def XCHG(cpu_context, ip, mnem, operands):
 
 @opcode("xor")
 @opcode("pxor")
-def _xor(cpu_context, ip, mnem, operands):
+def _xor(cpu_context, instruction):
     """ XOR """
+    operands = instruction.operands
     opvalue1 = operands[0].value
     opvalue2 = operands[1].value
     width = get_max_operand_size(operands)

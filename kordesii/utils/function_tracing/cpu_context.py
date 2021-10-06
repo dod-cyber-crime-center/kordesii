@@ -15,6 +15,7 @@ from typing import List, Tuple, Optional, Union
 
 import ida_frame
 import ida_funcs
+import ida_idp
 import idaapi
 import idc
 import ida_struct
@@ -22,6 +23,7 @@ import ida_ua
 
 from kordesii.utils.function_tracing import utils
 from kordesii.utils.function_tracing.constants import *
+from kordesii.utils.function_tracing.instruction import Instruction
 from kordesii.utils.function_tracing.memory import Memory
 from kordesii.utils.function_tracing.variables import VariableMap
 from kordesii.utils.function_tracing.operands import Operand, OperandLite
@@ -111,13 +113,15 @@ class ProcessorContext(object):
     """
 
     # Must be set by inherited classes.
-    ARCH_NAME = None  # Name of architecture as reported by disassembler.
     OPCODES = {}  # Map of opcode mnemonics to functions that emulate them.
+
+    # Class used to generate instructions.
+    _instruction_class = Instruction
 
     # Cache for keeping track of instructions and their operand indexes.
     _operand_indices = {}
 
-    def __init__(self, emulator, registers, instruction_pointer, stack_pointer):
+    def __init__(self, emulator, registers, instruction_pointer, stack_pointer, return_register):
         self.emulator = emulator
         self.registers = registers
         self.jcccontext = JccContext()
@@ -136,28 +140,8 @@ class ProcessorContext(object):
 
         self._sp = stack_pointer
         self._ip = instruction_pointer
+        self._ret = return_register
         self._sp_start = self.sp
-
-    @classmethod
-    def from_arch(cls, emulator, arch_name=None):
-        """
-        Factory method for initializing a ProcessorContext based on detected architecture.
-
-        :param emulator: Instance of Emulator to use during emulation.
-        :param arch_name: Name of architecture to initializes (according to the disassembler)
-                          Architecture is automatically detected if not provided.
-
-        :raises NotImplementedError: If architecture is not supported.
-        """
-        # Pull from disassembler if not provided.
-        if not arch_name:
-            info = idaapi.get_inf_structure()
-            arch_name = info.procName
-
-        for subclass in cls.__subclasses__():
-            if subclass.ARCH_NAME == arch_name:
-                return subclass(emulator)
-        raise NotImplementedError("Architecture not supported: {}".format(arch_name))
 
     def __deepcopy__(self, memo):
         """Implementing our own deepcopy to improve speed."""
@@ -182,6 +166,7 @@ class ProcessorContext(object):
         copy.byteness = self.byteness
         copy._sp = self._sp
         copy._ip = self._ip
+        copy._ret = self._ret
         copy._sp_start = self._sp_start
 
         return copy
@@ -217,6 +202,19 @@ class ProcessorContext(object):
         """
         return self._sp_start - self.sp
 
+    # TODO: A subroutine in ARM can technically pass in larger values, in which
+    #   case the value spans multiple registers r0-r3
+    @property
+    def ret(self) -> int:
+        """Alias for retrieving the return value."""
+        return self.registers[self._ret]
+
+    @ret.setter
+    def ret(self, value):
+        """Alias for setting return value."""
+        logger.debug("Setting 0x%X into %s", value, self._ret)
+        self.registers[self._ret] = value
+
     @property
     def prev_instruction(self):
         """That last instruction that was executed or None if no instructions have been executed."""
@@ -225,29 +223,11 @@ class ProcessorContext(object):
         else:
             return None
 
-    def execute_instruction_hooks(self, start, mnem, pre=True):
-        """
-        Executes instructions hooks for the given start
-        """
-        hooks = (
-            self.emulator.get_instruction_hooks(start, pre=pre)
-            + self.emulator.get_instruction_hooks(mnem, pre=pre)
-        )
-        if hooks:
-            operands = self.operands
-            for hook in hooks:
-                try:
-                    hook(self, start, mnem, operands)
-                except RuntimeError:
-                    raise  # Allow RuntimeError exceptions to be thrown.
-                except Exception as e:
-                    logger.debug("Failed to execute instruction hook with error: %s", e)
-
     def execute(self, start=None, end=None, max_instructions=10000):
         """
         "Execute" the instruction at IP and store results in the context.
-        The RIP/EIP register will be set to the value supplied in IP so that it is
-        correct.
+        The instruction pointer register will be set to the value supplied in .ip so that
+        it is correct.
 
         :param start: instruction address to start execution (defaults to currently set ip)
         :param end: instruction to stop execution (not including)
@@ -263,134 +243,20 @@ class ProcessorContext(object):
         # Set instruction pointer to where we are currently executing.
         self.ip = start
 
-        # Extra processing if we are at the start of a function.
-        func_obj = ida_funcs.get_func(self.ip)
-        if func_obj.start_ea == self.ip:
-            # Reset the sp_start
-            self._sp_start = self.sp
-
-            # Add the passed in arguments to the variables map.
-            # (This also helps to standardize the argument names to "a*" instead of "arg_*")
-            for arg in self.passed_in_args:
-                addr = arg.addr
-                # TODO: Support variables from registers?
-                if addr is not None:
-                    if arg.is_stack:
-                        try:
-                            frame = ida_frame.get_frame(func_obj)
-                            if not frame:
-                                logger.warning(f"Failed to get frame for function argument: {repr(arg)}")
-                                continue
-
-                            # Getting member stack offset from name is more reliable then calculating
-                            # it from the address.
-                            member = ida_struct.get_member_by_name(frame, arg.name)
-                            if not member:
-                                logger.warning(f"Failed to get member for function argument: {repr(arg)}")
-                                continue
-
-                            self.variables.add(addr, frame_id=frame.id, stack_offset=member.soff)
-                        except ValueError:
-                            logger.warning(f"Failed to get stack information for function argument: {repr(arg)}")
-                    else:
-                        self.variables.add(addr)
-
         # If end is provided, recursively run execute() until ip is end.
         if end is not None:
             count = max_instructions
-            prev_ecx = self.registers.ecx
-            prev_ecx_count = count
             while self.ip != end:
-                if ida_ua.print_insn_mnem(self.ip) == 'retn':
-                    return
-                self.execute()
-                # TODO: Re-enable this feature after rigorous testing.
-                # # Dynamically allow more instructions to be executed if we detect we are in a loop
-                # # and it is making progress.
-                # # Ie. this will allow most while statements not to ding our max instruction quota.
-                # if self.registers.ecx and (self.registers.ecx < prev_ecx or prev_ecx == 0):
-                #     if prev_ecx:
-                #         count += min(prev_ecx_count - count, 1000)
-                #     prev_ecx = self.registers.ecx
-                #     prev_ecx_count = count
+                instruction = self.instruction
+                if instruction.is_terminal:
+                    return  # TODO: Should we be executing the terminal instruction?
+                instruction.execute()
                 count -= 1
                 if not count:
                     raise RuntimeError('Hit maximum number of instructions.')
             return
-
-        # Determine if a rep* instruction and add termination condition.
-        term_condition = None
-        if idc.get_wide_byte(start) in (0xF2, 0xF3):
-            insn = idc.GetDisasm(start)  # IDA pro never has operands for rep opcodes.
-            if insn.startswith("rep "):
-                term_condition = lambda: self.registers.ecx == 0
-                term_condition.unconditional = True
-            elif insn.startswith(("repe ", "repz ")):
-                term_condition = lambda: self.registers.ecx == 0 or self.registers.zf == 0
-                term_condition.unconditional = False
-            elif insn.startswith(("repne ", "repnz ")):
-                term_condition = lambda: self.registers.ecx == 0 or self.registers.zf == 1
-                term_condition.unconditional = False
-
-        # Emulate instruction.
-        mnem = ida_ua.print_insn_mnem(start)
-
-        # Log a header line for debug messages of this instruction.
-        # This is simpler and faster then trying to include the information at each log line
-        logger.debug("[0x%X %03X] :: %s", start, self.sp_diff, mnem)
-
-        # Run any pre-hooks first.
-        self.execute_instruction_hooks(start, mnem, pre=True)
-
-        instruction = self.OPCODES.get(mnem)
-        if instruction:
-            operands = self.operands
-
-            try:
-                if term_condition:
-                    if self.emulator.disabled_rep:
-                        logger.debug("Ignoring rep instructions: DISABLED.")
-
-                    # As a safety measure, don't allow rep instructions to surpass
-                    # our max memory read limit.
-                    # Only do this check if the terminating condition is unconditional, otherwise
-                    # this number usually big because it expects zf to be toggled.
-                    elif term_condition.unconditional and self.registers.ecx > self.memory.MAX_MEM_READ:
-                        logger.warning(
-                            "Emulation attempted to read %s instruction %d times. "
-                            "Ignoring instruction.", mnem, self.registers.ecx
-                        )
-                    else:
-                        logger.debug("Emulating %s instruction %d times.", mnem, self.registers.ecx)
-                        count = 0
-                        while not term_condition():
-                            instruction(self, start, mnem, operands)
-                            self.registers.ecx -= 1
-                            # Stop if we are iterating too much.
-                            count += 1
-                            if count > self.memory.MAX_MEM_READ:
-                                logger.warning("Looped too many times, exiting prematurely.")
-                                break
-                else:
-                    instruction(self, start, mnem, operands)
-            except Exception:
-                logger.exception("Failed to execute address 0x%X: %s", start, idc.GetDisasm(start))
         else:
-            logger.debug("%s instruction not implemented.", mnem)
-
-        # Record executed instruction.
-        self.executed_instructions.append(start)
-
-        # Run any post-hooks
-        self.execute_instruction_hooks(start, mnem, pre=False)
-
-        # Add a blank space to help visually separate logs for each instruction.
-        logger.debug(" ")
-
-        # After execution, set instruction pointer to next instruction assuming
-        # standard code flow and if no jump was made.
-        if self.ip == start:
-            self.ip = idc.next_head(start)
+            self.instruction.execute()
 
     def get_call_history(self, func_name_or_ea) -> List[Tuple[int, List]]:
         """
@@ -419,6 +285,21 @@ class ProcessorContext(object):
 
         self.jcccontext = JccContext()
 
+    def get_instruction(self, ip=None) -> Instruction:
+        """
+        Gets the Instruction object for the current instruction pointed by the instruction pointer.
+
+        :param ip: location of instruction pointer to pull Instruction from (default to current ip in context)
+        :return: Instruction object
+        """
+        if ip is None:
+            ip = self.ip
+        return self._instruction_class(self, ip)
+
+    @property
+    def instruction(self) -> Instruction:
+        return self.get_instruction()
+
     def get_operands(self, ip=None) -> List[Operand]:
         """
         Gets the Operand objects of all operands in the current instruction and returns them in a list.
@@ -427,36 +308,10 @@ class ProcessorContext(object):
 
         :return: list of Operand objects
         """
-        if ip is None:
-            ip = self.ip
-
-        # Calling insn_t() and decode_insn() is somewhat expensive and this function gets called a LOT,
-        # so we are going to cache the operand indices.
-        try:
-            indices = self._operand_indices[ip]
-        except KeyError:
-            indices = []
-            insn = ida_ua.insn_t()
-            # NOTE: We can't trust the instruction length returned by decode_ins.
-            ida_ua.decode_insn(insn, ip)
-            for idx, op in enumerate(insn.ops):
-                if op.type == ida_ua.o_void:
-                    break  # no more operands
-
-                # IDA will sometimes create hidden or "fake" operands.
-                # These are there to represent things like an implicit EAX register.
-                # To help avoid confusion to the opcode developer, these fake operands will not be included.
-                # TODO: Checking shown() may not work as expected.
-                #   If things explode, go back to checking operand.is_hidden
-                if op.shown():
-                    indices.append((idx, op.type))
-
-            self._operand_indices[ip] = indices
-
-        return [Operand(self, ip, idx, _type=type) for idx, type in indices]
+        return self.get_instruction(ip=ip).operands
 
     @property
-    def operands(self):
+    def operands(self) -> List[Operand]:
         return self.get_operands()
 
     def reg_read(self, reg):
