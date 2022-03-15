@@ -134,7 +134,9 @@ def sh_get_folder_path(cpu_context, func_name, func_args):
         _, path_ptr, csidl, _ = func_args
     else:
         _, csidl, _, _, path_ptr = func_args
-
+    # Check if CSIDL_FLAG_CREATE is set
+    if csidl & 0x8000:
+        csidl -= 0x8000
     if csidl in CSIDL_DICT_WIN10x64:
         folder = CSIDL_DICT_WIN10x64[csidl]
     else:
