@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
     
 ### Fixed
 - *function_tracing*
-    - Check if `CSIDL_FLAG_CREATE` is set before resolving folder in `SHGetFolderPath` (@ddash-ct)
+    - Mask off any CSIDL flags before resolving folder in `SHGetFolderPath` (@ddash-ct)
 
 ## [2.4.0] - 2021-10-06
 

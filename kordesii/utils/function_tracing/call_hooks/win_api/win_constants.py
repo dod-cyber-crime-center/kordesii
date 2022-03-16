@@ -80,6 +80,16 @@ class CSIDL(IntEnum):
     CSIDL_CDBURN_AREA = 0x3b
 
 
+class CSIDL_Flags(IntFlag):
+    """CSIDL Flags"""
+    CSIDL_FLAG_CREATE = 0x8000
+    CSIDL_FLAG_DONT_UNEXPAND = 0x2000
+    CSIDL_FLAG_DONT_VERIFY = 0x4000
+    CSIDL_FLAG_NO_ALIAS = 0x1000
+    CSIDL_FLAG_PER_USER_INIT = 0x0800
+    CSIDL_FLAG_MASK = 0xff00
+
+
 class RegistryKey(IntEnum):
     """Predefined keys in winreg.h"""
     HKEY_CLASSES_ROOT = 0x80000000
