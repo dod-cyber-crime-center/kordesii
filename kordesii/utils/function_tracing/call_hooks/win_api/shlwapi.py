@@ -43,3 +43,22 @@ def pathappend(cpu_context, func_name, func_args):
     full_path = ntpath.join(curr_path, more_path)
     cpu_context.write_data(path_ptr, full_path, data_type=constants.WIDE_STRING if wide else constants.STRING)
     return True
+
+
+@builtin_func("PathAddBackslashA")
+@builtin_func("PathAddBackslashW")
+#typedef(LPWSTR PathAddBackslashW(LPWSTR pszPath));)
+def pathaddbackslash(cpu_context, func_name, func_args):
+    """
+    Appends a backslash to the path
+    """
+    wide = func_name.endswith(u"W")
+    path_ptr = func_args[0]
+
+    curr_path = cpu_context.read_data(
+        path_ptr, data_type=constants.WIDE_STRING if wide else constants.STRING
+    ).decode("utf-16-le" if wide else "utf8")
+
+    full_path = curr_path + "\\"
+    cpu_context.write_data(path_ptr, full_path, data_type=constants.WIDE_STRING if wide else constants.STRING)
+    return True

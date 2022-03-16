@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file.
 
 
+## [Unreleased]
+
+### Added
+- *function_tracing*
+    - Added `PathAddBackslash` SHLWAPI hook (@ddash-ct)
+    
+### Fixed
+- *function_tracing*
+    - Mask off any CSIDL flags before resolving folder in `SHGetFolderPath` (@ddash-ct)
+
 ## [2.4.0] - 2021-10-06
 
 ### Added
