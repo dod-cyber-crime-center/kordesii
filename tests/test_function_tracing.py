@@ -744,7 +744,7 @@ def test_memory_addressing_modes():
     ctx = emulator.new_context()
     ctx.memory.write(0, bytes(range(100)))
     insn = ctx.get_instruction(0x102D4)
-    assert insn.operands[1].text == "[LR,#8]!"
+    assert insn.operands[1].text in ("[LR,#8]!", "[LR,#(off_21008 - 0x21000)]!")
     ctx.registers.lr = 2
     # operand initially points to address 0x2 + 8
     assert insn.operands[1].addr == 2 + 8

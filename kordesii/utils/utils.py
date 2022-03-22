@@ -295,8 +295,8 @@ def lines(start=None, end=None, reverse=False, max_steps=None):
     :param max_steps: Maximum number of steps to iterate.
     :yields: instructions addresses
     """
-    max_ea = idaapi.cvar.inf.maxEA
-    min_ea = idaapi.cvar.inf.minEA
+    max_ea = idaapi.cvar.inf.max_ea
+    min_ea = idaapi.cvar.inf.min_ea
 
     # Normalize start and end addresses.
     if reverse:

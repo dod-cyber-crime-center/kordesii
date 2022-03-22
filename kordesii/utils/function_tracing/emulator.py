@@ -41,7 +41,7 @@ class Emulator(object):
             So this option allows you to turn it off when the feature is not necessary.
         """
         # Determine the appropriate class to use for generated contexts based on arch name.
-        self.arch = idaapi.get_inf_structure().procName
+        self.arch = idaapi.get_inf_structure().procname
         if self.arch == "metapc":
             self._context_class = x86_64ProcessorContext
         elif self.arch == "ARM":

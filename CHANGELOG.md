@@ -8,9 +8,14 @@ All notable changes to this project will be documented in this file.
 - *function_tracing*
     - Added `PathAddBackslash` SHLWAPI hook (@ddash-ct)
     
+### Changed
+- Updated to support IDA 7.7
+
 ### Fixed
 - *function_tracing*
     - Mask off any CSIDL flags before resolving folder in `SHGetFolderPath` (@ddash-ct)
+- Removed unnecessary pinning of `flask` and `pygments` dependency. 
+
 
 ## [2.4.0] - 2021-10-06
 

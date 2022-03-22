@@ -613,7 +613,7 @@ def trace_stack_var(stack_var, loc, func_ea, state=None):
                 return opval_1
             elif op_type_1 == idc.o_mem:
                 poss_loc = idc.get_wide_dword(opval_1)
-                if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
+                if idaapi.cvar.inf.min_ea <= poss_loc < idaapi.cvar.inf.max_ea:
                     return poss_loc
                 else:
                     return opval_1
@@ -657,7 +657,7 @@ def trace_register(reg, loc, func_ea, state=None):
                 return opval_1
             elif op_type_1 == idc.o_mem:
                 poss_loc = idc.get_wide_dword(opval_1)
-                if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
+                if idaapi.cvar.inf.min_ea <= poss_loc < idaapi.cvar.inf.max_ea:
                     return poss_loc
                 else:
                     return opval_1
@@ -705,7 +705,7 @@ def trace_register_family(reg, loc, func_ea, state=None):
                     return opval_1
                 elif op_type_1 == idc.o_mem:
                     poss_loc = idc.get_wide_dword(opval_1)
-                    if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
+                    if idaapi.cvar.inf.min_ea <= poss_loc < idaapi.cvar.inf.max_ea:
                         return poss_loc
                     else:
                         return opval_1
@@ -749,7 +749,7 @@ def trace_register_family_x64(reg, loc, func_ea, state=None):
                     return opval_1
                 elif op_type_1 == idc.o_mem:
                     poss_loc = idc.get_wide_dword(opval_1)
-                    if idaapi.cvar.inf.minEA <= poss_loc < idaapi.cvar.inf.maxEA:
+                    if idaapi.cvar.inf.min_ea <= poss_loc < idaapi.cvar.inf.max_ea:
                         return poss_loc
                     else:
                         return opval_1

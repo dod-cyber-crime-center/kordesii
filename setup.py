@@ -47,8 +47,8 @@ setup(
         'six',
 
         # For the server and API
-        'flask<2.0.0',
-        'pygments<3.0.0',
+        'flask',
+        'pygments',
     ],
     extras_require={
         'testing': [
