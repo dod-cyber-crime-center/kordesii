@@ -160,6 +160,24 @@ context, args = emulator.context_at(addr, depth=1)
 ```
 
 
+### Emulating function calls
+
+We can emulate the function call instructions found during emulation by setting the 
+`call_depth` option to the number of call levels deep you would like it to emulate.
+When set, a call instruction will cause the emulator to step into the referenced function
+and emulate the instructions as if it was executed normally. 
+WARNING: This could cause a significant performance hit depending on the function.
+By default, this is set to 0, meaning call instructions will not be emulated unless there is a call hook.
+
+```python
+context = emulator.context_at(addr, call_depth=3)  # allows 3 levels deep of calls.
+```
+
+If you would like to emulate a specific function or call instruction we can instead
+create a call hook using `emulate_call()` described in [Emulating Subroutines](#emulating-subroutines).
+This also can accept a `call_depth` option if desired.
+
+
 ## Emulating Loops
 
 By default, when a context, operand, or function argument is requested, the emulator
@@ -597,4 +615,24 @@ print(context.actions)
 for action in context.actions:
     if isinstance(action, actions.CommandExecuted):
         print(f"Executed {action.command} at address {hex(action.ip)}")
+```
+
+## Memory Streaming
+
+The emulated memory object can open a file-like stream object using the `.open()` function.
+This will allow you to pass in the emulated memory wherever a file-like stream is expected.
+
+To open a stream starting at a specific address, provide the address in the `.open(address)` function.
+
+Just calling `.open()` without any arguments will cause the memory stream to be opened starting at the
+base address of the first allocated block.
+
+```python
+with context.memory.open(0x401000) as stream:
+    print(stream.tell_address())  # current seek location as virtual address: 0x401000
+    print(stream.tell())   # current seek location relative to starting address: 0
+    print(stream.read(10))
+    stream.seek_address(0x401234)   # seek to a specific address
+    stream.seek(100)  # 100 bytes from start address
+    stream.write(b"hello")  # writes data back to emulated memory at current seek location.
 ```

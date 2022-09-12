@@ -30,6 +30,7 @@ from kordesii.utils.function_tracing.operands import Operand, OperandLite
 from kordesii.utils.function_tracing.functions import FunctionSignature, FunctionArg
 from kordesii.utils.function_tracing.objects import File, RegKey, Service, ObjectMap
 from kordesii.utils.function_tracing.actions import ActionList
+from kordesii.utils.functions import Function
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ class ProcessorContext(object):
         self.registers = registers
         self.jcccontext = JccContext()
         self.memory = Memory()
-        self.func_calls = {}  # Keeps track of function calls.
+        self.call_history = []  # Keeps track of function calls.
         self.executed_instructions = []  # Keeps track of the instructions that have been executed.
         self.memory_copies = collections.defaultdict(list)  # Keeps track of memory moves.
         self.bitness = utils.get_bits()
@@ -134,9 +135,11 @@ class ProcessorContext(object):
         self.variables = VariableMap(self)
         self.objects = ObjectMap(self)
         self.actions = ActionList()
+        self.stdout = ""
 
         # Function start address of a function we are currently hooking.
         self.hooking_call = None
+        self._call_depth = 0
 
         self._sp = stack_pointer
         self._ip = instruction_pointer
@@ -159,11 +162,13 @@ class ProcessorContext(object):
         copy.variables = deepcopy(self.variables, memo)
         copy.objects = deepcopy(self.objects, memo)
         copy.actions = deepcopy(self.actions, memo)
-        copy.func_calls = dict(self.func_calls)
+        copy.call_history = list(self.call_history)
         copy.executed_instructions = list(self.executed_instructions)
         copy.memory_copies = self.memory_copies.copy()
+        copy.stdout = self.stdout
         copy.bitness = self.bitness
         copy.byteness = self.byteness
+        copy._call_depth = self._call_depth
         copy._sp = self._sp
         copy._ip = self._ip
         copy._ret = self._ret
@@ -223,7 +228,7 @@ class ProcessorContext(object):
         else:
             return None
 
-    def execute(self, start=None, end=None, max_instructions=10000):
+    def execute(self, start=None, end=None, call_depth: int = 0, max_instructions: int = None):
         """
         "Execute" the instruction at IP and store results in the context.
         The instruction pointer register will be set to the value supplied in .ip so that
@@ -232,16 +237,29 @@ class ProcessorContext(object):
         :param start: instruction address to start execution (defaults to currently set ip)
         :param end: instruction to stop execution (not including)
             (defaults to only run start)
+        :param call_depth: Number of function calls we are allowed to emulate into.
+            When we hit our limit (depth is 0), emulation will no longer jump into function calls.
+            (Defaults to not emulating into any function calls.)
+            NOTE: This does not affect call hooks.
         :param max_instructions: Maximum number of instructions to execute before
-            raising an RuntimeError
+            raising an RuntimeError.
+            Uses max_instructions set by emulator constructor if not provided.
 
         :raises RuntimeError: If maximum number of instructions get hit.
         """
+        if max_instructions is None:
+            max_instructions = self.emulator.max_instructions
+
         if not start:
             start = self.ip
 
         # Set instruction pointer to where we are currently executing.
         self.ip = start
+
+        # Set current call depth.
+        if call_depth < 0:
+            raise ValueError(f"call_depth must be a positive number.")
+        self._call_depth = call_depth
 
         # If end is provided, recursively run execute() until ip is end.
         if end is not None:
@@ -258,6 +276,84 @@ class ProcessorContext(object):
         else:
             self.instruction.execute()
 
+    def _execute_call(self, func_name: str, func_address: int, call_address: int = None):
+        """
+        Executes the call to the given function.
+        If a call hook has been provided, the hook will get run. Otherwise, instructions in the function
+        will get emulated if set call_depth allows.
+
+        :param func_name: Name of the function (or empty string)
+        :param func_address: Address of function to call.
+        :param call_address: Address of call instruction (if available)
+        """
+        # Tell context that we are currently emulating a function hook.
+        # This information is important for things like pulling out function arguments out correctly.
+        self.hooking_call = func_address
+
+        try:
+            # Report on function call and their arguments.
+            arg_objs = self.get_function_arg_objects(func_address)
+            args = [arg_obj.value for arg_obj in arg_objs]
+            self.call_history.append((call_address, func_name, args))
+
+            # Emulate the effects of any known builtin functions.
+            call_hook = self.emulator.get_call_hook(func_address)
+            if not call_hook:
+                call_hook = self.emulator.get_call_hook(func_name)
+                if not call_hook:
+                    # Try one more time with a sanitized name.
+                    func_name = utils.sanitize_func_name(func_name)
+                    call_hook = self.emulator.get_call_hook(func_name)
+
+            # Execute call hook if provided.
+            if call_hook:
+                try:
+                    logger.debug(
+                        "Emulating %s(%s)",
+                        func_name,
+                        ", ".join(f"{arg_obj.name}={hex(arg_obj.value)}" for arg_obj in arg_objs)
+                    )
+                    logger.debug("Running hook: %r", call_hook)
+                    ret = call_hook(self, func_name, args)
+                    if ret is True:
+                        ret = 1
+                    elif ret is False:
+                        ret = 0
+                    # Set return value to rax
+                    if ret is not None:
+                        if not isinstance(ret, int):
+                            raise TypeError(f"Invalid return type. Expected 'int' but got '{type(ret)}'")
+                        self.ret = ret
+                except RuntimeError:
+                    raise  # Allow RuntimeError exceptions to be thrown.
+                except Exception as e:
+                    logger.debug("Failed to emulate builtin function: %s() with error: %s", func_name, e)
+
+            # Otherwise, emulate the function instructions if set call_depth allows.
+            elif self._call_depth:
+                try:
+                    func = Function(func_address)
+                except AttributeError as e:
+                    logger.warning("Failed to execute call at 0x%X : %s", func_address, e)
+                    return
+                call_depth = self._call_depth
+                sp_start = self._sp_start
+                try:
+                    self.execute(start=func.start_ea, end=func.end_ea, call_depth=call_depth - 1)
+                finally:
+                    # Reset after we leave call.
+                    self._call_depth = call_depth
+                    self._sp_start = sp_start
+
+        finally:
+            self.hooking_call = None
+
+    @property
+    def func_calls(self) -> dict:
+        warnings.warn(f".func_calls is deprecated. Please use .call_history instead.", DeprecationWarning)
+        # Original .func_calls overwrote calls at the same instruction. So pulling the last one to replicate this logic.
+        return {address: (func_name, args) for address, func_name, args in self.call_history}
+
     def get_call_history(self, func_name_or_ea) -> List[Tuple[int, List]]:
         """
         Returns the call history for a specific function name.
@@ -269,7 +365,7 @@ class ProcessorContext(object):
         else:
             ea = func_name_or_ea
             func_name = utils.get_function_name(ea)
-        return [(ea, args) for ea, (_func_name, args) in list(self.func_calls.items()) if _func_name == func_name]
+        return [(address, args) for address, _func_name, args in self.call_history if _func_name == func_name]
 
     def prep_for_branch(self, bb_start_ea):
         """

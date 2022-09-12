@@ -370,7 +370,7 @@ def is_x86_64():
     :return bool: True if an Intel x86 or x64, False otherwise
     """
     info = idaapi.get_inf_structure()
-    return info.procName == "metapc"
+    return info.procname == "metapc"
 
 
 def is_ARM():
@@ -380,4 +380,4 @@ def is_ARM():
     :return bool: True if an ARM processor, False otherwise
     """
     info = idaapi.get_inf_structure()
-    return info.procName == "ARM"
+    return info.procname == "ARM"

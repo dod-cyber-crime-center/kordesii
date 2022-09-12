@@ -1,158 +1,61 @@
-from textwrap import dedent
+"""
+Tests the ProcessorContext object
+"""
 
 import pytest
 
 
-@pytest.mark.in_ida
-def test_flowchart():
-    from kordesii.utils import function_tracing
+ENC_DATA = [
+    b"Idmmn!Vnsme ",
+    b'Vgqv"qvpkle"ukvj"ig{"2z20',
+    b"Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-",
+    b"Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*",
+    b"Dfla%gpwkv%mji`v%lk%rjji%fijqm+",
+    b"Egru&ghb&biau&cgen&ngrc&rnc&irnct(",
+    b"\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=",
+    b"C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9",
+    b'+()./,-"#*',
+    b"`QFBWFsQL@FPPb",
+    b"tSUdFS",
+    b"\x01\x13\x10n\x0e\x05\x14",
+    b'-",5 , v,tr4v,trv4t,v\x7f,ttt',
+    b"@AKJDGBA@KJGDBJKAGDC",
+    (
+        b"!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c"
+        b"\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02["
+    ),
+    (
+        b"4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b"
+        b"\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y"
+    ),
+    (
+        b".\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1f"
+        b"Z\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T"
+    ),
+    b"LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM",
+]
 
-    emulator = function_tracing.Emulator()
-
-    # Test on simple 1 block function.
-    flowchart = function_tracing.Flowchart(0x004011AA)
-    blocks = list(flowchart.blocks())
-    assert len(blocks) == 1
-    block = blocks[0]
-    assert block.start_ea == 0x00401150
-    assert block.end_ea == 0x004012A0
-    assert list(block.heads()) == (
-        [0x00401150, 0x00401151, 0x00401153, 0x00401158, 0x0040115D, 0x00401162, 0x00401167]
-        + [0x0040116A, 0x0040116F, 0x00401174, 0x00401179, 0x0040117C, 0x00401181, 0x00401186]
-        + [0x0040118B, 0x0040118E, 0x00401193, 0x00401198, 0x0040119D, 0x004011A0, 0x004011A5]
-        + [0x004011AA, 0x004011AF, 0x004011B2, 0x004011B7, 0x004011BC, 0x004011C1, 0x004011C4]
-        + [0x004011C9, 0x004011CE, 0x004011D3, 0x004011D6, 0x004011DB, 0x004011E0, 0x004011E5]
-        + [0x004011E8, 0x004011ED, 0x004011F2, 0x004011F7, 0x004011FA, 0x004011FF, 0x00401204]
-        + [0x00401209, 0x0040120C, 0x00401211, 0x00401216, 0x0040121B, 0x0040121E, 0x00401223]
-        + [0x00401228, 0x0040122D, 0x00401230, 0x00401235, 0x0040123A, 0x0040123F, 0x00401242]
-        + [0x00401247, 0x0040124C, 0x00401251, 0x00401254, 0x00401259, 0x0040125E, 0x00401263]
-        + [0x00401266, 0x0040126B, 0x00401270, 0x00401275, 0x00401278, 0x0040127D, 0x00401282]
-        + [0x00401287, 0x0040128A, 0x0040128F, 0x00401294, 0x00401299, 0x0040129C, 0x0040129E]
-        + [0x0040129F]
-    )
-    # Ensure we create a path of just the 1 block.
-    path_blocks = list(flowchart.get_paths(0x004011AA))
-    assert len(path_blocks) == 1
-    path_block = path_blocks[0]
-    assert path_block.path() == [path_block]
-    # Ensure cpu context gets created correctly.
-    cpu_context = path_block.cpu_context(init_context=emulator.new_context())
-    assert cpu_context.ip == block.end_ea
-    cpu_context = path_block.cpu_context(0x0040115D, init_context=emulator.new_context())
-    assert cpu_context.ip == 0x0040115D
-
-    # Test read_data()
-    data_ptr = cpu_context.read_data(cpu_context.registers.esp, data_type=function_tracing.DWORD)
-    assert cpu_context.read_data(data_ptr) == b"Idmmn!Vnsme "
-    # Test write_data()
-    cpu_context.write_data(cpu_context.registers.esp, data_ptr + 3, data_type=function_tracing.DWORD)
-    data_ptr = cpu_context.read_data(cpu_context.registers.esp, data_type=function_tracing.DWORD)
-    assert cpu_context.read_data(data_ptr) == b"mn!Vnsme "
-
-    # Test on slightly more complex function with 5 blocks
-    flowchart = function_tracing.Flowchart(0x004035BB)
-
-    found_block = flowchart.find_block(0x004035AD)
-    assert found_block
-    assert found_block.start_ea == 0x004035AB
-
-    blocks = list(flowchart.blocks(start=0x004035AB, reverse=True))
-    assert len(blocks) == 2
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [(0x004035AB, 0x004035B1), (0x00403597, 0x004035AB)]
-
-    blocks = list(flowchart.blocks(start=0x004035AB))
-    assert len(blocks) == 4
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [
-        (0x004035AB, 0x004035B1),
-        (0x004035BA, 0x004035BD),
-        (0x004035B1, 0x004035B3),
-        (0x004035B3, 0x004035BA),
-    ]
-
-    blocks = list(flowchart.blocks())
-    assert len(blocks) == 5
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [
-        (0x00403597, 0x004035AB),
-        (0x004035AB, 0x004035B1),
-        (0x004035BA, 0x004035BD),
-        (0x004035B1, 0x004035B3),
-        (0x004035B3, 0x004035BA),
-    ]
-    blocks = list(flowchart.blocks(reverse=True))
-    assert len(blocks) == 5
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [
-        (0x004035BA, 0x004035BD),
-        (0x004035B3, 0x004035BA),
-        (0x00403597, 0x004035AB),
-        (0x004035B1, 0x004035B3),
-        (0x004035AB, 0x004035B1),
-    ]
-    blocks = list(flowchart.blocks(dfs=True))
-    assert len(blocks) == 5
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [
-        (0x00403597, 0x004035AB),
-        (0x004035AB, 0x004035B1),
-        (0x004035B1, 0x004035B3),
-        (0x004035B3, 0x004035BA),
-        (0x004035BA, 0x004035BD),
-    ]
-    blocks = list(flowchart.blocks(reverse=True, dfs=True))
-    assert len(blocks) == 5
-    assert [(block.start_ea, block.end_ea) for block in blocks] == [
-        (0x004035BA, 0x004035BD),
-        (0x004035B3, 0x004035BA),
-        (0x004035B1, 0x004035B3),
-        (0x004035AB, 0x004035B1),
-        (0x00403597, 0x004035AB),
-    ]
-
-    path_blocks = list(flowchart.get_paths(0x004035B1))
-    assert len(path_blocks) == 1
-    assert [path_block.bb.start_ea for path_block in path_blocks[0].path()] == [0x00403597, 0x004035AB, 0x004035B1]
-
-    path_blocks = list(flowchart.get_paths(0x004035BC))
-    assert len(path_blocks) == 3
-    assert sorted([_path_block.bb.start_ea for _path_block in path_block.path()] for path_block in path_blocks) == [
-        [0x00403597, 0x004035AB, 0x004035B1, 0x004035B3, 0x004035BA],
-        [0x00403597, 0x004035AB, 0x004035B3, 0x004035BA],
-        [0x00403597, 0x004035BA],
-    ]
-
-
-@pytest.mark.in_ida
-def test_basic_blocks():
-    """Tests functionality of our custom BasicBlock"""
-    from kordesii.utils import function_tracing
-
-    flowchart = function_tracing.Flowchart(0x004035BB)
-
-    # region Test getting ancestors
-
-    # test first block
-    block = flowchart.find_block(0x403597)
-    ancestors = block.ancestors()
-    assert sorted(b.start_ea for b in ancestors) == []
-
-    # test block in the middle with a loop
-    block = flowchart.find_block(0x004035B1)
-    ancestors = block.ancestors()
-    assert sorted(b.start_ea for b in ancestors) == [
-        0x403597,
-        0x4035ab,
-        0x4035b3,  # loop back
-    ]
-
-    # test very last block
-    block = flowchart.find_block(0x004035BB)
-    ancestors = block.ancestors()
-    assert sorted(b.start_ea for b in ancestors) == [
-        0x403597,
-        0x4035ab,
-        0x4035b1,
-        0x4035b3,
-    ]
-
-    # endregion
+DEC_DATA = [
+    # address, data, key
+    (0x40C000, b'Hello World!', 0x01),
+    (0x40C010, b'Test string with key 0x02', 0x02),
+    (0x40C02C, b'The quick brown fox jumps over the lazy dog.', 0x03),
+    (0x40C05C, b'Oak is strong and also gives shade.', 0x04),
+    (0x40C080, b'Acid burns holes in wool cloth.', 0x05),
+    (0x40C0A0, b'Cats and dogs each hate the other.', 0x06),
+    (0x40C0C4, b"Open the crate but don't break the glass.", 0x13),
+    (0x40C0F0, b'There the flood mark is ten inches.', 0x17),
+    (0x40C114, b'1234567890', 0x1a),
+    (0x40C120, b'CreateProcessA', 0x23),
+    (0x40C130, b'StrCat', 0x27),
+    (0x40C138, b'ASP.NET', 0x40),
+    (0x40C140, b'kdjsfjf0j24r0j240r2j09j222', 0x46),
+    (0x40C15C, b'32897412389471982470', 0x73),
+    (0x40C174, b'The past will look brighter tomorrow.', 0x75),
+    (0x40C19C, b'Cars and busses stalled in sand drifts.', 0x77),
+    (0x40C1C4, b'The jacket hung on the back of the wide chair.', 0x7a),
+    (0x40C1F8, b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
+]
 
 
 @pytest.mark.in_ida_x86
@@ -204,35 +107,7 @@ def test_cpu_context_x86():
         assert context.ip == 0x00401003
         # mov     eax, [ebp+arg_0]
         strings.append(context.read_data(context.operands[1].value))
-    assert strings == [
-        b"Idmmn!Vnsme ",
-        b'Vgqv"qvpkle"ukvj"ig{"2z20',
-        b"Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-",
-        b"Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*",
-        b"Dfla%gpwkv%mji`v%lk%rjji%fijqm+",
-        b"Egru&ghb&biau&cgen&ngrc&rnc&irnct(",
-        b"\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=",
-        b"C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9",
-        b'+()./,-"#*',
-        b"`QFBWFsQL@FPPb",
-        b"tSUdFS",
-        b"\x01\x13\x10n\x0e\x05\x14",
-        b'-",5 , v,tr4v,trv4t,v\x7f,ttt',
-        b"@AKJDGBA@KJGDBJKAGDC",
-        (
-            b"!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c"
-            b"\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02["
-        ),
-        (
-            b"4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b"
-            b"\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y"
-        ),
-        (
-            b".\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1f"
-            b"Z\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T"
-        ),
-        b"LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM",
-    ]
+    assert strings == ENC_DATA
 
     # Test pulling arguments from a call.
     context = emulator.context_at(0x0040103A)
@@ -285,26 +160,7 @@ def test_cpu_context_x86():
         while result not in context.variables:
             result -= 1
         strings.append((context.read_data(result), context.passed_in_args[1].value))
-    assert strings == [
-        (b'Hello World!', 0x01),
-        (b'Test string with key 0x02', 0x02),
-        (b'The quick brown fox jumps over the lazy dog.', 0x03),
-        (b'Oak is strong and also gives shade.', 0x04),
-        (b'Acid burns holes in wool cloth.', 0x05),
-        (b'Cats and dogs each hate the other.', 0x06),
-        (b"Open the crate but don't break the glass.", 0x13),
-        (b'There the flood mark is ten inches.', 0x17),
-        (b'1234567890', 0x1a),
-        (b'CreateProcessA', 0x23),
-        (b'StrCat', 0x27),
-        (b'ASP.NET', 0x40),
-        (b'kdjsfjf0j24r0j240r2j09j222', 0x46),
-        (b'32897412389471982470', 0x73),
-        (b'The past will look brighter tomorrow.', 0x75),
-        (b'Cars and busses stalled in sand drifts.', 0x77),
-        (b'The jacket hung on the back of the wide chair.', 0x7a),
-        (b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
-    ]
+    assert strings == [(data, key) for _, data, key in DEC_DATA]
 
 
 @pytest.mark.in_ida_arm
@@ -358,35 +214,7 @@ def test_cpu_context_arm():
         assert context.ip == 0x10408
         # STR     R0, [R11,#var_8]
         strings.append(context.read_data(context.operands[0].value))
-    assert strings == [
-        b"Idmmn!Vnsme ",
-        b'Vgqv"qvpkle"ukvj"ig{"2z20',
-        b"Wkf#rvj`h#aqltm#el{#ivnsp#lufq#wkf#obyz#gld-",
-        b"Keo$mw$wpvkjc$ej`$ehwk$cmraw$wle`a*",
-        b"Dfla%gpwkv%mji`v%lk%rjji%fijqm+",
-        b"Egru&ghb&biau&cgen&ngrc&rnc&irnct(",
-        b"\\cv}3g{v3pargv3qfg3w|}4g3qavrx3g{v3t\x7fr``=",
-        b"C\x7frer7c\x7fr7q{xxs7zve|7~d7cry7~yt\x7frd9",
-        b'+()./,-"#*',
-        b"`QFBWFsQL@FPPb",
-        b"tSUdFS",
-        b"\x01\x13\x10n\x0e\x05\x14",
-        b'-",5 , v,tr4v,trv4t,v\x7f,ttt',
-        b"@AKJDGBA@KJGDBJKAGDC",
-        (
-            b"!\x1d\x10U\x05\x14\x06\x01U\x02\x1c\x19\x19U\x19\x1a\x1a\x1eU\x17\x07\x1c"
-            b"\x12\x1d\x01\x10\x07U\x01\x1a\x18\x1a\x07\x07\x1a\x02["
-        ),
-        (
-            b"4\x16\x05\x04W\x16\x19\x13W\x15\x02\x04\x04\x12\x04W\x04\x03\x16\x1b\x1b"
-            b"\x12\x13W\x1e\x19W\x04\x16\x19\x13W\x13\x05\x1e\x11\x03\x04Y"
-        ),
-        (
-            b".\x12\x1fZ\x10\x1b\x19\x11\x1f\x0eZ\x12\x0f\x14\x1dZ\x15\x14Z\x0e\x12\x1f"
-            b"Z\x18\x1b\x19\x11Z\x15\x1cZ\x0e\x12\x1fZ\r\x13\x1e\x1fZ\x19\x12\x1b\x13\x08T"
-        ),
-        b"LMFOGHKNLMGFOHKFGNLKHNMLOKGNKGHFGLHKGLMHKGOFNMLHKGFNLMJNMLIJFGNMLOJIMLNGFJHNM",
-    ]
+    assert strings == ENC_DATA
 
     # Test pulling arguments from a call.
     context = emulator.context_at(0x1046C)
@@ -432,328 +260,7 @@ def test_cpu_context_arm():
         key = ord(context.variables["var_9"].value)
         result = context.read_data(context.passed_in_args[0].value)
         strings.append((result, key))
-    assert strings == [
-        (b'Hello World!', 0x01),
-        (b'Test string with key 0x02', 0x02),
-        (b'The quick brown fox jumps over the lazy dog.', 0x03),
-        (b'Oak is strong and also gives shade.', 0x04),
-        (b'Acid burns holes in wool cloth.', 0x05),
-        (b'Cats and dogs each hate the other.', 0x06),
-        (b"Open the crate but don't break the glass.", 0x13),
-        (b'There the flood mark is ten inches.', 0x17),
-        (b'1234567890', 0x1a),
-        (b'CreateProcessA', 0x23),
-        (b'StrCat', 0x27),
-        (b'ASP.NET', 0x40),
-        (b'kdjsfjf0j24r0j240r2j09j222', 0x46),
-        (b'32897412389471982470', 0x73),
-        (b'The past will look brighter tomorrow.', 0x75),
-        (b'Cars and busses stalled in sand drifts.', 0x77),
-        (b'The jacket hung on the back of the wide chair.', 0x7a),
-        (b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
-    ]
-
-
-@pytest.mark.in_ida
-def test_memory():
-    """Tests the memory controller."""
-    from kordesii.utils.function_tracing.memory import Memory
-
-    m = Memory()
-
-    # basic test
-    assert m.read(0x00121000, 10) == b"\x00" * 10
-
-    # test reading across pages
-    m.write(0x00121FFB, b"helloworld")
-    assert m.read(0x00121FFB, 10) == b"helloworld"
-    assert m.read(0x00121FFB + 10, 10) == b"\x00" * 10
-    assert m.read(0x00121FFB + 5, 10) == b"world" + b"\x00" * 5
-
-    # test reading segment data
-    assert m.read(0x0040C000, 11) == b"Idmmn!Vnsme"
-    assert m.read(0x00401150, 3) == b"\x55\x8B\xEC"
-
-    # test str print
-    assert str(m) == dedent(
-        """\
-        Base Address             Address Range            Size
-        0x00121000               0x00121000 - 0x00123000  8192
-        0x00401000               0x00401000 - 0x0040F000  57344
-    """
-    )
-
-    # test searching
-    assert m.find(b"helloworld", start=0x0011050) == 0x00121FFB
-    assert m.find(b"helloworld") == 0x00121FFB
-    assert m.find(b"helloworld", start=0x00121FFC) == -1
-    assert m.find(b"helloworld", end=0x10) == -1
-    assert m.find(b"helloworld", start=0x0011050, end=0x00121FFB) == -1
-    assert m.find(b"helloworld", start=0x0011050, end=0x00122000) == -1
-    assert m.find(b"helloworld", start=0x0011050, end=0x00122100) == 0x00121FFB
-    assert m.find(b"`QFBWF") == 0x0040C120
-    assert m.find(b"Idmmn!Vnsme") == 0x0040C000
-    assert m.find_in_segment(b"Idmmn!Vnsme", ".data") == 0x0040C000
-    assert m.find_in_segment(b"Idmmn!Vnsme", ".text") == -1
-    assert m.find(b"\x5F\x5E\xC3", start=0x004035BD) == 0x004035E0
-
-    # test bugfix when searching single length characters
-    assert m.find(b"h", start=0x0011050) == 0x00121FFB
-    assert m.find(b"h", start=0x0011050, end=0x00121FFB) == -1
-    assert m.find(b"h", start=0x0011050, end=0x00121FFB + 1) == 0x00121FFB
-    assert m.find(b"o", start=0x0011050) == 0x00121FFB + 4
-
-    # tests allocations
-    first_alloc_ea = m.alloc(10)
-    assert first_alloc_ea == m.HEAP_BASE
-    second_alloc_ea = m.alloc(20)
-    assert second_alloc_ea == m.HEAP_BASE + 10 + m.HEAP_SLACK
-    m.write(second_alloc_ea, b"im in the heap!")
-    assert m.read(second_alloc_ea, 15) == b"im in the heap!"
-    assert m.find_in_heap(b"the heap!") == second_alloc_ea + 6
-    m.write(second_alloc_ea, b"helloworld")
-    assert m.find_in_heap(b"helloworld") == second_alloc_ea
-
-    # tests reallocations
-    assert m.realloc(first_alloc_ea, 40) == first_alloc_ea  # no relocation
-    assert m.realloc(first_alloc_ea, m.PAGE_SIZE * 5) == second_alloc_ea + 20 + m.HEAP_SLACK  # relocation
-    assert m.realloc(second_alloc_ea, 40) == second_alloc_ea  # no relocation
-    second_alloc_realloced_ea = m.realloc(second_alloc_ea, m.PAGE_SIZE * 6)
-    assert second_alloc_realloced_ea != second_alloc_ea
-    assert m.read(second_alloc_realloced_ea, 10) == b"helloworld"  # data should be copied over.
-
-
-@pytest.mark.in_ida
-def test_registers():
-    """Tests registers"""
-    from kordesii.utils import function_tracing
-    from kordesii.utils.function_tracing.cpu_context import ProcessorContext
-    from kordesii.utils.function_tracing.registers import Register
-
-    # Basic register tests.
-    reg = Register(8, rax=0xFFFFFFFFFFFFFFFF, eax=0xFFFFFFFF, ax=0xFFFF, al=0xFF, ah=0xFF00)
-    assert sorted(reg.names) == ["ah", "al", "ax", "eax", "rax"]
-    assert reg.rax == 0
-    assert reg.ax == 0
-    assert reg["rax"] == 0
-    assert reg["ax"] == 0
-    reg.ah = 0x23
-    assert reg.ah == 0x23
-    assert reg.al == 0x00
-    assert reg.ax == 0x2300
-    assert reg.eax == 0x00002300
-    reg.eax = 0x123
-    assert reg.ah == 0x01
-    assert reg.al == 0x23
-    assert reg.rax == 0x0000000000000123
-
-    emulator = function_tracing.Emulator()
-    context = emulator.new_context()
-    registers = context.registers
-
-    # fmt: off
-    # Test getting all register names.
-    assert sorted(registers.names) == [
-        'ac', 'af', 'ah', 'al', 'ax', 'b', 'bh', 'bl', 'bp', 'bpl', 'bx',
-        'c0', 'c1', 'c2', 'c3', 'cf', 'ch', 'cl', 'cs', 'cx', 'd', 'df',
-        'dh', 'di', 'dil', 'dl', 'dm', 'ds', 'dx', 'eax', 'ebp', 'ebx',
-        'ecx', 'edi', 'edx', 'eflags', 'es', 'esi', 'esp', 'flags', 'fs', 'gs', 'i', 'ic',
-        'id', 'iem', 'if', 'im', 'iopl', 'ir', 'nt', 'o', 'of', 'om', 'p',
-        'pc', 'pf', 'pm', 'r10', 'r10b', 'r10d', 'r10w', 'r11', 'r11b',
-        'r11d', 'r11w', 'r12', 'r12b', 'r12d', 'r12w', 'r13', 'r13b', 'r13d',
-        'r13w', 'r14', 'r14b', 'r14d', 'r14w', 'r15', 'r15b', 'r15d', 'r15w',
-        'r8', 'r8b', 'r8d', 'r8w', 'r9', 'r9b', 'r9d', 'r9w', 'rax', 'rbp',
-        'rbx', 'rc', 'rcx', 'rdi', 'rdx', 'rf', 'rip', 'rsi', 'rsp', 'sf',
-        'sf', 'si', 'sil', 'sp', 'spl', 'ss',
-        'st', 'st0', 'st1', 'st2', 'st3', 'st4', 'st5', 'st6', 'st7',
-        'tag0', 'tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6', 'tag7',
-        'tf', 'top', 'u', 'um', 'vif', 'vip', 'vm',
-        'xmm0', 'xmm1', 'xmm10', 'xmm11', 'xmm12', 'xmm13', 'xmm14', 'xmm15',
-        'xmm2', 'xmm3', 'xmm4', 'xmm5', 'xmm6', 'xmm7', 'xmm8', 'xmm9',
-        'z', 'zf', 'zm',
-    ]
-    # Test getting register names for FPU.
-    assert sorted(registers.fpu.names) == [
-        "b", "c0", "c1", "c2", "c3", "d", "dm", "i", "ic", "iem", "im", "ir",
-        "o", "om", "p", "pc", "pm", "rc", "sf",
-        "st", "st0", "st1", "st2", "st3", "st4", "st5", "st6", "st7",
-        "tag0", "tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7",
-        "top", "u", "um", "z", "zm",
-    ]
-    # fmt: on
-
-    # Test FPU registers.
-    # TODO: Add tests for flags
-    EMPTY = registers.fpu.EMPTY
-    assert registers.st0 == EMPTY
-    assert registers["st0"] == EMPTY
-    assert registers.fpu.st0 == EMPTY
-    assert registers.fpu["st0"] == EMPTY
-    registers.fpu.push(-12.3)
-    assert registers.st0 == -12.3
-    assert registers.st1 == EMPTY
-    registers.fpu.push(34)
-    assert registers.st0 == 34
-    assert registers.st1 == -12.3
-    registers.fpu.pop()
-    assert registers.st0 == -12.3
-    assert registers.st1 == EMPTY
-    registers.fpu.push(registers.fpu.INFINITY)
-    assert registers.st0 == registers.fpu.INFINITY
-    assert registers.st1 == -12.3
-
-
-@pytest.mark.in_ida_arm
-def test_barrel_shifted_operands():
-    """Tests ARM's barrel shifted operand types"""
-    from kordesii.utils import function_tracing
-    from kordesii.utils.function_tracing import FunctionTracingError
-
-    emulator = function_tracing.Emulator()
-
-    # MOV     R1, R3,LSR#31
-    ctx = emulator.new_context()
-    insn = ctx.get_instruction(0x103A4)
-    ctx.ip = insn.ip
-    assert insn.operands[1].text == "R3,LSR#31"
-    ctx.registers.r3 = 0xffffffff
-    ctx.registers.c = 0
-    assert ctx.registers.r3 == 0xffffffff
-    assert ctx.registers.c == 0
-    assert insn.operands[1].value == 0x1
-    assert ctx.registers.c == 0  # carry flag should have not been updated, (not MOVS)
-
-    # ADD     R1, R1, R3,ASR#2
-    ctx = emulator.new_context()
-    insn = ctx.get_instruction(0x103A8)
-    ctx.ip = insn.ip
-    assert insn.operands[2].text == "R3,ASR#2"
-    ctx.registers.r3 = 0x1013
-    ctx.registers.c = 0
-    assert insn.operands[2].value == 0x1013 >> 2
-    assert ctx.registers.c == 0  # carry flag should have not been updated, (not ADDS)
-    # Test again with a negative number to ensure ASR sign extends appropriately.
-    ctx.registers.r3 = -0x1013
-    assert ctx.registers.r3 == 0xffffefed   # sanity check
-    assert insn.operands[2].value == 0xfffffbfb  # sign extended shift right 2
-    assert ctx.registers.c == 0
-
-    # MOVS    R1, R1,ASR#1
-    ctx = emulator.new_context()
-    insn = ctx.get_instruction(0x103AC)
-    ctx.ip = insn.ip
-    assert insn.operands[1].text == "R1,ASR#1"
-    ctx.registers.r1 = 0x1013
-    ctx.registers.c = 0
-    assert insn.operands[1].value == 0x1013 >> 1
-    assert ctx.registers.c == 1  # carry flag should be affected (MOVS)
-    # reset instruction pointer to ensure carry flag is only affected if ip is the same.
-    ctx.ip = 0
-    assert ctx.ip != insn.ip
-    ctx.registers.r1 = 0x1013
-    ctx.registers.c = 0
-    assert insn.operands[1].value == 0x1013 >> 1
-    assert ctx.registers.c == 0  # carry flag should not be affected, (ctx.ip != insn.ip)
-
-    # Ensure proper error is thrown if we attempt to set the operand value.
-    with pytest.raises(FunctionTracingError):
-        insn.operands[1].value = 10
-
-
-@pytest.mark.in_ida_arm
-def test_register_list_operands():
-    """Tests ARM operands that are register lists."""
-    from kordesii.utils import function_tracing
-
-    emulator = function_tracing.Emulator()
-
-    # POPEQ   {R4-R10,PC}
-    ctx = emulator.new_context()
-    insn = ctx.get_instruction(0x106A8)
-    assert insn.operands[0].text == "{R4-R10,PC}"
-    assert insn.operands[0].is_register_list is True
-    assert insn.operands[0].register_list == ["R4", "R5", "R6", "R7", "R8", "R9", "R10", "PC"]
-    ctx.registers.r4 = 4
-    ctx.registers.r5 = 5
-    ctx.registers.r6 = 6
-    ctx.registers.r7 = 7
-    ctx.registers.r8 = 8
-    ctx.registers.r9 = 9
-    ctx.registers.r10 = 10
-    ctx.registers.pc = 1024
-    assert insn.operands[0].value == [4, 5, 6, 7, 8, 9, 10, 1024]
-    insn.operands[0].value = [10, 20, 30, 40, 50, 60, 70, 80]
-    assert insn.operands[0].value == [10, 20, 30, 40, 50, 60, 70, 80]
-    assert ctx.registers.r4 == 10
-    assert ctx.registers.r5 == 20
-    assert ctx.registers.r6 == 30
-    assert ctx.registers.r7 == 40
-    assert ctx.registers.r8 == 50
-    assert ctx.registers.r9 == 60
-    assert ctx.registers.r10 == 70
-    assert ctx.registers.pc == 80
-
-    # ValueError should be thrown if we set the wrong amount of values.
-    with pytest.raises(ValueError):
-        insn.operands[0].value = [1, 2, 3]
-
-
-@pytest.mark.in_ida_arm
-def test_memory_addressing_modes():
-    """Tests pre/post indexed memory address operands."""
-    from kordesii.utils import function_tracing
-
-    emulator = function_tracing.Emulator()
-
-    # Post-index
-    # LDR     R3, [R5],#4
-    ctx = emulator.new_context()
-    ctx.memory.write(0, bytes(range(100)))
-    insn = ctx.get_instruction(0x106BC)
-    assert insn.operands[1].text == "[R5],#4"
-    ctx.registers.r5 = 5
-    # operand initially points to address 0x5
-    assert insn.operands[1].addr == 5
-    assert insn.operands[1].value == 0x8070605
-    insn.execute()
-    # operand should now point to address 0x5 + 4
-    assert ctx.registers.r5 == 5 + 4
-    assert insn.operands[1].addr == 5 + 4
-    assert insn.operands[1].value == 0xc0b0a09
-
-    # Pre-index (no update)
-    # LDR     R2, [R3,R2]
-    ctx = emulator.new_context()
-    ctx.memory.write(0, bytes(range(100)))
-    insn = ctx.get_instruction(0x10354)
-    assert insn.operands[1].text == "[R3,R2]"
-    ctx.registers.r2 = 2
-    ctx.registers.r3 = 3
-    # operand initially points to address 3 + 2
-    assert insn.operands[1].addr == 3 + 2
-    assert insn.operands[1].value == 0x8070605
-    insn.execute()
-    # operands should still point to address 3 + 2
-    assert ctx.registers.r3 == 3
-    ctx.registers.r2 = 2  # undo the modification to R2 the instruction does :)
-    assert insn.operands[1].addr == 3 + 2
-    assert insn.operands[1].value == 0x8070605
-
-    # Pre-index with update
-    # LDR     PC, [LR,#8]!
-    ctx = emulator.new_context()
-    ctx.memory.write(0, bytes(range(100)))
-    insn = ctx.get_instruction(0x102D4)
-    assert insn.operands[1].text in ("[LR,#8]!", "[LR,#(off_21008 - 0x21000)]!")
-    ctx.registers.lr = 2
-    # operand initially points to address 0x2 + 8
-    assert insn.operands[1].addr == 2 + 8
-    assert insn.operands[1].value == 0xd0c0b0a
-    insn.execute()
-    # operand should now point to address 0x2 + 8 + 8
-    assert ctx.registers.lr == 2 + 8
-    assert insn.operands[1].addr == 2 + 8 + 8
-    assert insn.operands[1].value == 0x15141312
+    assert strings == [(data, key) for _, data, key in DEC_DATA]
 
 
 @pytest.mark.in_ida_x86
@@ -1118,26 +625,7 @@ def test_function_hooking():
     context = emulator.context_at(end_ea)
     assert [_args for _, _args in context.get_call_history(xor_func_ea)] == expected_args
     strings = [(context.read_data(args[0]), args[1]) for _, args in context.get_call_history(xor_func_ea)]
-    assert strings == [
-        (b'Hello World!', 0x01),
-        (b'Test string with key 0x02', 0x02),
-        (b'The quick brown fox jumps over the lazy dog.', 0x03),
-        (b'Oak is strong and also gives shade.', 0x04),
-        (b'Acid burns holes in wool cloth.', 0x05),
-        (b'Cats and dogs each hate the other.', 0x06),
-        (b"Open the crate but don't break the glass.", 0x13),
-        (b'There the flood mark is ten inches.', 0x17),
-        (b'1234567890', 0x1a),
-        (b'CreateProcessA', 0x23),
-        (b'StrCat', 0x27),
-        (b'ASP.NET', 0x40),
-        (b'kdjsfjf0j24r0j240r2j09j222', 0x46),
-        (b'32897412389471982470', 0x73),
-        (b'The past will look brighter tomorrow.', 0x75),
-        (b'Cars and busses stalled in sand drifts.', 0x77),
-        (b'The jacket hung on the back of the wide chair.', 0x7a),
-        (b'32908741328907498134712304814879837483274809123748913251236598123056231895712', 0x7f),
-    ]
+    assert strings == [(data, key) for _, data, key in DEC_DATA]
 
 
 @pytest.mark.in_ida_x86
@@ -1343,3 +831,95 @@ def test_objects_and_actions():
     ctx.actions.add(actions.FileClosed(ip=offset, handle=handle))
     assert ctx.objects[handle].closed is True
     assert ctx.objects.handles == [handle, sec_handle]
+
+
+@pytest.mark.in_ida
+def test_call_depth_basic_x86():
+    """
+    Low level test for ProcessorContext._execute_call()
+    """
+    import idc
+    from kordesii.utils import function_tracing
+    emulator = function_tracing.Emulator()
+
+    # Emulate up to the sub_401000 call
+    ctx = emulator.context_at(0x0040103A)
+    ptr = ctx.function_args[0].value
+    ctx._call_depth = 1
+
+    # Push return address on the stack and set the ip to the function's start address.
+    # (Doing this manually, because we aren't emulating the 'call' opcode in this method.)
+    ctx.sp -= ctx.byteness
+    ret_addr = idc.next_head(ctx.instruction.ip)
+    ctx.memory.write(ctx.sp, ret_addr.to_bytes(ctx.byteness, "little"))
+
+    # Execute the call to sub_401000 (the decrypt function)
+    ctx._execute_call("sub_401000", 0x401000)
+    assert ctx.read_data(ptr) == b"Hello World!"
+
+
+@pytest.mark.in_ida
+def test_call_depth_x86():
+    """
+    High level test for emulating function calls during emulation.
+    """
+    from kordesii.utils import function_tracing, Function
+    emulator = function_tracing.Emulator()
+
+    data_ptr = 0x40C000
+
+    # Test with context_at()
+    ctx = emulator.context_at(0x40103F, call_depth=1)
+    assert ctx.read_data(data_ptr) == b"Hello World!"
+    ctx = emulator.context_at(0x401142, call_depth=1)
+    assert [ctx.read_data(ptr) for ptr, _, _ in DEC_DATA] == [data for _, data, _ in DEC_DATA]
+
+    # Test with direct ctx.execute() call.
+    ctx = emulator.new_context()
+    func = Function(0x401030)
+    ctx.execute(start=func.start_ea, end=func.end_ea, call_depth=1)
+    assert [ctx.read_data(ptr) for ptr, _, _ in DEC_DATA] == [data for _, data, _ in DEC_DATA]
+
+
+@pytest.mark.in_ida
+def test_execute_function_x86():
+    """
+    Tests the Emulator.execute_function()
+    """
+    from kordesii.utils import function_tracing
+    emulator = function_tracing.Emulator()
+    # Test with emulating the full function.
+    ctx = emulator.execute_function(0x401030, call_depth=1)
+    assert ctx.read_data(0x40C000) == b"Hello World!"
+    assert [ctx.read_data(ptr) for ptr, _, _ in DEC_DATA] == [data for _, data, _ in DEC_DATA]
+
+
+@pytest.mark.in_ida
+def test_execute_function_printf_x86():
+    """
+    Tests running the full main function which contains printf's so we can also test
+    if stdout is written correctly.
+    """
+    from kordesii.utils import function_tracing
+    emulator = function_tracing.Emulator()
+    ctx = emulator.execute_function(0x401150, call_depth=3)  # main function
+    assert ctx.stdout == """\
+Hello World!
+Test string with key 0x02
+The quick brown fox jumps over the lazy dog.
+Oak is strong and also gives shade.
+Acid burns holes in wool cloth.
+Cats and dogs each hate the other.
+Open the crate but don't break the glass.
+There the flood mark is ten inches.
+1234567890
+CreateProcessA
+StrCat
+ASP.NET
+kdjsfjf0j24r0j240r2j09j222
+32897412389471982470
+The past will look brighter tomorrow.
+Cars and busses stalled in sand drifts.
+The jacket hung on the back of the wide chair.
+32908741328907498134712304814879837483274809123748913251236598123056231895712
+"""

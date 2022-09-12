@@ -198,7 +198,7 @@ def CALL(cpu_context, instruction):
         ret_addr = idc.next_head(instruction.ip)
         cpu_context.mem_write(cpu_context.sp, utils.struct_pack(ret_addr, width=cpu_context.byteness))
 
-        instruction.execute_call_hooks(func_name, func_ea)
+        cpu_context._execute_call(func_name, func_ea, instruction.ip)
 
         # Pop return address from the stack, set ip to return address.
         cpu_context.sp += cpu_context.byteness

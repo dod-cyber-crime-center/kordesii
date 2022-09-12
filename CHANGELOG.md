@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file.
 
 
+## [Unreleased]
+### Added
+- *function_tracing*
+  - Backported function call emulation from rugosa. 
+  - Backported change from `ProcessorContext.func_calls` to `ProcessorContext.call_history` from rugosa.
+  - Backported ability to stream emulated memory from rugosa.
+
+
 ## [2.4.1] - 2022-03-23
 
 ### Added

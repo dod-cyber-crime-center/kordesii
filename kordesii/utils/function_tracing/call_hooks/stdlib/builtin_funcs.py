@@ -534,3 +534,24 @@ def snprintf(ctx, func_name, func_args):
     logger.debug("Writing formatted value %s to 0x%X", result[:n - 1], dest)
     ctx.mem_write(dest, result[:n - 1] + b'\0')
     return len(result)
+
+
+@builtin_func
+def printf(ctx, func_name, func_args):
+    """
+    int printf (const char * format, ...);
+
+    Writes the C string pointed by **format** to the standard output (stdout).
+    If **format** includes format specifiers (subsequences beginning with %), the
+    additional arguments following **format** are formatted and inserted in the resulting string replacing their
+    respective specifiers.
+    """
+    if len(func_args) < 1:
+        func_args = ctx.get_function_arg_values(num_args=1)
+
+    fmt = ctx.read_data(func_args[0])
+    logger.debug("Format string: %s", fmt)
+    result = _format_string(ctx, fmt, 1)
+    logger.debug("Writing formatted value %s to stdout", result)
+    ctx.stdout += result.decode()
+    return len(result)
