@@ -33,8 +33,22 @@ from ..registry import registrar
 OPCODES = {}
 opcode = registrar(OPCODES, name="opcode")
 
-
 logger = logging.getLogger(__name__)
+
+# TODO: Should this be here such that checks are made for each opcode against this, or should this be an attribute
+#       of the x86_64 instruction object indicating a 64-bit mode instruction. 
+#       if instruction.data[0] == REX_W:
+#       vs.
+#       if instruction.64bitmode:
+#
+#       Referencing wiki.osdev.org/X86-64_Instruction_Encoding#REX_prefix, the low bits of the REX byte are flags with 
+#       further information stating that the REX prefix is only available in long mode (essentially 64-bit) and wipes 
+#       out the original instructions 0x40 - 0x4F. Should this be moved to a property, the check should likely look 
+#       similar to the following:
+#       
+#       def islongmode():
+#           return <64-bit file> and instruction.data[0] & 0xF0 == 0x40
+REX_W = 0x48    # used to identify 64 bit opcodes
 
 
 @opcode
@@ -395,17 +409,13 @@ def DIV(cpu_context, instruction):
     RDX_REG_SIZE_MAP = {8: "rdx", 4: "edx", 2: "dx"}
 
     operands = instruction.operands
-    divisor = operands[0].value
     width = operands[0].width
+    dividend = operands[0].value
+    divisor = operands[1].value
     if divisor == 0:
         # Log the instruction for a DIV / 0 error
         logger.debug("DIV / 0")
         return
-
-    # We actually need to do some doctoring with DIV as operand 0 is implied as the EAX register of
-    # a certain size.
-    rax_str = RAX_REG_SIZE_MAP[width]
-    dividend = cpu_context.registers[rax_str]
 
     result = (dividend // divisor) & utils.get_mask(width)
     remainder = (dividend % divisor) & utils.get_mask(width)
@@ -415,11 +425,12 @@ def DIV(cpu_context, instruction):
         cpu_context.registers.al = result
         cpu_context.registers.ah = remainder
     else:
+        rax_str = RAX_REG_SIZE_MAP[width]
         rdx_str = RDX_REG_SIZE_MAP[width]
         cpu_context.registers[rax_str] = result
         cpu_context.registers[rdx_str] = remainder
 
-        
+
 @opcode
 def IDIV(cpu_context, instruction):
     """
@@ -435,10 +446,10 @@ def IDIV(cpu_context, instruction):
     if divisor == 0:
         logger.debug("DIV / 0")
         return
-        
+
     rax_str = RAX_REG_SIZE_MAP[width]
     dividend = utils.signed(cpu_context.registers[rax_str], b_width)
-    
+
     result = int(dividend / divisor) & utils.get_mask(width)
     # TODO: Ideally we would be able to just use result here instead of recalculating. We need to test if
     #       we can do that without introducing errors and make the change if so.
@@ -451,7 +462,7 @@ def IDIV(cpu_context, instruction):
         rdx_str = RDX_REG_SIZE_MAP[width]
         cpu_context.registers[rax_str] = result
         cpu_context.registers[rdx_str] = remainder
-        
+
 
 @opcode
 def DIVSD(cpu_context, instruction):
@@ -487,8 +498,13 @@ def _mul(cpu_context, instruction):
     operands = instruction.operands
     width = get_max_operand_size(operands)
     mask = utils.get_mask(width)
-    multiplier1 = cpu_context.registers[RAX_REG_SIZE_MAP[width]]
-    multiplier2 = operands[0].value
+    if len(operands) == 1:
+        multiplier1 = cpu_context.registers[RAX_REG_SIZE_MAP[width]]
+        multiplier2 = operands[0].value
+    else:
+        multiplier1 = operands[0].value
+        multiplier2 = operands[1].value
+
     result = multiplier1 * multiplier2
     flags = ["cf", "of"]
 
@@ -554,18 +570,15 @@ def IMUL(cpu_context, instruction):
     """
     operands = instruction.operands
     width = get_max_operand_size(operands)
-    op_count = len(operands)
-    if op_count == 1:
+    # First check if REX.W
+    insn_data = instruction.data
+    opcode_byte = insn_data[1] if insn_data[0] == REX_W else insn_data[0]
+    if opcode_byte in (0xF6, 0xF7): # F6/F7 represent 8 bit and 16/32 bit IMUL respectively without truncation
         _mul(cpu_context, instruction)
         return
-    elif op_count == 2:
-        multiplier1 = operands[0].value
-        multiplier2 = operands[1].value
-    elif op_count == 3:
-        multiplier1 = operands[1].value
-        multiplier2 = operands[2].value
-    else:
-        raise Exception("0x{:08X}: Invalid sequence for IMUL instruction".format(ip))
+
+    multiplier1 = operands[-2].value
+    multiplier2 = operands[-1].value
 
     mask = utils.get_mask(width)
     result = multiplier1 * multiplier2
@@ -1176,8 +1189,8 @@ def movs(cpu_context, instruction):
     Move Data from String to String
     """
     operands = instruction.operands
-    # movsd op1 op2
-    if instruction.mnem == "movsd" and len(operands) == 2:
+    # movsd op1 op2 ; Move/Merge Scalar Double-Precision Floating-Point Value
+    if instruction.data[0] == 0xF2: # Scalar Double Precision Floating-Point value move
         op1, op2 = operands
         data = op2.value
         if op1.is_register:
@@ -1475,9 +1488,10 @@ def ROL(cpu_context, instruction):
         return
 
     if tempcount > 0:
+        mask = utils.get_mask(width)
         while tempcount:
-            tempcf = get_msb(opvalue1, width)
-            opvalue1 = (opvalue1 * 2) + tempcf
+            opvalue1 = (opvalue1 * 2) + get_msb(opvalue1, width)
+            opvalue1 &= mask
             tempcount -= 1
 
         cpu_context.registers.cf = get_lsb(opvalue1)
@@ -1539,9 +1553,11 @@ def sal_shl(cpu_context, instruction):
     if opvalue2:
         # 0x3F Because we want to allow for 64-bit code
         tempcount = opvalue2 & (0x3F if cpu_context.bitness == 64 else 0x1F)
+        mask = utils.get_mask(width)
         while tempcount:
             cpu_context.registers.cf = get_msb(result, width)
             result *= 2
+            result &= mask
             tempcount -= 1
 
         result &= utils.get_mask(width)
@@ -2074,12 +2090,14 @@ def get_msb(value, size):
     Get most significant bit.
 
     :param value: value to obtain msb from
-
-    :size: bit width of value in bytes
+    :param size: bit width of value in bytes
 
     :return: most significant bit
     """
-    return value >> ((8 * size) - 1)
+    msb = value >> ((8 * size) - 1)
+    if msb > 1:
+        raise AssertionError(f"Got invalid size {size} for value 0x{value:x}")
+    return msb
 
 
 def get_lsb(value):

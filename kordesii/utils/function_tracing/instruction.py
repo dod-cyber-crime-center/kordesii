@@ -35,6 +35,7 @@ class Instruction:
         self._mnem = None
         self._root_mnem = None
         self.__insn = None
+        self._data = None
 
     def __deepcopy__(self, memo):
         # When we deep copy, clear out the __insn attribute so we don't
@@ -79,6 +80,15 @@ class Instruction:
         return self._root_mnem
 
     @property
+    def data(self):
+        """
+        Bytes that comprise the instruction
+        """
+        if not self._data:
+            self._data = idc.get_bytes(self.ip, self._insn.size)
+        return self._data
+
+    @property
     def text(self) -> str:
         """Disassembled code."""
         return idc.GetDisasm(self.ip)
@@ -100,17 +110,11 @@ class Instruction:
                 if op.type == ida_ua.o_void:
                     break  # no more operands
 
-                # IDA will sometimes create hidden or "fake" operands.
-                # These are there to represent things like an implicit EAX register.
-                # To help avoid confusion to the opcode developer, these fake operands will not be included.
-                # TODO: Checking shown() may not work as expected.
-                #   If things explode, go back to checking operand.is_hidden
-                if op.shown():
-                    indices.append((idx, op.type))
+                indices.append((idx, not op.shown(), op.type))
 
             self._operand_indices[self.ip] = indices
 
-        return [self._operand_class(self._cpu_context, self.ip, idx, _type=type) for idx, type in indices]
+        return [self._operand_class(self._cpu_context, self.ip, idx, implied=implied, _type=type) for idx, implied, type in indices]
 
     def _record_func_args(self):
         """

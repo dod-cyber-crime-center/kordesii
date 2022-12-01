@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.5.1] - 2022-12-01
+
+### Changed
+- Removed the concept of hidden operands and instead allow all operands, both explicit and implied, to be accessed.
+
+### Fixed
+- Fix bug in ROL opcode implementation. (#35)
+
 
 ## [2.5.0] - 2022-09-14
 ### Added
@@ -453,7 +461,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.0...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.1...HEAD
+[2.5.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.4.1...2.5.0
 [2.4.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.4.0...2.4.1
 [2.4.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.3.0...2.4.0

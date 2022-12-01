@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class Operand:
     """Stores information for a given operand for a specific CPU context state."""
 
-    def __init__(self, cpu_context, ip, idx, _type=None):
+    def __init__(self, cpu_context, ip, idx, implied=False, _type=None):
         """
         :param cpu_context: CPU context to pull operand value
         :param ip: instruction pointer
@@ -35,13 +35,14 @@ class Operand:
         """
         self.ip = ip
         self.idx = idx
+        self.implied = implied
 
         if _type is not None:
             self.type = _type
         else:
             self.type = idc.get_operand_type(ip, idx)
 
-        self.text = idc.print_operand(ip, idx)
+        self._text = None
         self._cpu_context = cpu_context
         self._width = None
         self.__insn = None
@@ -103,6 +104,35 @@ class Operand:
                 )
 
     @property
+    def text(self):
+        """
+        Obtain the text of the operand, including operands that registers not shown in the UI
+
+        :return: str
+        """
+        if self._text:
+            return self._text
+
+        self._text = idc.print_operand(self.ip, self.idx)
+        # An implied (not shown) operand should never be anything other than a register, however it was discovered
+        # that IDA will treat the operand as a memory reference if that is how the register was assigned and is the
+        # case for checking is_memory_reference
+        if self._text == "":
+            if self.is_register or self.is_memory_reference:
+                self._text = idaapi.get_reg_name(self._op.reg, self.width)
+            else:
+                raise AssertionError(f"Assumed operand at {hex(self.ip)}:{self.idx} to be register or mem reference")
+
+        return self._text
+
+    @text.setter
+    def text(self, value: str):
+        """
+        Set the text value for the operand.
+        """
+        self._text = value
+
+    @property
     def width(self):
         """
         Based on the dtyp value, the size of the operand in bytes
@@ -112,14 +142,6 @@ class Operand:
         if self._width is None:
             self._width = ida_ua.get_dtype_size(self._op.dtype)
         return self._width
-
-    @property
-    def is_hidden(self):
-        """
-        True if the operand is not part of the visible assembly code.
-        (These are for implicit registers like EAX)
-        """
-        return self.text == "" or self.is_void
 
     @property
     def is_void(self):
@@ -188,9 +210,6 @@ class Operand:
 
         :return int: An integer of the operand value.
         """
-        if self.is_hidden:
-            return None
-
         if self.is_immediate:
             value = self._op.value if self.type == idc.o_imm else self._op.addr
             # Create variable/reference if global.
