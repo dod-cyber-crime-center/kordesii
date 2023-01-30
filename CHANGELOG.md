@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+
+### [Unreleased]
+- Fixed bug in `idiv` opcode emulation.
+
+
 ## [2.5.1] - 2022-12-01
 
 ### Changed

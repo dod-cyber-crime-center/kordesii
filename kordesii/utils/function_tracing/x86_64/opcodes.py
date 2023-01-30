@@ -440,29 +440,37 @@ def IDIV(cpu_context, instruction):
     RDX_REG_SIZE_MAP = {8: "rdx", 4: "edx", 2: "dx"}
 
     operands = instruction.operands
-    width = operands[0].width
-    b_width = width * 8
-    divisor = utils.signed(operands[0].value, b_width)
+    # Need to obtain the width of the divisor, to determine the width of the dividend
+    width = operands[-1].width
+    divisor = utils.signed(operands[-1].value, width * 8)
     if divisor == 0:
         logger.debug("DIV / 0")
         return
 
-    rax_str = RAX_REG_SIZE_MAP[width]
-    dividend = utils.signed(cpu_context.registers[rax_str], b_width)
+    if width == 1:
+        # When dividing by a 8-bit value, use AX
+        dividend = utils.signed(cpu_context.registers.ax, 2 * 8)
+        result_reg = "al"
+        remainder_reg = "ah"
+
+    else:
+        # When dividing by 16-bits -> combine DX:AX
+        # When dividing by 32-bits -> combine EDX:EAX
+        # When dividing by 64-bits -> combine RDX:RAX
+        rax_str = RAX_REG_SIZE_MAP[width]
+        rdx_str = RDX_REG_SIZE_MAP[width]
+        dividend = utils.signed(
+            (cpu_context.registers[rdx_str] << (width * 8)) | cpu_context.registers[rax_str],
+            width * 2 * 8
+        )
+        result_reg = rax_str
+        remainder_reg = rdx_str
 
     result = int(dividend / divisor) & utils.get_mask(width)
-    # TODO: Ideally we would be able to just use result here instead of recalculating. We need to test if
-    #       we can do that without introducing errors and make the change if so.
     remainder = (dividend - (int(dividend / divisor) * divisor)) & utils.get_mask(width)
     logger.debug("0x%X / 0x%X = 0x%X", dividend, divisor, result)
-    if width == 1:
-        cpu_context.registers.al = result
-        cpu_context.registers.ah = remainder
-    else:
-        rdx_str = RDX_REG_SIZE_MAP[width]
-        cpu_context.registers[rax_str] = result
-        cpu_context.registers[rdx_str] = remainder
-
+    cpu_context.registers[result_reg] = result
+    cpu_context.registers[remainder_reg] = remainder
 
 @opcode
 def DIVSD(cpu_context, instruction):
