@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 
-### [Unreleased]
+### [2.5.2] - 2023-01-30
 - Fixed bug in `idiv` opcode emulation.
 
 
@@ -466,7 +466,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.1...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.2...HEAD
+[2.5.2]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.4.1...2.5.0
 [2.4.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.4.0...2.4.1
