@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 
-### [Unreleased]
+### [2.5.3] - 2023-09-27
 - Updated `kordesii.utils.yara` to handle changes made in YARA 4.3.0
 
 
@@ -470,7 +470,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.2...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.3...HEAD
+[2.5.3]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.2...2.5.3
 [2.5.2]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.4.1...2.5.0
