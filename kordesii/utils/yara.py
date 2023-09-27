@@ -69,12 +69,24 @@ class Match(object):
         # Before returning strings, fixup the offsets to be virtual addresses.
         if self._strings is None:
             self._strings = []
-            for offset, identifier, data in self._match.strings:
-                if self._offset is not None:
-                    offset += self._offset
-                if self._file_offset:
-                    offset = idaapi.get_fileregion_ea(offset)
-                self._strings.append((idc.get_item_head(offset), identifier, data))
+            if yara.YARA_VERSION < "4.3.0":
+                for offset, identifier, data in self._match.strings:
+                    if self._offset is not None:
+                        offset += self._offset
+                    if self._file_offset:
+                        offset = idaapi.get_fileregion_ea(offset)
+                    self._strings.append((idc.get_item_head(offset), identifier, data))
+            else:
+                for string in self._match.strings:
+                    identifier = string.identifier
+                    for instance in string.instances:
+                        offset = instance.offset
+                        data = instance.matched_data
+                        if self._offset is not None:
+                            offset += self._offset
+                        if self._file_offset:
+                            offset = idaapi.get_fileregion_ea(offset)
+                        self._strings.append((idc.get_item_head(offset), identifier, data))
         return self._strings
 
 

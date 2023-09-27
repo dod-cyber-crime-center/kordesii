@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 
 
+### [Unreleased]
+- Updated `kordesii.utils.yara` to handle changes made in YARA 4.3.0
+
+
 ### [2.5.2] - 2023-01-30
 - Fixed bug in `idiv` opcode emulation.
 
