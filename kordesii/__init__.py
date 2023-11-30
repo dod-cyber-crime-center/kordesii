@@ -1,6 +1,7 @@
 
 # Expose kordesii API
 from .core import *
+from .processors import *
 from .logutil import setup_logging, get_logger
 from .serialization import get_serializer
 from .reporter import Reporter

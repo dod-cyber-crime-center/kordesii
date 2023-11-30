@@ -226,6 +226,7 @@ def run_ida(
     cleanup_txt_files=True,
     cleanup_output_files=False,
     cleanup_idb_files=False,
+    processor: str = None,
 ):
     """
     Description:
@@ -249,6 +250,7 @@ def run_ida(
         cleanup_txt_files - Cleanup standard text files upon running ida like the log, strings, and debug files.
         cleanup_output_files - Cleanup any output files uniquely produced by the IDA script.
         cleanup_idbs - Cleanup any IDB and any IDB component files ('.til', '.nam', '.id0', '.id1', '.id2', '.id3')
+        processor - Sets the Processor type
 
     Output:
         Information will be added to the reporter object.
@@ -281,19 +283,19 @@ def run_ida(
     command = [
         ida_path,
         "-P",
-        '-S""{script_path}" {log_level} {log_port} exit"'.format(
-            script_path=script_path, log_level=logging.root.getEffectiveLevel(), log_port=logutil.listen_port,
-        ),
+        f'-S""{script_path}" {logging.root.getEffectiveLevel()} {logutil.listen_port} exit"',
     ]
     if autonomous:
         command.append("-A")
     if log:
-        command.append('-L"{}"'.format(log_file_path))
+        command.append(f'-L"{log_file_path}"')
+    if processor:
+        command.append(f"-p{processor}")
 
-    command.append('"{}"'.format(input_file))
+    command.append(f'"{input_file}"')
     command = " ".join(command)  # Doesn't work unless we convert to string!
 
-    logger.debug("Running command: {}".format(command))
+    logger.debug(f"Running command: {command}")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=sys.platform != "win32")
 
     atexit.register(process.kill)

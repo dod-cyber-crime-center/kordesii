@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 
 
+### [Unreleased]
+- Added ability to set processor type using `processor` within `run_decoder()` or the `--processor` CLI flag.
+
+
 ### [2.5.3] - 2023-09-27
 - Updated `kordesii.utils.yara` to handle changes made in YARA 4.3.0
 

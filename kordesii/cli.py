@@ -104,7 +104,14 @@ def list_(json_):
     help="Identifies if input file is 64 bit or 32 bit, which is used to determine whether to run ida64 or ida. "
          "If not provided, bitness is automatically determined by examining the input file."
 )
-def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log, timeout, is_64bit):
+@click.option(
+    "-p", "--processor",
+    type=str,
+    default=None,
+    help="Manually specify the processor type of the input file. (Useful for shellcode). "
+         "This should be one of https://hex-rays.com/products/ida/support/idadoc/618.shtml"
+)
+def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log, timeout, is_64bit, processor):
     """
     Parses given input with given parser.
 
@@ -148,6 +155,7 @@ def parse(decoder, input, json_, output_files, cleanup, tempdir, enable_ida_log,
                 cleanup_idb_files=cleanup,
                 cleanup_output_files=not output_files,
                 is_64bit=is_64bit,
+                processor=processor,
             )
             # TODO: Pull errors and ida logs from logger?
             result = reporter.metadata
