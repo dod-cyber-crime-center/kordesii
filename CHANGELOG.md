@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 
-### [Unreleased]
+### [2.6.0] - 2023-11-30
 - Added ability to set processor type using `processor` within `run_decoder()` or the `--processor` CLI flag.
 
 
@@ -474,7 +474,8 @@ function parameters and operand values.
 - Initial contribution.
 
 
-[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.3...HEAD
+[Unreleased]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.6.0...HEAD
+[2.6.0]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.3...2.6.0
 [2.5.3]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.2...2.5.3
 [2.5.2]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/Defense-Cyber-Crime-Center/kordesii/compare/2.5.0...2.5.1
